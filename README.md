@@ -39,7 +39,8 @@ Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `backtest/` — event-driven backtester over OHLCV CSV data.
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
-- `tradingview/` + `webhook/` — the other way to go live: a Pine Script port runs on TradingView (which has the market data) and fires a webhook with the signal; `webhook/server.py` sizes the position from a risk budget and places the order on Tradovate. See **TRADINGVIEW_WEBHOOK.md** for setup.
+- `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
+- `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
 - `tests/` — unit tests for the strategy logic, backtest smoke tests, and webhook sizing/routing tests.
 
 ## Setup
@@ -118,18 +119,24 @@ rows with a multi-day gap before relying on this unattended over holidays.
 
 ## Live trading on Tradovate
 
-Two ways to go live, both ending at the same `live/tradovate_client.py`:
+Three ways to go live:
 
-- **TradingView + webhook** (`tradingview/` + `webhook/`) — TradingView runs
-  the signal logic (it has live market data), fires a webhook on each
-  signal, and `webhook/server.py` sizes the position from a dollar risk
-  budget and places the order. This is the path with risk-based contract
-  sizing built in. See **TRADINGVIEW_WEBHOOK.md**.
+- **TradingView + TradersPost** (`tradingview/failed2s_mes.pine`) — the
+  current recommended path. TradingView runs the signal logic and computes
+  risk-based position size directly in Pine, fires a webhook formatted for
+  TradersPost, which connects to Tradovate with a regular login (no paid
+  API Access Add-On needed). See **TRADINGVIEW_WEBHOOK.md**.
+- **TradingView + self-hosted webhook** (`webhook/`) — same idea, but you
+  host the bridge yourself instead of paying for TradersPost. Needs direct
+  Tradovate API credentials (CID/Secret), which require the paid API
+  Access Add-On on a live funded account — not available on most prop-firm
+  sim accounts. See the "Alternative" section of TRADINGVIEW_WEBHOOK.md.
 - **Python runner** (`live/runner.py`, below) — runs the same
   `failed2s/strategy.py` logic directly against Tradovate's own market data
-  feed, no TradingView involved, fixed 1-contract sizing.
+  feed, no TradingView involved, fixed 1-contract sizing. Same API access
+  requirement as the self-hosted webhook path.
 
-**Read this before pointing either one at a funded account.** The Tradovate client
+**Read this before pointing any of these at a funded account.** The Tradovate client
 (`live/tradovate_client.py`) follows Tradovate's public API docs but has
 **not been tested end-to-end against a real Tradovate account** from this
 environment (no credentials, no network access to tradovateapi.com here).

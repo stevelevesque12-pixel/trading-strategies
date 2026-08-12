@@ -1,5 +1,9 @@
 //@version=6
 // Failed-2s (TheStrat) strategy for MES, ported from failed2s/strategy.py.
+// Fires TradersPost-format webhook alerts (https://traderspost.io) --
+// TradersPost connects to Tradovate with a regular login, no API Access
+// Add-On required, which is what makes this usable on a prop-firm sim
+// account that can't get direct Tradovate API credentials.
 //
 // Setup: add this to a chart set to your ENTRY timeframe, then set the
 // "Bias Timeframe" input to match one of the three pairs tested in the
@@ -15,9 +19,16 @@
 // before wiring up the webhook.
 //
 // Alerting: create the TradingView alert with condition "Any alert()
-// function call" -- the message you type in the alert dialog is ignored
-// for alert() calls, the JSON string built below is what actually gets
-// sent to the webhook.
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets sent.
+// Paste your TradersPost strategy's unique webhook URL (it embeds its own
+// auth, no secret field needed in the JSON) into the alert's Webhook URL
+// field. See ../TRADINGVIEW_WEBHOOK.md for the full setup.
+//
+// Position sizing happens HERE (not server-side) because TradersPost's
+// webhook takes an explicit "quantity", not a risk budget: contracts =
+// riskUsd / (stopDistancePoints * pointValuePerContract), floored, clamped
+// to maxContracts.
 
 strategy("Failed 2s (TheStrat) - MES", overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
@@ -33,7 +44,9 @@ targetR         = input.float(1.0, "Target R multiple")
 maxBiasAgeBars  = input.int(3, "Max bias age (bias-tf bars)")
 entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
 flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
-webhookSecret   = input.string("changeme", "Webhook secret")
+riskPerTradeUsd = input.float(200.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES = 5", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
 
 // ---- Session gating (explicit America/New_York, NOT the exchange default) ----
 inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
@@ -127,29 +140,41 @@ shortStop   = math.max(lastSwingLow, sweptLevel) + stopBuffer
 shortRisk   = shortStop - close
 shortTarget = close - shortRisk * targetR
 
-// ---- Fire entries + webhook alerts ----
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+longRiskPerContract  = longRisk  * pointValueUsd
+shortRiskPerContract = shortRisk * pointValueUsd
+
+longQty  = longRiskPerContract  > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / longRiskPerContract),  maxContracts)) : 0
+shortQty = shortRiskPerContract > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / shortRiskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+// Schema: https://docs.traderspost.io/docs/core-concepts/webhooks
+// Auth is via the webhook URL itself (uuid+password in the path), not a
+// field here -- see the TradersPost setup note at the top of this file.
 if longSignal and longRisk > 0
-    strategy.entry("Long", strategy.long)
+    strategy.entry("Long", strategy.long, qty=longQty)
     strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
-    longMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker +
-         '","action":"buy","entry_price":' + str.tostring(close) +
-         ',"stop_price":' + str.tostring(longStop) +
-         ',"target_price":' + str.tostring(longTarget) + '}'
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(longQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(longTarget) + '}}'
     alert(longMsg, alert.freq_once_per_bar_close)
 
 if shortSignal and shortRisk > 0
-    strategy.entry("Short", strategy.short)
+    strategy.entry("Short", strategy.short, qty=shortQty)
     strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
-    shortMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker +
-         '","action":"sell","entry_price":' + str.tostring(close) +
-         ',"stop_price":' + str.tostring(shortStop) +
-         ',"target_price":' + str.tostring(shortTarget) + '}'
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(shortQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(shortTarget) + '}}'
     alert(shortMsg, alert.freq_once_per_bar_close)
 
 // ---- Session flatten ----
 if inFlattenWindow and strategy.position_size != 0
     strategy.close_all(comment="session_flatten")
-    flattenMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker + '","action":"flatten"}'
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
     alert(flattenMsg, alert.freq_once_per_bar_close)
 
 // ---- Visuals ----
