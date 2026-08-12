@@ -1,0 +1,9 @@
+# Deploy config for Railway (or any Nixpacks-based host). Installs both the
+# core and webhook-specific dependencies, then runs the webhook server.
+# See TRADINGVIEW_WEBHOOK.md for the full setup and required env vars.
+
+[phases.install]
+cmds = ["pip install -r requirements.txt -r webhook/requirements.txt"]
+
+[start]
+cmd = "uvicorn webhook.server:app --host 0.0.0.0 --port $PORT"
