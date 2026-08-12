@@ -1,7 +1,8 @@
-"""CLI: run all three timeframe pairs on the same data and compare results.
+"""CLI: run the Failed-2s strategy across timeframe pairs and compare results.
 
 Usage:
     python -m backtest.compare --data path/to/1min.csv --symbol MES
+    python -m backtest.compare --data path/to/5min.csv --symbol MES --pairs 5m-1h,15m-4h
 """
 
 import argparse
@@ -16,8 +17,8 @@ from .report import print_comparison_table, write_comparison_csv, write_trades_c
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compare the Failed-2s strategy across all timeframe pairs")
-    parser.add_argument("--data", required=True, help="Path to 1-minute OHLCV CSV")
+    parser = argparse.ArgumentParser(description="Compare the Failed-2s strategy across timeframe pairs")
+    parser.add_argument("--data", required=True, help="Path to OHLCV CSV (resolution must be <= the finest pair's entry timeframe)")
     parser.add_argument("--symbol", default="MES", choices=list(INSTRUMENTS.keys()))
     parser.add_argument("--contracts", type=int, default=1)
     parser.add_argument("--daily-loss-limit", type=float, default=1000.0)
@@ -25,12 +26,25 @@ def main() -> None:
     parser.add_argument("--target-r", type=float, default=1.0)
     parser.add_argument("--out-prefix", default="trades", help="Per-pair trade logs are written to <prefix>_<pair>.csv")
     parser.add_argument("--summary-out", default="pair_comparison.csv")
+    parser.add_argument(
+        "--pairs", default=None,
+        help=f"Comma-separated subset of pairs to run (default: all). Choices: {','.join(PAIRS.keys())}",
+    )
     args = parser.parse_args()
+
+    if args.pairs:
+        pair_names = [p.strip() for p in args.pairs.split(",")]
+        unknown = [p for p in pair_names if p not in PAIRS]
+        if unknown:
+            parser.error(f"Unknown pair(s) {unknown}; choices are {list(PAIRS.keys())}")
+    else:
+        pair_names = list(PAIRS.keys())
 
     instrument = INSTRUMENTS[args.symbol]
     rows = []
 
-    for pair_name, pair in PAIRS.items():
+    for pair_name in pair_names:
+        pair = PAIRS[pair_name]
         strategy = Failed2sStrategy(tick_size=instrument.tick_size, target_r=args.target_r)
         risk = RiskManager(daily_loss_limit=args.daily_loss_limit, max_daily_trades=args.max_daily_trades)
         engine = BacktestEngine(pair=pair, instrument=instrument, strategy=strategy, risk=risk, contracts=args.contracts)
