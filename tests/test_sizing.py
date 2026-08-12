@@ -4,11 +4,18 @@ from failed2s.instruments import INSTRUMENTS
 from webhook.sizing import contracts_for_risk
 
 MES = INSTRUMENTS["MES"]  # tick_size=0.25, point_value=5.0
+MNQ = INSTRUMENTS["MNQ"]  # tick_size=0.25, point_value=2.0
 
 
 def test_basic_sizing():
     # stop distance 10 pts * $5/pt = $50 risk/contract; $200 risk -> 4 contracts
     assert contracts_for_risk(MES, entry_price=6000, stop_price=5990, risk_usd=200, max_contracts=10) == 4
+
+
+def test_basic_sizing_mnq():
+    # same 10-pt stop distance, but MNQ's point value ($2) is less than MES's ($5)
+    # -> cheaper risk per contract -> more contracts for the same budget
+    assert contracts_for_risk(MNQ, entry_price=21000, stop_price=20990, risk_usd=200, max_contracts=20) == 10
 
 
 def test_clamped_to_minimum_one_contract():

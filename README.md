@@ -12,14 +12,22 @@ research summary earlier in this conversation). Validate against your own
 understanding of the setup before trusting it with money.
 
 **A second, higher-frequency strategy also lives in this repo**:
-`structure_scalp/` -- 15m + 1m market-structure alignment with entries on a
-5-second chart. See `structure_scalp/strategy.py` and
-`tradingview/structure_scalp_mes.pine`. It reuses the swing/MSS primitives
-below but is a different strategy, built because Failed-2s trades too
-infrequently to be practical for a prop-firm payout timeline. It has NOT
-been backtested against real data -- no free source available provides
-sub-1-minute history, so it's logic-tested against synthetic bars only
-(`tests/test_structure_scalp.py`); forward-test carefully before trusting it.
+`structure_scalp/` -- 1-minute structure direction as bias, then on the 5s
+chart: wait for a pullback against that bias, wait for the 5s to break back
+in the bias direction (the reversal leg), anchor a VWAP to that leg's start,
+and enter on the retest touch of that VWAP. Stop = the leg's low/high,
+target = a fixed R multiple. See `structure_scalp/strategy.py` and
+`tradingview/structure_scalp.pine` (works for MES or MNQ -- same tick size,
+just set the point-value input per symbol). It reuses the swing/MSS
+primitives below but is a different strategy from Failed-2s, built because
+Failed-2s trades too infrequently to be practical for a prop-firm payout
+timeline. An earlier version of this strategy entered immediately on every
+5s structure break while 15m+1m aligned; that traded more often but mostly
+on 5s noise, so it was replaced with the pullback+VWAP-retest sequence
+above for better trade quality. Not backtested against real data -- no free
+source available provides sub-1-minute history, so it's logic-tested
+against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
+carefully before trusting it.
 
 ## Strategy logic (Failed-2s)
 

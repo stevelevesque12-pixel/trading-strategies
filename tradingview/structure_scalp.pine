@@ -1,0 +1,283 @@
+//@version=6
+// Structure pullback + anchored-VWAP-retest scalping strategy, ported from
+// structure_scalp/strategy.py. Fires TradersPost-format webhook alerts.
+// Works for MES or MNQ (same 0.25 tick size for both) -- set "Point value"
+// under Position sizing to 5 for MES or 2 for MNQ.
+//
+// Sequence (long case; short is the exact mirror):
+//   1. 1m structure direction (persisting state, flips on a Market Structure
+//      Shift, computed via offset-based request.security -- non-repainting)
+//      is the trade bias.
+//   2. While bias is long, wait for the 5s chart's OWN structure to flip
+//      bearish (a pullback). Track the lowest low reached during it.
+//   3. Wait for the 5s to flip back bullish (an MSS through a swing high) --
+//      this is "the bullish leg." Its start is the lowest-low bar just
+//      tracked, not the breakout bar.
+//   4. Anchor a VWAP to that leg's start (retroactively summed from the low
+//      through the breakout bar via an array buffer, then accumulated
+//      forward bar by bar).
+//   5. Entry fires the first time price trades back down and touches that
+//      anchored VWAP. Stop = the leg's low. Target = targetR * risk.
+//   6. Invalidated if price breaks the leg's low/high before ever touching
+//      the VWAP, if the 1m bias flips away, or if the 5s flips against the
+//      bias again first (a fresh pullback supersedes the pending leg).
+//
+// REQUIRED CHART SETUP: set this chart's own timeframe to 5 seconds ("5S").
+//
+// This supersedes an earlier version that entered immediately on every 5s
+// Market Structure Shift while 15m+1m aligned -- that traded far more often
+// but mostly on 5s noise (a 2-bar-each-side fractal on a 5-second chart
+// rarely reflects real structure). This version trades less often but adds
+// the pullback-into-reversal sequencing and a VWAP mean-reversion filter on
+// top of the structural trigger.
+//
+// Not backtested against real 5-second historical data -- no free source
+// available while building this provides sub-1-minute history, so this is
+// a best-effort logic port, unit-tested in Python against synthetic bars
+// only. Forward-test carefully.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL
+// (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Structure Pullback + AVWAP Scalp", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+minMSSBodyPct     = input.float(0.5, "Min MSS body %", minval=0.0, maxval=1.0, step=0.05)
+swingStrength5s   = input.int(2, "5s swing strength (bars each side)", minval=1)
+targetR           = input.float(1.0, "Target R multiple")
+entrySession      = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession    = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd   = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd     = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts      = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ============================================================
+// 1-minute structure (bias). Offset-based request.security -- these values
+// reference already-closed 1m bars, so they never repaint.
+// ============================================================
+[o1_1, h1_1, l1_1, c1_1, t1_1, h2_1, l2_1] = request.security(syminfo.tickerid, "1",
+     [open[1], high[1], low[1], close[1], time[1], high[2], low[2]], lookahead=barmerge.lookahead_off)
+[h3_1, l3_1, h4_1, l4_1, h5_1, l5_1] = request.security(syminfo.tickerid, "1",
+     [high[3], low[3], high[4], low[4], high[5], low[5]], lookahead=barmerge.lookahead_off)
+
+newBar1 = ta.change(t1_1) != 0
+pivotHigh1 = h3_1 > h4_1 and h3_1 > h5_1 and h3_1 > h2_1 and h3_1 > h1_1
+pivotLow1  = l3_1 < l4_1 and l3_1 < l5_1 and l3_1 < l2_1 and l3_1 < l1_1
+
+var float swingHigh1 = na
+var float swingLow1  = na
+var string dir1      = na
+
+if newDay
+    swingHigh1 := na
+    swingLow1  := na
+    dir1       := na
+
+if newBar1
+    if pivotHigh1
+        swingHigh1 := h3_1
+    if pivotLow1
+        swingLow1 := l3_1
+    body1 = (h1_1 - l1_1) != 0 ? math.abs(c1_1 - o1_1) / (h1_1 - l1_1) : 0.0
+    if not na(swingHigh1) and c1_1 > swingHigh1 and c1_1 > o1_1 and body1 >= minMSSBodyPct
+        dir1 := "long"
+    else if not na(swingLow1) and c1_1 < swingLow1 and c1_1 < o1_1 and body1 >= minMSSBodyPct
+        dir1 := "short"
+
+bias = dir1
+
+// ============================================================
+// 5-second structure (native chart resolution -- no security() needed).
+// ============================================================
+pivotHigh5s = ta.pivothigh(high, swingStrength5s, swingStrength5s)
+pivotLow5s  = ta.pivotlow(low, swingStrength5s, swingStrength5s)
+
+var float swingHigh5s = na
+var float swingLow5s  = na
+var string dir5s      = na
+
+if newDay
+    swingHigh5s := na
+    swingLow5s  := na
+    dir5s       := na
+
+prevDir5s = dir5s   // captured before this bar's update -> "prior bar" value
+
+if not na(pivotHigh5s)
+    swingHigh5s := pivotHigh5s
+if not na(pivotLow5s)
+    swingLow5s := pivotLow5s
+
+rangeVal5s = high - low
+bodyPct5s  = rangeVal5s != 0 ? math.abs(close - open) / rangeVal5s : 0.0
+
+if not na(swingHigh5s) and close > swingHigh5s and close > open and bodyPct5s >= minMSSBodyPct
+    dir5s := "long"
+else if not na(swingLow5s) and close < swingLow5s and close < open and bodyPct5s >= minMSSBodyPct
+    dir5s := "short"
+
+// ============================================================
+// Pullback -> reversal -> anchored VWAP -> retest state machine.
+// ============================================================
+var array<float> pbLow  = array.new_float()
+var array<float> pbHigh = array.new_float()
+var array<float> pbTP   = array.new_float()
+var array<float> pbVol  = array.new_float()
+
+var string legDir     = na
+var float  legExtreme = na
+var float  sumPV      = na
+var float  sumV       = na
+
+if newDay
+    array.clear(pbLow)
+    array.clear(pbHigh)
+    array.clear(pbTP)
+    array.clear(pbVol)
+    legDir     := na
+    legExtreme := na
+    sumPV      := na
+    sumV       := na
+
+if not na(legDir) and legDir != bias
+    legDir     := na
+    legExtreme := na
+    sumPV      := na
+    sumV       := na
+
+pullbackDir = bias == "long" ? "short" : bias == "short" ? "long" : na
+typicalPrice = (high + low + close) / 3.0
+
+longSignal  = false
+shortSignal = false
+sigEntry  = float(na)
+sigStop   = float(na)
+sigTarget = float(na)
+
+if not na(bias)
+    if dir5s == pullbackDir
+        if prevDir5s != pullbackDir
+            array.clear(pbLow)
+            array.clear(pbHigh)
+            array.clear(pbTP)
+            array.clear(pbVol)
+            legDir     := na
+            legExtreme := na
+            sumPV      := na
+            sumV       := na
+        array.push(pbLow, low)
+        array.push(pbHigh, high)
+        array.push(pbTP, typicalPrice)
+        array.push(pbVol, volume)
+
+    else if dir5s == bias and prevDir5s == pullbackDir and array.size(pbLow) > 0
+        float extremeVal = na
+        int idx = na
+        if bias == "long"
+            extremeVal := array.min(pbLow)
+            idx := array.indexof(pbLow, extremeVal)
+        else
+            extremeVal := array.max(pbHigh)
+            idx := array.indexof(pbHigh, extremeVal)
+        legExtreme := extremeVal
+        legDir := bias
+
+        sPV = 0.0
+        sV  = 0.0
+        for i = idx to array.size(pbTP) - 1
+            sPV += array.get(pbTP, i) * array.get(pbVol, i)
+            sV  += array.get(pbVol, i)
+        sPV += typicalPrice * volume
+        sV  += volume
+        sumPV := sPV
+        sumV  := sV
+
+        array.clear(pbLow)
+        array.clear(pbHigh)
+        array.clear(pbTP)
+        array.clear(pbVol)
+
+    else if not na(legDir) and legDir == bias
+        sumPV := sumPV + typicalPrice * volume
+        sumV  := sumV + volume
+        avwap = sumV > 0 ? sumPV / sumV : na
+
+        if bias == "long"
+            if low < legExtreme
+                legDir     := na
+                legExtreme := na
+                sumPV      := na
+                sumV       := na
+            else if not na(avwap) and low <= avwap
+                longSignal := true
+                sigEntry   := avwap
+                sigStop    := legExtreme
+                sigTarget  := avwap + (avwap - legExtreme) * targetR
+                legDir     := na
+                legExtreme := na
+                sumPV      := na
+                sumV       := na
+        else
+            if high > legExtreme
+                legDir     := na
+                legExtreme := na
+                sumPV      := na
+                sumV       := na
+            else if not na(avwap) and high >= avwap
+                shortSignal := true
+                sigEntry    := avwap
+                sigStop     := legExtreme
+                sigTarget   := avwap - (legExtreme - avwap) * targetR
+                legDir      := na
+                legExtreme  := na
+                sumPV       := na
+                sumV        := na
+
+// ---- Position sizing ----
+riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+finalLongSignal  = longSignal  and qty > 0 and inEntryWindow and strategy.position_size == 0
+finalShortSignal = shortSignal and qty > 0 and inEntryWindow and strategy.position_size == 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+bgcolor(bias == "long" ? color.new(color.green, 92) : bias == "short" ? color.new(color.red, 92) : na)
+plot(not na(legDir) ? legExtreme : na, title="Armed leg stop level", color=color.new(color.purple, 40), style=plot.style_circles, linewidth=2)
