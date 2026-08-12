@@ -123,6 +123,22 @@ class TradovateClient:
     def liquidate_position(self, account_id: int, symbol: str) -> dict:
         return self._post("/order/liquidateposition", {"accountId": account_id, "symbol": symbol})
 
+    def get_position_size(self, account_id: int) -> int:
+        """
+        Net open position size across ALL contracts held in `account_id`
+        (positive=long, negative=short, 0=flat).
+
+        Caveat: Tradovate's /position/list entries key off contractId, not
+        a human symbol, and this sums every position on the account without
+        filtering by symbol. That's correct for an account that only ever
+        trades one instrument (the intended use here); if the same account
+        also trades other symbols, this will conflate them -- add proper
+        contractId filtering via find_contract() before relying on this in
+        that case.
+        """
+        positions = self._get("/position/list")
+        return sum(p.get("netPos", 0) for p in positions if p.get("accountId") == account_id)
+
 
 class TradovateChartFeed:
     """

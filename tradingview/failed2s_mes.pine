@@ -1,0 +1,159 @@
+//@version=6
+// Failed-2s (TheStrat) strategy for MES, ported from failed2s/strategy.py.
+//
+// Setup: add this to a chart set to your ENTRY timeframe, then set the
+// "Bias Timeframe" input to match one of the three pairs tested in the
+// Python backtester:
+//   entry chart = 1  minute  ->  Bias Timeframe = "15"
+//   entry chart = 5  minutes ->  Bias Timeframe = "60"
+//   entry chart = 15 minutes ->  Bias Timeframe = "240"
+//
+// This is a best-effort translation of the same rules, not guaranteed to
+// be bar-for-bar identical to the Python backtester -- Pine's pivot
+// confirmation and request.security semantics differ slightly from the
+// pandas-based engine. Validate on TradingView's own strategy tester
+// before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call" -- the message you type in the alert dialog is ignored
+// for alert() calls, the JSON string built below is what actually gets
+// sent to the webhook.
+
+strategy("Failed 2s (TheStrat) - MES", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+biasTF          = input.timeframe("60", "Bias Timeframe")
+swingStrength   = input.int(2, "Swing strength (bars each side)", minval=1)
+minMSSBodyPct   = input.float(0.5, "Min MSS body %", minval=0.0, maxval=1.0, step=0.05)
+requireFVG      = input.bool(true, "Require FVG confirmation")
+tickSize        = input.float(0.25, "Tick size (MES = 0.25)")
+stopBufferTicks = input.int(2, "Stop buffer (ticks)")
+targetR         = input.float(1.0, "Target R multiple")
+maxBiasAgeBars  = input.int(3, "Max bias age (bias-tf bars)")
+entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
+webhookSecret   = input.string("changeme", "Webhook secret")
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- Bias timeframe: last two COMPLETED bars, via offset request.security
+// (offsetting into history avoids repainting -- these values never change
+// once printed, since they reference already-closed bias-tf bars). ----
+[bO1, bH1, bL1, bC1, bT1] = request.security(syminfo.tickerid, biasTF,
+     [open[1], high[1], low[1], close[1], time[1]], lookahead=barmerge.lookahead_off)
+[bO2, bH2, bL2, bC2] = request.security(syminfo.tickerid, biasTF,
+     [open[2], high[2], low[2], close[2]], lookahead=barmerge.lookahead_off)
+
+newBiasBar = ta.change(bT1) != 0
+
+biasBrokeUp   = bH1 > bH2
+biasBrokeDown = bL1 < bL2
+biasIs2U      = biasBrokeUp and not biasBrokeDown
+biasIs2D      = biasBrokeDown and not biasBrokeUp
+f2U           = biasIs2U and bC1 < bO1 and bC1 < bH2   // failed up-break, reclaimed
+f2D           = biasIs2D and bC1 > bO1 and bC1 > bL2   // failed down-break, reclaimed
+
+var string pendingDir   = na
+var float  sweptLevel   = na
+var int    biasAgeBars  = 0
+
+if newDay
+    pendingDir  := na
+    sweptLevel  := na
+    biasAgeBars := 0
+
+if newBiasBar
+    if not na(pendingDir)
+        biasAgeBars += 1
+        if biasAgeBars > maxBiasAgeBars
+            pendingDir := na
+            sweptLevel := na
+    if f2D
+        pendingDir  := "long"
+        sweptLevel  := bL1
+        biasAgeBars := 0
+    else if f2U
+        pendingDir  := "short"
+        sweptLevel  := bH1
+        biasAgeBars := 0
+
+// ---- Entry-timeframe swing structure (confirmed fractal pivots) ----
+pivotHigh = ta.pivothigh(high, swingStrength, swingStrength)
+pivotLow  = ta.pivotlow(low, swingStrength, swingStrength)
+
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+
+if newDay
+    lastSwingHigh := na
+    lastSwingLow  := na
+if not na(pivotHigh)
+    lastSwingHigh := pivotHigh
+if not na(pivotLow)
+    lastSwingLow := pivotLow
+
+// ---- Market Structure Shift (MSS) ----
+rangeVal = high - low
+bodyPct  = rangeVal != 0 ? math.abs(close - open) / rangeVal : 0.0
+
+mssLong  = pendingDir == "long"  and not na(lastSwingHigh) and close > lastSwingHigh and close > open and bodyPct >= minMSSBodyPct
+mssShort = pendingDir == "short" and not na(lastSwingLow)  and close < lastSwingLow  and close < open and bodyPct >= minMSSBodyPct
+
+// ---- Fair Value Gap (3-bar: bar1 = 2 bars ago, bar3 = current) ----
+fvgBullish = high[2] < low
+fvgBearish = low[2] > high
+
+longFvgOk  = not requireFVG or fvgBullish
+shortFvgOk = not requireFVG or fvgBearish
+
+longSignal  = mssLong  and longFvgOk  and inEntryWindow and strategy.position_size == 0
+shortSignal = mssShort and shortFvgOk and inEntryWindow and strategy.position_size == 0
+
+stopBuffer = stopBufferTicks * tickSize
+
+longStop   = math.min(lastSwingHigh, sweptLevel) - stopBuffer
+longRisk   = close - longStop
+longTarget = close + longRisk * targetR
+
+shortStop   = math.max(lastSwingLow, sweptLevel) + stopBuffer
+shortRisk   = shortStop - close
+shortTarget = close - shortRisk * targetR
+
+// ---- Fire entries + webhook alerts ----
+if longSignal and longRisk > 0
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+    longMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker +
+         '","action":"buy","entry_price":' + str.tostring(close) +
+         ',"stop_price":' + str.tostring(longStop) +
+         ',"target_price":' + str.tostring(longTarget) + '}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if shortSignal and shortRisk > 0
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+    shortMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker +
+         '","action":"sell","entry_price":' + str.tostring(close) +
+         ',"stop_price":' + str.tostring(shortStop) +
+         ',"target_price":' + str.tostring(shortTarget) + '}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"secret":"' + webhookSecret + '","root":"MES","symbol":"' + syminfo.ticker + '","action":"flatten"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plotshape(pendingDir == "long"  and newBiasBar, title="Bias: Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(pendingDir == "short" and newBiasBar, title="Bias: Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+plot(lastSwingHigh, title="Last Swing High", color=color.new(color.orange, 60), style=plot.style_circles)
+plot(lastSwingLow,  title="Last Swing Low",  color=color.new(color.blue, 60),   style=plot.style_circles)

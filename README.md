@@ -36,10 +36,11 @@ Timeframe pairs implemented (entry timeframe, bias timeframe):
 | `15m-4h` | 15 minute | 4 hour |
 
 Code layout:
-- `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by both backtest and live.
-- `backtest/` — event-driven backtester over 1-minute OHLCV CSV data.
-- `live/` — Tradovate REST/WebSocket client + live runner.
-- `tests/` — unit tests for the strategy logic and a backtest smoke test.
+- `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
+- `backtest/` — event-driven backtester over OHLCV CSV data.
+- `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
+- `tradingview/` + `webhook/` — the other way to go live: a Pine Script port runs on TradingView (which has the market data) and fires a webhook with the signal; `webhook/server.py` sizes the position from a risk budget and places the order on Tradovate. See **TRADINGVIEW_WEBHOOK.md** for setup.
+- `tests/` — unit tests for the strategy logic, backtest smoke tests, and webhook sizing/routing tests.
 
 ## Setup
 
@@ -117,7 +118,18 @@ rows with a multi-day gap before relying on this unattended over holidays.
 
 ## Live trading on Tradovate
 
-**Read this before pointing it at a funded account.** The Tradovate client
+Two ways to go live, both ending at the same `live/tradovate_client.py`:
+
+- **TradingView + webhook** (`tradingview/` + `webhook/`) — TradingView runs
+  the signal logic (it has live market data), fires a webhook on each
+  signal, and `webhook/server.py` sizes the position from a dollar risk
+  budget and places the order. This is the path with risk-based contract
+  sizing built in. See **TRADINGVIEW_WEBHOOK.md**.
+- **Python runner** (`live/runner.py`, below) — runs the same
+  `failed2s/strategy.py` logic directly against Tradovate's own market data
+  feed, no TradingView involved, fixed 1-contract sizing.
+
+**Read this before pointing either one at a funded account.** The Tradovate client
 (`live/tradovate_client.py`) follows Tradovate's public API docs but has
 **not been tested end-to-end against a real Tradovate account** from this
 environment (no credentials, no network access to tradovateapi.com here).
