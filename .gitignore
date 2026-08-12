@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+sample_data/sample_1min.csv
+trades*.csv
+pair_comparison.csv
+.env
