@@ -51,12 +51,27 @@ pip install -r requirements.txt
 
 Data format: a CSV with `timestamp,open,high,low,close[,volume]` at
 **1-minute** resolution (all three pairs are resampled from this single base
-resolution). Get real 1-minute futures data from your data provider of
-choice (Tradovate export, Databento, FirstRate Data, etc.) — no market data
-API is wired into this repo.
+resolution).
 
-A synthetic-data generator is included for smoke-testing the pipeline only
-(NOT real market data — do not draw conclusions about edge from it):
+**Real historical data.** `sample_data/fetch_real_data.py` pulls genuine
+historical 1-minute bars (OANDA S&P 500 / Nasdaq-100 index CFD data,
+republished under GPL-3.0 by the `FutureSharks/financial-data` GitHub repo)
+and converts them to this repo's CSV schema:
+
+```bash
+python sample_data/fetch_real_data.py --instrument SPX500_USD --start-year 2018 --end-year 2019 --out sample_data/real_spx500_2018_2019.csv
+```
+
+Read the caveats at the top of that script before trusting results: this is
+an index CFD proxy (not literal CME ES/MES tick data), coverage only goes
+through mid-2020, and volume is OANDA's tick count, not real exchange
+volume. It's genuine market data though — good enough to see whether the
+pattern has any real edge, not a substitute for validating against recent
+CME futures data before going live. For that, see Databento or FirstRate
+Data (both require a paid/API-key account not set up in this environment).
+
+A synthetic-data generator is also included, but only for smoke-testing the
+pipeline (pure random walk, no real edge signal to find):
 
 ```bash
 python sample_data/generate_sample.py --days 20 --out sample_data/sample_1min.csv
@@ -89,7 +104,16 @@ checked on subsequent entry-timeframe bars' high/low (one bar of latency, no
 slippage/commission modeled); if a bar's range hits both stop and target the
 stop is assumed to fill first (conservative). 4-hour resampling floors to
 UTC-clock-hour boundaries via pandas, which may not perfectly match how your
-data provider aligns 4H candles.
+data provider aligns 4H candles. The engine force-closes any open position
+the instant it sees a bar dated after the entry day (in addition to the
+normal same-day flatten-at cutoff), so a position can never silently ride
+across multiple sessions -- but if the data feed itself has no bars between
+the cutoff and a holiday reopen (Thanksgiving, Christmas, etc.), the
+position closes on the first bar that exists, which can be a day or two
+later purely because there's no earlier price to close it at. This showed
+up in the real SPX500 backtest (2 of 1330 trades, both on US holiday
+weekends) -- worth checking your trade log for exit_reason=session_flatten
+rows with a multi-day gap before relying on this unattended over holidays.
 
 ## Live trading on Tradovate
 

@@ -57,12 +57,10 @@ class BacktestEngine:
 
         self.trades: List[Trade] = []
         self.position: Optional[dict] = None
-        self._bias_fed = 0
 
     def run(self, csv_path: str) -> List[Trade]:
         self.trades = []
         self.position = None
-        self._bias_fed = 0
 
         base = load_1m_csv(csv_path, tz=self.session.tz)
         entry_df = resample_ohlc(base, self.pair.entry_tf)
@@ -70,21 +68,37 @@ class BacktestEngine:
         bias_period_len = pd.Timedelta(self.pair.bias_tf)
         entry_period_len = pd.Timedelta(self.pair.entry_tf)
 
-        for ts, erow in entry_df.iterrows():
+        # Both frames are time-sorted and entry_bar_close_time only moves
+        # forward, so a single advancing pointer (O(n+m) total) replaces
+        # re-filtering the whole bias frame on every entry-bar iteration.
+        bias_close_times = (bias_df.index + bias_period_len).to_numpy()
+        bias_rows = list(bias_df.itertuples(index=True))
+        bias_ptr = 0
+        n_bias = len(bias_rows)
+
+        last_ts = None
+        last_close = None
+
+        for erow in entry_df.itertuples(index=True):
+            ts = erow.Index
             date = ts.date()
             entry_bar_close_time = ts + entry_period_len
 
-            # Feed every bias-tf bar that has fully closed as of this entry bar's close.
-            closed_bias = bias_df[bias_df.index + bias_period_len <= entry_bar_close_time]
-            while self._bias_fed < len(closed_bias):
-                bts = closed_bias.index[self._bias_fed]
-                brow = closed_bias.iloc[self._bias_fed]
+            while bias_ptr < n_bias and bias_close_times[bias_ptr] <= entry_bar_close_time:
+                brow = bias_rows[bias_ptr]
                 self.strategy.on_bias_bar(
-                    Bar(bts, brow.open, brow.high, brow.low, brow.close, brow.volume)
+                    Bar(brow.Index, brow.open, brow.high, brow.low, brow.close, brow.volume)
                 )
-                self._bias_fed += 1
+                bias_ptr += 1
 
             bar = Bar(ts, erow.open, erow.high, erow.low, erow.close, erow.volume)
+
+            if self.position is not None and date != self.position["entry_time"].date():
+                # A data gap spanned the flatten cutoff (e.g. a thin holiday
+                # session with no bar exactly at/after flatten_at) -- force
+                # closeout on the gap-open price rather than ever holding
+                # into a new session day.
+                self._close_position(bar.open, ts, "session_flatten")
 
             if self.position is not None:
                 self._check_exit(bar, date)
@@ -103,9 +117,10 @@ class BacktestEngine:
                     "entry_time": signal.timestamp,
                 }
 
-        if self.position is not None:
-            last_ts = entry_df.index[-1]
-            self._close_position(entry_df.iloc[-1].close, last_ts, "end_of_data")
+            last_ts, last_close = ts, erow.close
+
+        if self.position is not None and last_ts is not None:
+            self._close_position(last_close, last_ts, "end_of_data")
 
         return self.trades
 

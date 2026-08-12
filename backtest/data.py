@@ -19,11 +19,20 @@ def load_1m_csv(path: str, tz: str = "America/New_York") -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    try:
+        # Naive strings, or offset-aware strings that don't cross a DST
+        # boundary (a single fixed offset throughout).
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    except ValueError:
+        # Offset-aware strings spanning a DST boundary (mixed UTC offsets,
+        # e.g. real multi-year data) -- normalize through UTC first.
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+
     df = df.set_index("timestamp").sort_index()
 
     if df.index.tz is None:
-        df.index = df.index.tz_localize(tz)
+        df.index = df.index.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
+        df = df[df.index.notna()]  # drop the nonexistent-hour row on DST "spring forward"
     else:
         df.index = df.index.tz_convert(tz)
 
