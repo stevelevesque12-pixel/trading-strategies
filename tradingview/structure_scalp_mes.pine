@@ -1,0 +1,198 @@
+//@version=6
+// Structure-alignment scalping strategy for MES, ported from
+// structure_scalp/strategy.py. Fires TradersPost-format webhook alerts.
+//
+// Three tiers:
+//   - 15m structure direction: a PERSISTING state that flips "long" on a
+//     bullish Market Structure Shift (strong close through the last
+//     confirmed swing high) and flips "short" on the bearish mirror.
+//     Computed via request.security on already-closed 15m bars (offset-based,
+//     non-repainting).
+//   - 1m structure direction: the same state machine, independently.
+//   - 5-second entries: while 15m and 1m currently agree, enter on every
+//     fresh 5s MSS in that direction. Unlike the failed2s script, alignment
+//     is NOT consumed by one trade -- it keeps firing on each new
+//     qualifying 5s break for as long as alignment holds and you're flat.
+//     That's what drives the higher trade frequency.
+//
+// REQUIRED CHART SETUP: set this chart's own timeframe to 5 seconds ("5S").
+// Seconds-based charts require a TradingView plan that supports them, and
+// typically have limited historical depth -- validate carefully on the
+// Strategy Tester (and expect it to only cover a few recent days) before
+// trusting this live.
+//
+// This has NOT been backtested against real 5-second historical data --
+// no free data source available while building this provides sub-1-minute
+// history, so this is a best-effort logic port, unit-tested in Python
+// against synthetic bars, not validated against real market data at this
+// resolution. Forward-test carefully.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL
+// (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Structure Scalp - MES", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+minMSSBodyPct     = input.float(0.5, "Min MSS body %", minval=0.0, maxval=1.0, step=0.05)
+swingStrength5s   = input.int(2, "5s swing strength (bars each side)", minval=1)
+tickSize          = input.float(0.25, "Tick size (MES = 0.25)")
+stopBufferTicks   = input.int(2, "Stop buffer (ticks)")
+targetR           = input.float(1.0, "Target R multiple")
+entrySession      = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession    = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd   = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd     = input.float(5.0, "Point value (USD/point) -- MES = 5", minval=0.01, group="Position sizing")
+maxContracts      = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ============================================================
+// Reusable-by-copy higher-timeframe structure block (15m, then 1m).
+// Pine has no clean way to factor request.security-based blocks into a
+// function, so this pattern is written out twice below.
+// ============================================================
+
+// ---- 15-minute structure ----
+[o1_15, h1_15, l1_15, c1_15, t1_15, h2_15, l2_15] = request.security(syminfo.tickerid, "15",
+     [open[1], high[1], low[1], close[1], time[1], high[2], low[2]], lookahead=barmerge.lookahead_off)
+[h3_15, l3_15, h4_15, l4_15, h5_15, l5_15] = request.security(syminfo.tickerid, "15",
+     [high[3], low[3], high[4], low[4], high[5], low[5]], lookahead=barmerge.lookahead_off)
+
+newBar15 = ta.change(t1_15) != 0
+pivotHigh15 = h3_15 > h4_15 and h3_15 > h5_15 and h3_15 > h2_15 and h3_15 > h1_15
+pivotLow15  = l3_15 < l4_15 and l3_15 < l5_15 and l3_15 < l2_15 and l3_15 < l1_15
+
+var float swingHigh15 = na
+var float swingLow15  = na
+var string dir15      = na
+
+if newDay
+    swingHigh15 := na
+    swingLow15  := na
+    dir15       := na
+
+if newBar15
+    if pivotHigh15
+        swingHigh15 := h3_15
+    if pivotLow15
+        swingLow15 := l3_15
+    body15 = (h1_15 - l1_15) != 0 ? math.abs(c1_15 - o1_15) / (h1_15 - l1_15) : 0.0
+    if not na(swingHigh15) and c1_15 > swingHigh15 and c1_15 > o1_15 and body15 >= minMSSBodyPct
+        dir15 := "long"
+    else if not na(swingLow15) and c1_15 < swingLow15 and c1_15 < o1_15 and body15 >= minMSSBodyPct
+        dir15 := "short"
+
+// ---- 1-minute structure ----
+[o1_1, h1_1, l1_1, c1_1, t1_1, h2_1, l2_1] = request.security(syminfo.tickerid, "1",
+     [open[1], high[1], low[1], close[1], time[1], high[2], low[2]], lookahead=barmerge.lookahead_off)
+[h3_1, l3_1, h4_1, l4_1, h5_1, l5_1] = request.security(syminfo.tickerid, "1",
+     [high[3], low[3], high[4], low[4], high[5], low[5]], lookahead=barmerge.lookahead_off)
+
+newBar1 = ta.change(t1_1) != 0
+pivotHigh1 = h3_1 > h4_1 and h3_1 > h5_1 and h3_1 > h2_1 and h3_1 > h1_1
+pivotLow1  = l3_1 < l4_1 and l3_1 < l5_1 and l3_1 < l2_1 and l3_1 < l1_1
+
+var float swingHigh1 = na
+var float swingLow1  = na
+var string dir1      = na
+
+if newDay
+    swingHigh1 := na
+    swingLow1  := na
+    dir1       := na
+
+if newBar1
+    if pivotHigh1
+        swingHigh1 := h3_1
+    if pivotLow1
+        swingLow1 := l3_1
+    body1 = (h1_1 - l1_1) != 0 ? math.abs(c1_1 - o1_1) / (h1_1 - l1_1) : 0.0
+    if not na(swingHigh1) and c1_1 > swingHigh1 and c1_1 > o1_1 and body1 >= minMSSBodyPct
+        dir1 := "long"
+    else if not na(swingLow1) and c1_1 < swingLow1 and c1_1 < o1_1 and body1 >= minMSSBodyPct
+        dir1 := "short"
+
+// ---- Alignment ----
+alignedDir = (not na(dir15) and dir15 == dir1) ? dir15 : na
+
+// ---- 5-second entry structure (native chart resolution, no security() needed) ----
+pivotHigh5s = ta.pivothigh(high, swingStrength5s, swingStrength5s)
+pivotLow5s  = ta.pivotlow(low, swingStrength5s, swingStrength5s)
+
+var float swingHigh5s = na
+var float swingLow5s  = na
+
+if newDay
+    swingHigh5s := na
+    swingLow5s  := na
+if not na(pivotHigh5s)
+    swingHigh5s := pivotHigh5s
+if not na(pivotLow5s)
+    swingLow5s := pivotLow5s
+
+rangeVal5s = high - low
+bodyPct5s  = rangeVal5s != 0 ? math.abs(close - open) / rangeVal5s : 0.0
+
+mssLong5s  = alignedDir == "long"  and not na(swingHigh5s) and close > swingHigh5s and close > open and bodyPct5s >= minMSSBodyPct
+mssShort5s = alignedDir == "short" and not na(swingLow5s)  and close < swingLow5s  and close < open and bodyPct5s >= minMSSBodyPct
+
+longSignal  = mssLong5s  and inEntryWindow and strategy.position_size == 0
+shortSignal = mssShort5s and inEntryWindow and strategy.position_size == 0
+
+stopBuffer = stopBufferTicks * tickSize
+
+longStop   = swingHigh5s - stopBuffer
+longRisk   = close - longStop
+longTarget = close + longRisk * targetR
+
+shortStop   = swingLow5s + stopBuffer
+shortRisk   = shortStop - close
+shortTarget = close - shortRisk * targetR
+
+// ---- Position sizing ----
+longRiskPerContract  = longRisk  * pointValueUsd
+shortRiskPerContract = shortRisk * pointValueUsd
+
+longQty  = longRiskPerContract  > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / longRiskPerContract),  maxContracts)) : 0
+shortQty = shortRiskPerContract > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / shortRiskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if longSignal and longRisk > 0
+    strategy.entry("Long", strategy.long, qty=longQty)
+    strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(longQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(longTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if shortSignal and shortRisk > 0
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(shortQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(shortTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+bgcolor(alignedDir == "long" ? color.new(color.green, 90) : alignedDir == "short" ? color.new(color.red, 90) : na)
+plot(swingHigh5s, title="5s Swing High", color=color.new(color.orange, 60), style=plot.style_circles)
+plot(swingLow5s,  title="5s Swing Low",  color=color.new(color.blue, 60),   style=plot.style_circles)

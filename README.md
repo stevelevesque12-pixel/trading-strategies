@@ -11,7 +11,17 @@ best-effort reconstruction from public TheStrat/Trader-Mike material (see
 research summary earlier in this conversation). Validate against your own
 understanding of the setup before trusting it with money.
 
-## Strategy logic
+**A second, higher-frequency strategy also lives in this repo**:
+`structure_scalp/` -- 15m + 1m market-structure alignment with entries on a
+5-second chart. See `structure_scalp/strategy.py` and
+`tradingview/structure_scalp_mes.pine`. It reuses the swing/MSS primitives
+below but is a different strategy, built because Failed-2s trades too
+infrequently to be practical for a prop-firm payout timeline. It has NOT
+been backtested against real data -- no free source available provides
+sub-1-minute history, so it's logic-tested against synthetic bars only
+(`tests/test_structure_scalp.py`); forward-test carefully before trusting it.
+
+## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
    candle that reverses and closes back against its own break (a failed
