@@ -1,7 +1,7 @@
 """CSV output helpers shared by the single-pair and comparison backtest CLIs."""
 
 import csv
-from typing import List
+from typing import List, Optional
 
 from .engine import Trade
 
@@ -31,12 +31,13 @@ def write_trades_csv(trades: List[Trade], path: str) -> None:
             )
 
 
-def write_comparison_csv(rows: List[dict], path: str) -> None:
+def write_comparison_csv(rows: List[dict], path: str, fields: Optional[List[str]] = None) -> None:
+    fields = fields or METRIC_FIELDS
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=METRIC_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         for row in rows:
-            writer.writerow({k: row.get(k, "") for k in METRIC_FIELDS})
+            writer.writerow({k: row.get(k, "") for k in fields})
 
 
 def print_comparison_table(rows: List[dict]) -> None:
