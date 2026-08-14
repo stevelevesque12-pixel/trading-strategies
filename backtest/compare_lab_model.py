@@ -28,7 +28,7 @@ def main() -> None:
     parser.add_argument(
         "--breakeven-at-r",
         type=float,
-        default=0.5,
+        default=0.25,
         help="Fraction of the way from entry to target that moves the stop to breakeven; pass a negative value to disable",
     )
     parser.add_argument("--out-prefix", default="trades_lab_model", help="Per-timeframe trade logs are written to <prefix>_<tf>.csv")

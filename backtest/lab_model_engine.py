@@ -62,7 +62,7 @@ class LabModelEngine:
         session: Optional[LabModelSession] = None,
         execution_tf: str = "1min",
         contracts: int = 1,
-        breakeven_at_r: Optional[float] = 0.5,
+        breakeven_at_r: Optional[float] = 0.25,
     ):
         self.session = session or LabModelSession()
         self.strategy = strategy or LabModelStrategy(session=self.session)

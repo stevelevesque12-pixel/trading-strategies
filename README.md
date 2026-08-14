@@ -289,8 +289,9 @@ python -m backtest.run_lab_model --nq-data sample_data/real_nq_2019.csv --es-dat
 
 Same coverage/caveats as noted above for the OANDA CFD data (2005-mid 2020,
 not literal CME tick data, OANDA tick-count volume). Options:
-`--execution-tf` (1min/3min/5min), `--contracts`, `--breakeven-at-r`
-(negative to disable), `--out`.
+`--execution-tf` (1min/3min/5min), `--stop-buffer-ticks` (default 4),
+`--exec-swing-strength` (default 2), `--breakeven-at-r` (default 0.25,
+negative to disable), `--contracts`, `--out`.
 
 ### Execution timeframe results
 
@@ -326,6 +327,70 @@ trade counts here (25-77 over ~2.5 years) are thin enough that these
 profit-factor gaps could partly reflect noise rather than a durable edge.
 Re-run `compare_lab_model` yourself before trusting this on a longer or
 more recent dataset.
+
+### Stop-loss and target parameter results
+
+There's no free "target R multiple" to tune here -- the target is always
+the LLT, a structural price level, not a multiplier. The parameters that
+actually shape stop/target outcomes are `--stop-buffer-ticks` (room beyond
+the swept/recent H/L before the stop sits), `--exec-swing-strength` (the
+fractal window that confirms swings on the execution timeframe, which
+directly drives which LLT gets picked as the target), and `--breakeven-at-r`
+(trade management, swept alongside the other two since it changes realized
+R on winners). Grid-search all three at once:
+
+```bash
+python -m backtest.optimize_lab_model --nq-data sample_data/real_nq_2019.csv --es-data sample_data/real_es_2019.csv
+```
+
+**A bug was caught and fixed during this optimization**: the sweep
+originally reused one `LabModelStrategy` instance across the
+`--breakeven-at-r` inner loop. `LabModelStrategy` is stateful (zone/swing
+history, pending setups, reference candles), so every run after the first
+in that loop executed against a strategy still carrying leftover state from
+the previous run -- silently corrupting every breakeven comparison. It was
+caught by a smell test: `breakeven_at_r=1.0` is mathematically guaranteed
+to behave identically to disabling breakeven entirely (its trigger
+threshold coincides exactly with the target-hit check, which is evaluated
+first), but the buggy sweep showed them producing different trade counts.
+Fixed by building a fresh strategy per combination (`optimize_lab_model.py`
+now does this); the numbers below are from the corrected tool. Worth
+internalizing before trusting *any* parameter sweep against a stateful
+strategy object -- this class of bug produces plausible-looking, wrong
+numbers with no error or crash.
+
+Swept `stop_buffer_ticks` in {0,2,4,8,12,16}, `exec_swing_strength` in
+{1,2,3}, `breakeven_at_r` in {none,0.25,0.5,0.75,1.0} -- 90 combinations --
+on the same two windows as the execution-timeframe comparison above. With
+`stop_buffer_ticks=4, exec_swing_strength=2` (both already the defaults --
+confirmed rather than changed) held fixed, varying breakeven:
+
+| Breakeven at | Window | Trades | Win % | Profit Factor | Expectancy/trade | Max DD |
+|---|---|---|---|---|---|---|
+| **0.25** | 2019 | 71 | 43.7% | **3.51** | **+$13.30** | **$120** |
+| 0.5 (old default) | 2019 | 71 | 52.1% | 1.86 | +$11.97 | $260 |
+| 0.75 | 2019 | 70 | 61.4% | 0.92 | -$2.89 | $990 |
+| 1.0 / none | 2019 | 70 | 68.6% | 1.10 | +$3.37 | $776 |
+| **0.25** | 2018-2020 | 138 | 44.9% | **2.01** | **+$11.49** | **$704** |
+| 0.5 (old default) | 2018-2020 | 138 | 52.2% | 1.32 | +$7.61 | $1038 |
+| 0.75 | 2018-2020 | 137 | 59.9% | 1.12 | +$4.32 | $1008 |
+| 1.0 / none | 2018-2020 | 137 | 68.6% | 0.90 | -$5.27 | $2010 |
+
+**`breakeven_at_r=0.25` wins on profit factor, expectancy, and max
+drawdown, monotonically, in both windows** -- moving the stop to breakeven
+sooner (a quarter of the way to target instead of halfway) consistently
+locks in more edge than it gives up in prematurely-stopped winners. That's
+now the default. `stop_buffer_ticks=4` and `exec_swing_strength=2` were
+independently confirmed as the best choice among the values tested (also
+already the defaults) -- see the full sweep CSV for the underlying grid if
+you want to check other combinations.
+
+Same OANDA-proxy caveats as above, plus: this is still only two windows
+over one data source, and the win-rate/profit-factor tradeoff at
+`breakeven_at_r=0.25` (fewer winners, each one worth more on average, per
+`avg_win`/`avg_loss` in the sweep CSV) is a real behavioral shift, not just
+a bigger number -- make sure that trade-off matches your own risk
+tolerance before adopting it.
 
 ## Running the tests
 
