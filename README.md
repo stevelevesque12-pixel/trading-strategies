@@ -29,6 +29,11 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy also lives in this repo**: `lab_model/` -- Trader
+Kane's NQ "Lab Model" (SMT divergence + inverse-FVG entries around
+premium/discount zones, NQ traded with ES as a correlation reference).
+See the **Lab Model** section further down for the full writeup.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -195,6 +200,96 @@ not yet wire Tradovate's order-fill/user-sync WebSocket back into the risk
 manager, so the daily-loss-limit lockout won't see live fills until you add
 that callback (`LiveRunner._on_finished_bar` has a note where to hook it
 in). Don't rely on the daily loss limit unattended until that's wired up.
+
+## Lab Model (Trader Kane's NQ strategy)
+
+**A third strategy lives in this repo**: `lab_model/` -- Trader Kane's NQ
+"Lab Model," built from a source deck (`Trader Kane's NQ Trading
+Strategy - The Lab Model.pdf`, FX Replay). It trades NQ using ES purely as
+an SMT (correlation-divergence) reference, around premium/discount zones
+drawn on 4h/1h/5m, with entries on a 1/3/5m execution timeframe confirmed
+by SMT divergence + an inverse Fair Value Gap (iFVG).
+
+**This is a deterministic reconstruction of a discretionary, visual
+system, not a transcription.** The source deck describes things like
+"identify zones that need to re-balance" and "the first high or low
+through the premium/discount midline" -- concrete enough to read, but not
+literally executable without judgment calls. Here's exactly what was
+decided, so you can evaluate whether it matches your own read of the
+material before trusting it:
+
+- **A "recent price leg"** = the two most recently confirmed swing points
+  of opposite kind, on whichever timeframe is being drawn (reusing
+  `failed2s.structure`'s fractal `SwingTracker`, extended in
+  `lab_model/zones.py` to keep full swing history instead of just the
+  latest one). Premium/discount split at that leg's midpoint.
+- **Balanced** = price has traded back through the leg's midpoint since
+  the leg's second point confirmed. Tracked per-leg, so a freshly-formed
+  leg starts unbalanced again even if the prior leg had balanced.
+- **LLT (Logical Liquidity Target)** = read literally from the deck's own
+  wording ("the first high or low through the midline") as the nearest
+  pre-existing swing point on the far side of the midpoint -- not the
+  extreme of the whole visible range. Used as the take-profit target for
+  both entry triggers, computed on the *execution* timeframe's own leg
+  (matching the deck's examples, which draw the LLT on the same chart as
+  the entry, not on the 4h/1h chart).
+- **Entry Trigger #1 (Reversal)**: each of NQ and ES sweeping "the 10am 4hr
+  candle H/L" is checked against *that symbol's own* 4h candle (NQ vs its
+  reference, ES vs its own) -- not the same price level, since NQ and ES
+  trade on entirely different price scales. Whichever side (or both) sweeps
+  arms a pending setup; the recorded stop is always NQ's own swept level
+  (the tradable instrument). SMT divergence and the iFVG confirmation can
+  arrive in either order, matching the deck ("it doesn't matter the order,
+  but both are required"), and only divergences forming *after* the sweep
+  count (a stale, pre-existing divergence at arm time doesn't retroactively
+  qualify).
+- **Entry Trigger #2 (Continuation)**: fires when the 5m zone transitions
+  from unbalanced to balanced while the 1h or 4h zone is still unbalanced.
+  Direction is whichever way continues price toward filling that unfilled
+  HTF zone (e.g. an unbalanced HTF up-leg implies further downside).
+  Stop uses the execution timeframe's current leg extreme, frozen at the
+  moment the setup arms (same "recent H/L" stop concept as the reversal
+  trigger, just without an explicit sweep event to anchor it to).
+- **4h candle anchoring**: resampled with an explicit origin
+  (`lab_model.zones.four_hour_origin`) so 4h bars close at
+  02:00/06:00/10:00/14:00/18:00/22:00 local time -- matching the deck's
+  "10am 4hr candle" -- instead of pandas' default UTC-midnight-aligned
+  bins. Same DST-drift caveat as the plain 4H resampling already noted
+  above for failed2s: bins are anchored by fixed elapsed time, not local
+  wall clock, so a bin straddling a DST transition day can drift an hour.
+- **Execution timeframe is fixed per backtest run** (`--execution-tf`,
+  default 1m), not dynamically chosen bar-by-bar the way a discretionary
+  trader would pick "whichever presents a good potential iFVG." Run the
+  same data through 1m/3m/5m separately to compare.
+- **Break-even management** ("go b/e once half way to TP") is applied
+  mechanically in the backtest engine (`--breakeven-at-r`, default 0.5):
+  once price reaches that fraction of the way from entry to target, the
+  stop moves to entry. R-multiples in the trade log are still computed
+  against the *original* stop, not the moved one.
+
+Code layout:
+- `lab_model/zones.py` -- premium/discount leg tracking, balanced/imbalanced state, LLT.
+- `lab_model/smt.py` -- SMT (correlation-divergence) detection between two swing histories.
+- `lab_model/fvg.py` -- Fair Value Gap detection and inverse-FVG (inversion) tracking.
+- `lab_model/strategy.py` -- ties the above into the Reversal and Continuation entry triggers.
+- `backtest/lab_model_engine.py` -- two-instrument (NQ+ES), multi-timeframe backtest engine.
+
+### Backtesting the Lab Model
+
+Needs two **synchronized** 1-minute OHLCV CSVs (same schema as above): one
+for NQ, one for ES. The real-data fetcher already covers a correlated pair:
+
+```bash
+python sample_data/fetch_real_data.py --instrument NAS100_USD --start-year 2019 --end-year 2019 --out sample_data/real_nq_2019.csv
+python sample_data/fetch_real_data.py --instrument SPX500_USD --start-year 2019 --end-year 2019 --out sample_data/real_es_2019.csv
+
+python -m backtest.run_lab_model --nq-data sample_data/real_nq_2019.csv --es-data sample_data/real_es_2019.csv
+```
+
+Same coverage/caveats as noted above for the OANDA CFD data (2005-mid 2020,
+not literal CME tick data, OANDA tick-count volume). Options:
+`--execution-tf` (1min/3min/5min), `--contracts`, `--breakeven-at-r`
+(negative to disable), `--out`.
 
 ## Running the tests
 

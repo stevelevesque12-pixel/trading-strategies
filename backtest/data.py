@@ -42,7 +42,15 @@ def load_1m_csv(path: str, tz: str = "America/New_York") -> pd.DataFrame:
     return df[["open", "high", "low", "close", "volume"]].astype(float)
 
 
-def resample_ohlc(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    """Resample 1-minute bars up to `rule` (e.g. '15min', '1h', '4h')."""
+def resample_ohlc(df: pd.DataFrame, rule: str, origin: str = "start_day") -> pd.DataFrame:
+    """
+    Resample 1-minute bars up to `rule` (e.g. '15min', '1h', '4h').
+
+    `origin` is passed straight through to `DataFrame.resample` -- the
+    default `"start_day"` floors to local-midnight-aligned boundaries (pandas
+    default). Pass a tz-aware `Timestamp` to anchor bins elsewhere, e.g. to
+    get 4-hour bars that close exactly at 10:00 in the index's tz instead of
+    at UTC-clock-hour boundaries (see `lab_model.zones.four_hour_origin`).
+    """
     agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    return df.resample(rule, label="left", closed="left").agg(agg).dropna(how="any")
+    return df.resample(rule, label="left", closed="left", origin=origin).agg(agg).dropna(how="any")
