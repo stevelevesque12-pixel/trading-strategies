@@ -1,0 +1,344 @@
+//@version=6
+// 3m-15s Market Structure Pullback strategy.
+//
+// Reconstructs the "Valid Pullbacks Lite" (promuckaj) pullback-type-2 rule:
+// a candidate high/low is a running most-extreme-since-last-resolution
+// value; it only becomes a CONFIRMED valid high/low once a later bar's
+// CLOSE clears the candidate candle's own opposite wick (a full-body
+// sweep, not just a touch). Ties keep whichever candle is harder to
+// invalidate (lower low for a tied high, higher high for a tied low).
+// Valid highs and valid lows are tracked independently -- they don't have
+// to alternate.
+//
+// Sequence (long case; short is the exact mirror):
+//   1. 3m structure bias: bullish once price CLOSES above the highest
+//      confirmed valid high sitting between the two most recent confirmed
+//      valid lows (a Market Structure Shift). A fresh valid point that
+//      merely extends the existing trend only needs a wick, not a close.
+//   2. While 3m bias is bullish, a resting BUY STOP (Entry 1) sits at the
+//      current 15s MSS level (same window rule, on the 15s chart). It
+//      reprices every bar the window changes -- most commonly whenever a
+//      fresh 15s valid low confirms. When price trades through it, Entry 1
+//      fills and that is the 15s bullish MSS in the same instant.
+//   3. The leg's 0% is the most recently confirmed 15s valid low at that
+//      moment (the first valid low confirmed after the prior valid low was
+//      swept -- the actual bottom of that liquidity grab). Its 100% is the
+//      running candidate high post-MSS (trails upward as price keeps
+//      printing fresh peaks). Entry 2 is a BUY LIMIT at 50% of that leg,
+//      repricing upward as the peak extends, and adds to the same position
+//      if it fills.
+//   4. Entry 2 is pulled only if a candidate high actually CONFIRMS before
+//      it fills (a genuine reversal, not just a new tick high) -- not
+//      merely because price ticks to a new high.
+//   5. Both entries share one stop (the leg low) and one target (the
+//      nearest 3m valid high still ahead of price, floored so target
+//      distance is never worse than 1:1 versus the stop distance).
+//   6. Once the trade closes (stop or target), a fresh 15s MSS is a new
+//      tradeable setup as long as 3m bias hasn't flipped away.
+//
+// REQUIRED CHART SETUP: set this chart's own timeframe to 15 seconds ("15S").
+//
+// Position sizing: risk-based in USD. The two entries do NOT each get the
+// full risk budget -- COMBINED risk across both is capped at
+// "Risk per trade", split between them via "Entry 1 risk share" (default
+// 50/50). That split is my own assumption, not something we pinned down
+// explicitly -- tune it (or ping me to change the default) if you want a
+// different weighting.
+//
+// Not tested end-to-end on TradingView from this environment (no browser
+// access here) -- paste into Pine Editor, fix any syntax issues it flags,
+// and forward-test on paper before real money. No free source provides
+// 15-second historical data either, so this hasn't been backtested against
+// real data -- same gap as this repo's structure_scalp strategy.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("3m-15s Structure Pullback", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=2,
+     calc_on_every_tick=false)
+
+// ---- Inputs ----
+riskUsd          = input.float(200.0, "Risk per trade (USD, combined across both entries)", minval=0.0, group="Position sizing")
+entry1RiskShare  = input.float(0.5, "Entry 1 share of risk budget (0-1)", minval=0.01, maxval=0.99, step=0.05, group="Position sizing")
+pointValueUsd    = input.float(20.0, "Point value (USD/point) -- NQ=20, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts     = input.int(10, "Max contracts per entry (hard cap)", minval=1, group="Position sizing")
+pivotHistoryCap  = input.int(50, "Max stored pivots per timeframe", minval=10, group="Advanced")
+
+// ============================================================
+// Valid-pivot tracker (the "Valid Pullbacks Lite" type-2 rule).
+// One independent instance per timeframe: p3 for 3m bias, p15 for 15s entry.
+// ============================================================
+type PivotState
+    float candHigh = na
+    float candHighOppLow = na
+    int   candHighTime = na
+    float candLow = na
+    float candLowOppHigh = na
+    int   candLowTime = na
+
+f_updatePivot(PivotState p, float o, float h, float l, float c, int t) =>
+    bool confHigh = false
+    float confHighVal = na
+    int confHighTime = na
+    bool confLow = false
+    float confLowVal = na
+    int confLowTime = na
+
+    if na(p.candHigh) or h > p.candHigh
+        p.candHigh := h
+        p.candHighOppLow := l
+        p.candHighTime := t
+    else if h == p.candHigh and l < p.candHighOppLow
+        p.candHighOppLow := l
+        p.candHighTime := t
+
+    if na(p.candLow) or l < p.candLow
+        p.candLow := l
+        p.candLowOppHigh := h
+        p.candLowTime := t
+    else if l == p.candLow and h > p.candLowOppHigh
+        p.candLowOppHigh := h
+        p.candLowTime := t
+
+    // A candidate can't confirm on the very bar that just set/updated it.
+    if not na(p.candHigh) and t != p.candHighTime and c < p.candHighOppLow
+        confHigh := true
+        confHighVal := p.candHigh
+        confHighTime := p.candHighTime
+        p.candHigh := na
+        p.candHighOppLow := na
+        p.candHighTime := na
+
+    if not na(p.candLow) and t != p.candLowTime and c > p.candLowOppHigh
+        confLow := true
+        confLowVal := p.candLow
+        confLowTime := p.candLowTime
+        p.candLow := na
+        p.candLowOppHigh := na
+        p.candLowTime := na
+
+    [confHigh, confHighVal, confHighTime, confLow, confLowVal, confLowTime]
+
+f_pushCapped(array<float> vals, array<int> times, float v, int t, int cap) =>
+    array.push(vals, v)
+    array.push(times, t)
+    if array.size(vals) > cap
+        array.shift(vals)
+        array.shift(times)
+
+// Highest/lowest `target` value whose pivot time falls between the two most
+// recent `anchor` pivot times. wantMax=true -> bullish MSS level (highest
+// valid high between the last two valid lows); wantMax=false -> bearish
+// MSS level (lowest valid low between the last two valid highs).
+f_windowExtreme(array<float> anchorVals, array<int> anchorTimes, array<float> targetVals, array<int> targetTimes, bool wantMax) =>
+    float level = na
+    int n = array.size(anchorTimes)
+    if n >= 2
+        int t1 = array.get(anchorTimes, n - 2)
+        int t2 = array.get(anchorTimes, n - 1)
+        for i = 0 to array.size(targetTimes) - 1
+            int tt = array.get(targetTimes, i)
+            if tt > t1 and tt < t2
+                float tv = array.get(targetVals, i)
+                if na(level) or (wantMax and tv > level) or (not wantMax and tv < level)
+                    level := tv
+    level
+
+f_nearestAbove(array<float> vals, float ref) =>
+    float best = na
+    for i = 0 to array.size(vals) - 1
+        float v = array.get(vals, i)
+        if v > ref and (na(best) or v < best)
+            best := v
+    best
+
+f_nearestBelow(array<float> vals, float ref) =>
+    float best = na
+    for i = 0 to array.size(vals) - 1
+        float v = array.get(vals, i)
+        if v < ref and (na(best) or v > best)
+            best := v
+    best
+
+f_qtyForRisk(float riskShareUsd, float entryPx, float stopPx) =>
+    float dist = math.abs(entryPx - stopPx)
+    float riskPerContract = dist * pointValueUsd
+    int qty = (dist > 0 and riskPerContract > 0) ? int(math.max(1, math.min(math.floor(riskShareUsd / riskPerContract), maxContracts))) : 0
+    qty
+
+// ============================================================
+// 3-minute bias (offset-based request.security -- non-repainting: these
+// values only ever reference an already-closed 3m bar).
+// ============================================================
+[o3, h3, l3, c3, t3] = request.security(syminfo.tickerid, "3", [open[1], high[1], low[1], close[1], time[1]], lookahead=barmerge.lookahead_off)
+newBar3 = ta.change(t3) != 0
+
+var PivotState p3 = PivotState.new()
+var array<float> h3Vals = array.new_float()
+var array<int>   h3Times = array.new_int()
+var array<float> l3Vals = array.new_float()
+var array<int>   l3Times = array.new_int()
+var string bias3 = na
+
+if newBar3
+    [ch3, chv3, cht3, cl3, clv3, clt3] = f_updatePivot(p3, o3, h3, l3, c3, t3)
+    if ch3
+        f_pushCapped(h3Vals, h3Times, chv3, cht3, pivotHistoryCap)
+    if cl3
+        f_pushCapped(l3Vals, l3Times, clv3, clt3, pivotHistoryCap)
+
+    bullLevel3 = f_windowExtreme(l3Vals, l3Times, h3Vals, h3Times, true)
+    bearLevel3 = f_windowExtreme(h3Vals, h3Times, l3Vals, l3Times, false)
+    if not na(bullLevel3) and c3 > bullLevel3
+        bias3 := "long"
+    if not na(bearLevel3) and c3 < bearLevel3
+        bias3 := "short"
+
+// ============================================================
+// 15-second pivots (native chart resolution -- updates every bar).
+// ============================================================
+var PivotState p15 = PivotState.new()
+var array<float> h15Vals = array.new_float()
+var array<int>   h15Times = array.new_int()
+var array<float> l15Vals = array.new_float()
+var array<int>   l15Times = array.new_int()
+
+[ch15, chv15, cht15, cl15, clv15, clt15] = f_updatePivot(p15, open, high, low, close, time)
+if ch15
+    f_pushCapped(h15Vals, h15Times, chv15, cht15, pivotHistoryCap)
+if cl15
+    f_pushCapped(l15Vals, l15Times, clv15, clt15, pivotHistoryCap)
+
+entry1Long  = f_windowExtreme(l15Vals, l15Times, h15Vals, h15Times, true)
+entry1Short = f_windowExtreme(h15Vals, h15Times, l15Vals, l15Times, false)
+
+// ============================================================
+// Trade state.
+// ============================================================
+var float  tradeLegLow    = na  // frozen SL anchor once long Entry 1 fills
+var float  tradeLegHigh   = na  // frozen SL anchor once short Entry 1 fills
+var float  tradeTP        = na
+var bool   entry2Cancelled = false
+var bool   entry2Filled    = false
+var string tradeDir        = na
+
+flat = strategy.position_size == 0
+
+// ---- Arm / cancel Entry 1 ----
+if flat
+    tradeDir := na
+    entry2Cancelled := false
+    entry2Filled := false
+
+    if bias3 == "long" and not na(entry1Long) and array.size(l15Vals) > 0
+        legLowNow = array.get(l15Vals, array.size(l15Vals) - 1)
+        qty1 = f_qtyForRisk(riskUsd * entry1RiskShare, entry1Long, legLowNow)
+        if qty1 > 0
+            strategy.entry("E1L", strategy.long, qty=qty1, stop=entry1Long)
+        else
+            strategy.cancel("E1L")
+    else
+        strategy.cancel("E1L")
+
+    if bias3 == "short" and not na(entry1Short) and array.size(h15Vals) > 0
+        legHighNow = array.get(h15Vals, array.size(h15Vals) - 1)
+        qty1s = f_qtyForRisk(riskUsd * entry1RiskShare, entry1Short, legHighNow)
+        if qty1s > 0
+            strategy.entry("E1S", strategy.short, qty=qty1s, stop=entry1Short)
+        else
+            strategy.cancel("E1S")
+    else
+        strategy.cancel("E1S")
+else
+    // Can't be long and short at once -- make sure the other side's resting
+    // Entry 1 order (if any survived from just before this fill) is gone.
+    strategy.cancel("E1L")
+    strategy.cancel("E1S")
+
+// ---- Arm / cancel Entry 2 (only while a position from Entry 1 is open) ----
+if not flat and not entry2Cancelled and not entry2Filled
+    if strategy.position_size > 0
+        tradeDir := "long"
+        if not na(tradeLegLow)
+            peak = p15.candHigh
+            if not na(peak) and peak > tradeLegLow
+                entry2PriceL = tradeLegLow + 0.5 * (peak - tradeLegLow)
+                qty2 = f_qtyForRisk(riskUsd * (1 - entry1RiskShare), entry2PriceL, tradeLegLow)
+                if qty2 > 0
+                    strategy.entry("E2L", strategy.long, qty=qty2, limit=entry2PriceL)
+            if ch15
+                strategy.cancel("E2L")
+                entry2Cancelled := true
+    else
+        tradeDir := "short"
+        if not na(tradeLegHigh)
+            trough = p15.candLow
+            if not na(trough) and trough < tradeLegHigh
+                entry2PriceS = tradeLegHigh - 0.5 * (tradeLegHigh - trough)
+                qty2s = f_qtyForRisk(riskUsd * (1 - entry1RiskShare), entry2PriceS, tradeLegHigh)
+                if qty2s > 0
+                    strategy.entry("E2S", strategy.short, qty=qty2s, limit=entry2PriceS)
+            if cl15
+                strategy.cancel("E2S")
+                entry2Cancelled := true
+
+// ============================================================
+// Fill detection -- entries are resting stop/limit orders that can fill on
+// a later bar than when placed, so fills are detected via the open-trades
+// count rather than assumed synchronous with the signal bar. Freezes the
+// shared SL/TP the moment Entry 1 fills, and fires TradersPost alerts.
+// ============================================================
+var int prevTradeCount = 0
+tradeCountNow = strategy.opentrades
+if tradeCountNow > prevTradeCount
+    idx = tradeCountNow - 1
+    fid = strategy.opentrades.entry_id(idx)
+    fpx = strategy.opentrades.entry_price(idx)
+    fqty = strategy.opentrades.size(idx)
+
+    if fid == "E1L"
+        tradeLegLow := array.size(l15Vals) > 0 ? array.get(l15Vals, array.size(l15Vals) - 1) : fpx
+        rawTP = f_nearestAbove(h3Vals, fpx)
+        floorTP = fpx + (fpx - tradeLegLow)
+        tradeTP := na(rawTP) ? floorTP : math.max(rawTP, floorTP)
+        strategy.exit("XL", stop=tradeLegLow, limit=tradeTP)
+
+    if fid == "E1S"
+        tradeLegHigh := array.size(h15Vals) > 0 ? array.get(h15Vals, array.size(h15Vals) - 1) : fpx
+        rawTPs = f_nearestBelow(l3Vals, fpx)
+        floorTPs = fpx - (tradeLegHigh - fpx)
+        tradeTP := na(rawTPs) ? floorTPs : math.min(rawTPs, floorTPs)
+        strategy.exit("XS", stop=tradeLegHigh, limit=tradeTP)
+
+    if fid == "E2L" or fid == "E2S"
+        entry2Filled := true
+
+    action = (fid == "E1L" or fid == "E2L") ? "buy" : "sell"
+    fillMsg = '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
+         ',"quantity":' + str.tostring(math.abs(fqty)) +
+         ',"signalPrice":' + str.tostring(fpx) + '}'
+    alert(fillMsg, alert.freq_once_per_bar_close)
+
+prevTradeCount := tradeCountNow
+
+// ---- Exit detection (stop or target hit) -> reset + alert ----
+var float prevPosSize = 0.0
+if prevPosSize != 0 and strategy.position_size == 0
+    tradeLegLow := na
+    tradeLegHigh := na
+    tradeTP := na
+    exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(exitMsg, alert.freq_once_per_bar_close)
+prevPosSize := strategy.position_size
+
+// ---- Visuals ----
+bgcolor(bias3 == "long" ? color.new(color.green, 94) : bias3 == "short" ? color.new(color.red, 94) : na)
+plot(flat and bias3 == "long" ? entry1Long : na, title="Entry 1 (buy stop)", color=color.new(color.orange, 0), style=plot.style_linebr, linewidth=2)
+plot(flat and bias3 == "short" ? entry1Short : na, title="Entry 1 (sell stop)", color=color.new(color.orange, 0), style=plot.style_linebr, linewidth=2)
+plot(not flat and tradeDir == "long" and not entry2Filled and not entry2Cancelled and not na(tradeLegLow) and not na(p15.candHigh) ? tradeLegLow + 0.5 * (p15.candHigh - tradeLegLow) : na, title="Entry 2 (buy limit)", color=color.new(color.orange, 40), style=plot.style_linebr)
+plot(not flat and tradeDir == "short" and not entry2Filled and not entry2Cancelled and not na(tradeLegHigh) and not na(p15.candLow) ? tradeLegHigh - 0.5 * (tradeLegHigh - p15.candLow) : na, title="Entry 2 (sell limit)", color=color.new(color.orange, 40), style=plot.style_linebr)
+plot(not flat and tradeDir == "long" ? tradeLegLow : na, title="SL", color=color.new(color.red, 20), style=plot.style_linebr)
+plot(not flat and tradeDir == "short" ? tradeLegHigh : na, title="SL", color=color.new(color.red, 20), style=plot.style_linebr)
+plot(not flat ? tradeTP : na, title="TP", color=color.new(color.green, 20), style=plot.style_linebr)
