@@ -259,8 +259,9 @@ material before trusting it:
   wall clock, so a bin straddling a DST transition day can drift an hour.
 - **Execution timeframe is fixed per backtest run** (`--execution-tf`,
   default 1m), not dynamically chosen bar-by-bar the way a discretionary
-  trader would pick "whichever presents a good potential iFVG." Run the
-  same data through 1m/3m/5m separately to compare.
+  trader would pick "whichever presents a good potential iFVG." Use
+  `backtest.compare_lab_model` to run the same data through 1m/3m/5m and
+  compare -- see **Execution timeframe results** below.
 - **Break-even management** ("go b/e once half way to TP") is applied
   mechanically in the backtest engine (`--breakeven-at-r`, default 0.5):
   once price reaches that fraction of the way from entry to target, the
@@ -290,6 +291,41 @@ Same coverage/caveats as noted above for the OANDA CFD data (2005-mid 2020,
 not literal CME tick data, OANDA tick-count volume). Options:
 `--execution-tf` (1min/3min/5min), `--contracts`, `--breakeven-at-r`
 (negative to disable), `--out`.
+
+### Execution timeframe results
+
+Compare 1m/3m/5m execution head-to-head on the same data:
+
+```bash
+python -m backtest.compare_lab_model --nq-data sample_data/real_nq_2019.csv --es-data sample_data/real_es_2019.csv
+```
+
+Run against the OANDA proxy data on two overlapping windows (2019 only, and
+2018 through mid-2020, which also covers the 2018 selloff and the 2020
+COVID crash):
+
+| Execution TF | Window | Trades | Win % | Profit Factor | Expectancy/trade |
+|---|---|---|---|---|---|
+| **1m** | 2018-2020 | 138 | 52.2% | **1.32** | **+$7.61** |
+| 3m | 2018-2020 | 77 | 39.0% | 0.43 | -$53.56 |
+| 5m | 2018-2020 | 65 | 43.1% | 0.77 | -$15.20 |
+| **1m** | 2019 only | 71 | 52.1% | **1.86** | **+$11.97** |
+| 3m | 2019 only | 26 | 38.5% | 0.92 | -$4.23 |
+| 5m | 2019 only | 25 | 48.0% | 1.75 | +$22.80 |
+
+**1-minute execution is the only timeframe that's consistently profitable
+across both windows** -- it's the default for that reason. 3-minute is a
+net loser in both windows tested. 5-minute is inconsistent (loses money
+2018-2020, profitable in the 2019-only slice, on a sample as thin as 25
+trades) -- more data would be needed to trust it either way.
+
+Caveats on top of the general OANDA-proxy caveats already noted: this
+compares a *fixed* execution timeframe per run against the deck's actual
+discretionary per-setup chart choice, and the higher timeframes'
+trade counts here (25-77 over ~2.5 years) are thin enough that these
+profit-factor gaps could partly reflect noise rather than a durable edge.
+Re-run `compare_lab_model` yourself before trusting this on a longer or
+more recent dataset.
 
 ## Running the tests
 
