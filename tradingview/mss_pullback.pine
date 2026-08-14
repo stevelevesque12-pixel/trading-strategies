@@ -132,13 +132,18 @@ f_pushCapped(array<float> vals, array<int> times, float v, int t, int cap) =>
 // recent `anchor` pivot times. wantMax=true -> bullish MSS level (highest
 // valid high between the last two valid lows); wantMax=false -> bearish
 // MSS level (lowest valid low between the last two valid highs).
+// Note: `for i = 0 to N - 1` is NOT a no-op when N is 0 -- Pine sees
+// `to < from` and defaults to counting DOWN (step -1), so it still runs
+// once with i=0 and hits array.get() on an empty array. Every loop here is
+// guarded with an explicit size check instead of relying on the range.
 f_windowExtreme(array<float> anchorVals, array<int> anchorTimes, array<float> targetVals, array<int> targetTimes, bool wantMax) =>
     float level = na
     int n = array.size(anchorTimes)
-    if n >= 2
+    int m = array.size(targetTimes)
+    if n >= 2 and m >= 1
         int t1 = array.get(anchorTimes, n - 2)
         int t2 = array.get(anchorTimes, n - 1)
-        for i = 0 to array.size(targetTimes) - 1
+        for i = 0 to m - 1
             int tt = array.get(targetTimes, i)
             if tt > t1 and tt < t2
                 float tv = array.get(targetVals, i)
@@ -148,18 +153,22 @@ f_windowExtreme(array<float> anchorVals, array<int> anchorTimes, array<float> ta
 
 f_nearestAbove(array<float> vals, float ref) =>
     float best = na
-    for i = 0 to array.size(vals) - 1
-        float v = array.get(vals, i)
-        if v > ref and (na(best) or v < best)
-            best := v
+    int m = array.size(vals)
+    if m >= 1
+        for i = 0 to m - 1
+            float v = array.get(vals, i)
+            if v > ref and (na(best) or v < best)
+                best := v
     best
 
 f_nearestBelow(array<float> vals, float ref) =>
     float best = na
-    for i = 0 to array.size(vals) - 1
-        float v = array.get(vals, i)
-        if v < ref and (na(best) or v > best)
-            best := v
+    int m = array.size(vals)
+    if m >= 1
+        for i = 0 to m - 1
+            float v = array.get(vals, i)
+            if v < ref and (na(best) or v > best)
+                best := v
     best
 
 f_qtyForRisk(float riskShareUsd, float entryPx, float stopPx) =>
@@ -299,14 +308,18 @@ if tradeCountNow > prevTradeCount
     fqty = strategy.opentrades.size(idx)
 
     if fid == "E1L"
-        tradeLegLow := array.size(l15Vals) > 0 ? array.get(l15Vals, array.size(l15Vals) - 1) : fpx
+        tradeLegLow := fpx
+        if array.size(l15Vals) > 0
+            tradeLegLow := array.get(l15Vals, array.size(l15Vals) - 1)
         rawTP = f_nearestAbove(h3Vals, fpx)
         floorTP = fpx + (fpx - tradeLegLow)
         tradeTP := na(rawTP) ? floorTP : math.max(rawTP, floorTP)
         strategy.exit("XL", stop=tradeLegLow, limit=tradeTP)
 
     if fid == "E1S"
-        tradeLegHigh := array.size(h15Vals) > 0 ? array.get(h15Vals, array.size(h15Vals) - 1) : fpx
+        tradeLegHigh := fpx
+        if array.size(h15Vals) > 0
+            tradeLegHigh := array.get(h15Vals, array.size(h15Vals) - 1)
         rawTPs = f_nearestBelow(l3Vals, fpx)
         floorTPs = fpx - (tradeLegHigh - fpx)
         tradeTP := na(rawTPs) ? floorTPs : math.min(rawTPs, floorTPs)
