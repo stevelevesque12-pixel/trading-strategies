@@ -1,0 +1,219 @@
+//@version=6
+// Volume-confirmed scalping strategy for MES, ported from
+// volume_scalp/strategy.py. Fires TradersPost-format webhook alerts
+// (https://traderspost.io) -- TradersPost connects to Tradovate with a
+// regular login, no API Access Add-On required, which is what makes this
+// usable on a prop-firm sim account that can't get direct Tradovate API
+// credentials.
+//
+// Two independent, volume-driven entry setups (see the Python docstring
+// in volume_scalp/strategy.py for the full rationale), checked in order,
+// one position at a time:
+//   1. Volume breakout: close breaks a recent N-bar range on a bar with
+//      relative volume (RVOL) above threshold, same-direction net volume
+//      delta (a close-location-value/CLV proxy -- see indicators.py) over
+//      a trailing window, and (optionally) on the correct side of session
+//      VWAP.
+//   2. Volume climax fade: an RVOL spike with a rejection wick against its
+//      own directional push (most of the bar is wick, close lands back
+//      near the middle/opposite side) fades the move.
+//
+// Setup: add this to a chart set to whatever timeframe you want to trade
+// (1 minute is the default assumption -- matches the Python backtester's
+// base resolution and what free/live retail data actually provides).
+// Unlike structure_scalp_mes.pine, this does NOT need a seconds chart or
+// request.security multi-timeframe plumbing -- it's a single-timeframe
+// strategy, so what you see on the Strategy Tester is what the Python
+// engine would compute too (allowing for the usual Pine-vs-pandas
+// floating point/bar-close nuances).
+//
+// RVOL/breakout-channel/volume-delta windows are implemented with manual
+// ring buffers (not ta.sma/ta.highest) specifically so they reset at the
+// start of each session, same as the Python strategy's `reset()` -- a
+// plain ta.sma would otherwise blend in yesterday's volume/range.
+//
+// This is a best-effort translation, not guaranteed to be bar-for-bar
+// identical to the Python backtester. Validate on TradingView's own
+// Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets
+// sent. Paste your TradersPost strategy's unique webhook URL (it embeds
+// its own auth, no secret field needed in the JSON) into the alert's
+// Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md for the full setup.
+//
+// For MNQ: change Tick Size stays 0.25, set Point Value (USD/point) to 2.
+
+strategy("Volume Scalp - MES", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+volumeWindow          = input.int(20, "RVOL baseline window (bars)", minval=1, group="Volume")
+breakoutWindow         = input.int(10, "Breakout channel window (bars)", minval=1, group="Volume")
+deltaWindow            = input.int(5, "Volume-delta confirmation window (bars)", minval=1, group="Volume")
+breakoutRvolThreshold  = input.float(1.5, "Min RVOL for breakout", minval=0.01, group="Volume")
+climaxRvolThreshold    = input.float(3.0, "Min RVOL for climax fade", minval=0.01, group="Volume")
+climaxWickPct          = input.float(0.5, "Min wick fraction of range for climax fade", minval=0.0, maxval=1.0, step=0.05, group="Volume")
+requireVwapAlignment  = input.bool(true, "Require VWAP trend alignment on breakouts", group="Volume")
+enableBreakout        = input.bool(true, "Enable volume breakout entries", group="Volume")
+enableClimaxFade      = input.bool(true, "Enable volume climax fade entries", group="Volume")
+
+tickSize        = input.float(0.25, "Tick size (MES = 0.25, MNQ = 0.25)")
+stopBufferTicks = input.int(2, "Stop buffer (ticks)")
+targetR         = input.float(1.5, "Target R multiple")
+entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES = 5, MNQ = 2", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- Session VWAP (resets on newDay, includes the current bar) ----
+var float cumPV  = 0.0
+var float cumVol = 0.0
+if newDay
+    cumPV  := 0.0
+    cumVol := 0.0
+
+typicalPrice = (high + low + close) / 3.0
+cumPV  += typicalPrice * volume
+cumVol += volume
+vwapVal = cumVol > 0 ? cumPV / cumVol : na
+
+// ---- Ring buffers for RVOL / breakout channel / volume delta, all
+// session-scoped (cleared on newDay) so history never blends across days. ----
+var array<float> volBuf   = array.new_float(0)
+var array<float> highBuf  = array.new_float(0)
+var array<float> lowBuf   = array.new_float(0)
+var array<float> deltaBuf = array.new_float(0)
+
+if newDay
+    array.clear(volBuf)
+    array.clear(highBuf)
+    array.clear(lowBuf)
+    array.clear(deltaBuf)
+
+// Baselines snapshotted from strictly-prior bars, BEFORE this bar is pushed.
+avgVol = array.size(volBuf) > 0 ? array.sum(volBuf) / array.size(volBuf) : 0.0
+rvol   = avgVol > 0 ? volume / avgVol : 0.0
+
+channelHigh = array.size(highBuf) >= breakoutWindow ? array.max(highBuf) : na
+channelLow  = array.size(lowBuf)  >= breakoutWindow ? array.min(lowBuf)  : na
+
+// Volume-delta proxy (CLV-weighted volume): pushed BEFORE reading, since
+// this is a current-bar-inclusive confirmation signal, not a baseline.
+rangeVal = high - low
+clv      = rangeVal > 0 ? ((close - low) - (high - close)) / rangeVal : 0.0
+barDelta = clv * volume
+
+array.push(deltaBuf, barDelta)
+if array.size(deltaBuf) > deltaWindow
+    array.shift(deltaBuf)
+cumDelta = array.sum(deltaBuf)
+
+// ---- Volume breakout ----
+stopBuffer = stopBufferTicks * tickSize
+
+breakoutLongRaw  = enableBreakout and not na(channelHigh) and not na(channelLow) and rvol >= breakoutRvolThreshold and
+     close > channelHigh and close > open and cumDelta > 0
+breakoutShortRaw = enableBreakout and not na(channelHigh) and not na(channelLow) and rvol >= breakoutRvolThreshold and
+     close < channelLow and close < open and cumDelta < 0
+
+vwapBlocksLong  = requireVwapAlignment and not na(vwapVal) and close < vwapVal
+vwapBlocksShort = requireVwapAlignment and not na(vwapVal) and close > vwapVal
+
+breakoutLong  = breakoutLongRaw  and not vwapBlocksLong
+breakoutShort = breakoutShortRaw and not vwapBlocksShort
+
+breakoutLongStop    = math.min(low, channelLow)  - stopBuffer
+breakoutShortStop   = math.max(high, channelHigh) + stopBuffer
+
+// ---- Volume climax fade ----
+upperWick = high - math.max(open, close)
+lowerWick = math.min(open, close) - low
+midpoint  = (high + low) / 2.0
+
+climaxOk = enableClimaxFade and rangeVal > 0 and rvol >= climaxRvolThreshold
+
+climaxShort = climaxOk and (upperWick / rangeVal) >= climaxWickPct and close <= midpoint
+climaxLong  = climaxOk and (lowerWick / rangeVal) >= climaxWickPct and close >= midpoint and not climaxShort
+
+climaxShortStop = high + stopBuffer
+climaxLongStop  = low  - stopBuffer
+
+// ---- Combine (breakout takes priority over climax fade, same as Python) ----
+longSignal  = (breakoutLong or (not breakoutLong and not breakoutShort and climaxLong))  and inEntryWindow and strategy.position_size == 0
+shortSignal = (breakoutShort or (not breakoutLong and not breakoutShort and climaxShort)) and inEntryWindow and strategy.position_size == 0
+
+longStop   = breakoutLong  ? breakoutLongStop  : climaxLongStop
+shortStop  = breakoutShort ? breakoutShortStop : climaxShortStop
+longRisk   = close - longStop
+shortRisk  = shortStop - close
+longTarget = close + longRisk * targetR
+shortTarget = close - shortRisk * targetR
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+longRiskPerContract  = longRisk  * pointValueUsd
+shortRiskPerContract = shortRisk * pointValueUsd
+
+longQty  = longRiskPerContract  > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / longRiskPerContract),  maxContracts)) : 0
+shortQty = shortRiskPerContract > 0 ? math.max(1, math.min(math.floor(riskPerTradeUsd / shortRiskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+// Schema: https://docs.traderspost.io/docs/core-concepts/webhooks
+if longSignal and longRisk > 0
+    strategy.entry("Long", strategy.long, qty=longQty)
+    strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(longQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(longTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if shortSignal and shortRisk > 0
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(shortQty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(shortTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Roll the RVOL/channel ring buffers forward for the *next* bar ----
+array.push(volBuf, volume)
+if array.size(volBuf) > volumeWindow
+    array.shift(volBuf)
+
+array.push(highBuf, high)
+if array.size(highBuf) > breakoutWindow
+    array.shift(highBuf)
+
+array.push(lowBuf, low)
+if array.size(lowBuf) > breakoutWindow
+    array.shift(lowBuf)
+
+// ---- Visuals ----
+plot(vwapVal, title="Session VWAP", color=color.new(color.purple, 20))
+plot(channelHigh, title="Breakout Channel High", color=color.new(color.orange, 60), style=plot.style_circles)
+plot(channelLow,  title="Breakout Channel Low",  color=color.new(color.blue, 60),   style=plot.style_circles)
+plotshape(breakoutLong,  title="Breakout Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(breakoutShort, title="Breakout Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+plotshape(climaxLong,  title="Climax Fade Long",  style=shape.circle, location=location.belowbar, color=color.new(color.lime, 0),   size=size.tiny)
+plotshape(climaxShort, title="Climax Fade Short", style=shape.circle, location=location.abovebar, color=color.new(color.maroon, 0), size=size.tiny)

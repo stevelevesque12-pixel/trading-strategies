@@ -21,6 +21,12 @@ been backtested against real data -- no free source available provides
 sub-1-minute history, so it's logic-tested against synthetic bars only
 (`tests/test_structure_scalp.py`); forward-test carefully before trusting it.
 
+**A third strategy, `volume_scalp/`, is a volume-confirmed scalp for
+MES/MNQ** -- unlike structure_scalp's 5-second entries, it runs on a single
+timeframe (1-minute by default) and so it CAN be backtested end-to-end
+against real historical data, not just synthetic bars. See "Strategy logic
+(Volume Scalp)" below.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -51,7 +57,79 @@ Code layout:
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
+- `volume_scalp/` — the third strategy (indicators + signal logic), described below. Its own backtest engine/CLIs live in `backtest/volume_engine.py`, `backtest/run_volume_scalp.py`, `backtest/compare_volume_scalp.py`.
 - `tests/` — unit tests for the strategy logic, backtest smoke tests, and webhook sizing/routing tests.
+
+## Strategy logic (Volume Scalp)
+
+`volume_scalp/` — a volume-confirmed scalp for MES/MNQ, built for higher
+trade frequency than Failed-2s while still being backtestable against real
+data (unlike `structure_scalp/`, which needs sub-1-minute bars nobody
+provides for free). Single timeframe, default 1-minute. Two independent
+entry setups, checked in order, one position at a time:
+
+1. **Volume breakout** (momentum/continuation) — price closes through a
+   recent N-bar high/low channel on a bar where:
+   - **RVOL** (relative volume: this bar's volume vs. the trailing
+     average, baseline excludes the bar itself) is above threshold
+     (default 1.5x) — filters out breakouts on thin participation that
+     tend to snap back.
+   - **Volume delta** — a close-location-value (CLV) proxy for net
+     buying/selling volume (`((close-low)-(high-close))/(high-low) *
+     volume`, the same idea behind the classic Accumulation/Distribution
+     Line — this repo has no tick/bid-ask data, so this is the standard
+     OHLCV-only approximation of order flow), summed over a trailing
+     window, agrees with the breakout direction.
+   - Optionally, price is on the correct side of session **VWAP** (a
+     trend filter — default on).
+2. **Volume climax fade** (exhaustion/reversal) — a bar with RVOL far
+   above normal (default 3x) that pushed hard in one direction but closed
+   back near the middle/opposite side (a rejection wick ≥50% of the bar's
+   range by default) fades the move — a volume spike with no
+   follow-through close reads as absorption/exhaustion (classic Wyckoff
+   upthrust/spring behavior), not real continuation. Disable with
+   `enable_climax_fade=False` to run breakout-only.
+
+**Stop** — breakout: beyond the tighter of the signal bar's own high/low or
+the broken channel level, plus a tick buffer. Climax fade: beyond the
+signal bar's extreme, plus a tick buffer.
+**Target** — `target_r * risk` (default 1.5:1).
+**Intraday only** — all rolling state (VWAP, RVOL baseline, breakout
+channel, volume-delta window) resets every session day; same entry-window /
+flatten-cutoff behavior as Failed-2s (`SessionConfig`, shared code).
+
+See `volume_scalp/indicators.py` and `volume_scalp/strategy.py` for the
+exact math, and `tests/test_volume_indicators.py` /
+`tests/test_volume_scalp_strategy.py` for hand-verified worked examples of
+every rule (breakout fire/block, VWAP gating, both climax-fade directions,
+session reset).
+
+**Backtesting:**
+
+```bash
+python -m backtest.run_volume_scalp --data sample_data/sample_1min.csv --symbol MES
+python -m backtest.run_volume_scalp --data sample_data/sample_1min.csv --symbol MNQ --timeframe 5min
+
+# Compare bar timeframes (1min/3min/5min by default) on the same data:
+python -m backtest.compare_volume_scalp --data sample_data/sample_1min.csv --symbol MES
+```
+
+Both support `--contracts`, `--daily-loss-limit`, `--max-daily-trades`,
+`--target-r`, `--stop-buffer-ticks`, `--volume-window`,
+`--breakout-window`, `--delta-window`, `--breakout-rvol`, `--climax-rvol`,
+`--climax-wick-pct`, `--no-vwap-filter`, `--no-breakout`,
+`--no-climax-fade` — run with `--help` for the full list. Same fill/exit
+assumptions and holiday-gap caveat as the Failed-2s backtester (see
+"Backtest assumptions/limitations" above).
+
+**Going live:** `tradingview/volume_scalp_mes.pine` — same
+TradingView + TradersPost path as the other two strategies (see
+"Live trading on Tradovate" below and **TRADINGVIEW_WEBHOOK.md**). Unlike
+`structure_scalp_mes.pine`, this runs on a normal (non-seconds) chart
+timeframe, so it's fully usable on TradingView's Strategy Tester with
+ordinary historical depth. There is currently no Python live runner
+(`live/runner.py` is Failed-2s-specific) for this strategy — TradingView is
+the only supported live path for now.
 
 ## Setup
 
