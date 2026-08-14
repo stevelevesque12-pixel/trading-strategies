@@ -371,6 +371,84 @@ there. That's a useful reminder that the long-bias finding was likely a
 regime artifact of that specific period, while the AM/PM split held up
 across both.
 
+### Prop-firm evaluation simulation: would this actually pass one?
+
+Aggregate expectancy/profit-factor numbers answer "is this profitable
+across 3 years," which isn't the question a prop-firm eval asks. An eval
+asks: does the account hit its profit target before it breaches its
+drawdown/daily-loss rule, within a fixed time budget (often ~2 weeks /
+10 trading days)? Those are watched against **intraday equity**, including
+unrealized P&L on an open position, not just closed-trade totals -- so
+`backtest/fair_value_engine.py` now optionally tracks a real bar-by-bar
+equity curve (`track_equity=True`), and `backtest/prop_compliance.py` slides
+a configurable-length window over every historical starting point and
+reports how many of those windows would have passed, breached, or run out
+the clock.
+
+`GENERIC_PROFILES` in that module are **illustrative account structures**
+(a profit target, a drawdown limit that's static or trails the equity peak,
+often a daily loss limit) representative of common futures-prop-firm eval
+shapes -- **not verified current terms for any real firm**. Confirm your
+actual target firm's rule book and pass a custom `AccountProfile` with the
+real numbers before trusting this for a real decision.
+
+**Run it:**
+
+```bash
+python -m backtest.run_prop_compliance --data sample_data/real_nq_1min_2022_2025.csv \
+    --symbol NQ --windows AM --target-risk 1000 --eval-days 10
+```
+
+**What we found, testing the best configuration from above (AM-only) against
+every 10-trading-day window in the real NQ data, net of realistic costs
+($9/contract commission + 2 ticks slippage, round-turn):**
+
+At the PDF's own `$1,000/trade` sizing:
+
+| Profile | pass% | breach% | ran-out-clock% | avg days to pass (when it passes) |
+|---|---|---|---|---|
+| Generic 50k, trailing DD + daily loss limit | 20.0% | 80.0% | 0.0% | 2.2 |
+| Generic 150k, trailing DD + daily loss limit | 7.1% | 75.6% | 17.3% | 6.8 |
+| Generic 50k, static DD, no daily loss limit | 37.5% | 61.7% | 0.8% | 3.2 |
+
+**A real constraint neither of us had accounted for**: NQ contracts have a
+hard 1-contract minimum, and 1 contract's risk (stop-distance-dependent,
+$330/$500/$1,000 across the strategy's own ATR buckets) is already close to
+or *larger than* a small account's entire daily loss limit. That's why
+sweeping `--target-risk` down from $1,000 to $100 barely moved the numbers
+above -- the sizing formula was already pinned at the 1-contract floor.
+Switching to **MNQ micros** (1/10th NQ's point value, same index) unpins
+that floor and lets position size actually shrink -- but it cuts $ profit
+velocity by the same factor, so it doesn't just fix things for free. Sweeping
+`--target-risk` on MNQ (with `--max-contracts` raised so the cap itself
+isn't the binding constraint) traces out the real trade-off:
+
+| MNQ target-risk | Generic 50k + DLL: pass% / breach% | Generic 150k + DLL: pass% / breach% | Generic 50k static: pass% / breach% |
+|---|---|---|---|
+| $300 | 2.5% / 67.6% | 0.0% / 3.0% | 2.8% / 40.4% |
+| $600 | 12.3% / 87.4% | 0.1% / 54.0% | 16.7% / 70.9% |
+| $1,000 | 16.1% / 83.9% | 3.7% / 85.8% | 26.9% / 72.5% |
+| $1,500-3,000 (plateaus) | ~24-25% / ~75-76% | ~9-10% / ~90% | ~34-36% / ~64-66% |
+
+Sized too small, most windows simply run out of the 10-day clock without
+reaching the target (low breach%, high ran-out-clock%). Sized up, outcomes
+become nearly binary -- pass fast (often in under 2 days) or breach -- and
+even at maximum tested aggression, **most historical 2-week windows still
+end in breach, not a pass**, on every profile tried. The 50k/no-daily-limit
+profile is the best case found and still only clears ~36%.
+
+**Bottom line: on this historical data, in the best configuration found
+(AM-only) and even after tuning position size across a wide range, this
+strategy would not reliably pass a 2-week evaluation** -- it's a
+better-than-coinflip shot at best, not a "have your account funded"
+strategy. The edge is real (see the expectancy numbers above) but too thin,
+relative to typical eval drawdown/time budgets, to compress into 10 trading
+days without taking on breach risk that dominates the outcome distribution.
+A longer, less time-boxed evaluation (or a firm with a bigger drawdown
+budget relative to its profit target) would look considerably better on
+these same numbers -- the constraint here is specifically the 2-week clock,
+not the strategy's edge in isolation.
+
 ## Running the tests
 
 ```bash

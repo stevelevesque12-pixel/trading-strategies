@@ -67,3 +67,46 @@ def test_daily_trade_cap_is_enforced(sample_csv):
     for tr in trades:
         per_day[tr.entry_time.date()] = per_day.get(tr.entry_time.date(), 0) + 1
     assert all(count <= 2 for count in per_day.values())
+
+
+def test_commission_and_slippage_reduce_every_trades_pnl_by_a_fixed_amount(sample_csv):
+    instrument = INSTRUMENTS["NQ"]
+
+    frictionless = FairValueBacktestEngine(instrument=instrument, strategy=FairValueStrategy(tick_size=instrument.tick_size))
+    trades_no_cost = frictionless.run(sample_csv)
+
+    with_costs = FairValueBacktestEngine(
+        instrument=instrument,
+        strategy=FairValueStrategy(tick_size=instrument.tick_size),
+        commission_per_contract_rt=9.0,
+        slippage_ticks_rt=2.0,
+    )
+    trades_with_costs = with_costs.run(sample_csv)
+
+    assert len(trades_no_cost) == len(trades_with_costs)  # costs don't change signals, only P&L
+    expected_cost_per_contract = 9.0 + 2.0 * instrument.tick_size * instrument.point_value  # $9 + 2 ticks * $20/pt * 0.25
+    for free, costly in zip(trades_no_cost, trades_with_costs):
+        assert costly.contracts == free.contracts
+        expected_friction = free.contracts * expected_cost_per_contract
+        assert costly.pnl_dollars == pytest.approx(free.pnl_dollars - expected_friction)
+
+
+def test_equity_curve_tracks_unrealized_pnl_while_a_position_is_open(sample_csv):
+    instrument = INSTRUMENTS["NQ"]
+    engine = FairValueBacktestEngine(instrument=instrument, strategy=FairValueStrategy(tick_size=instrument.tick_size), track_equity=True)
+    trades = engine.run(sample_csv)
+
+    assert len(engine.equity_curve) > 0
+    timestamps = [ts for ts, _ in engine.equity_curve]
+    assert timestamps == sorted(timestamps)  # monotonic, one point per bar
+
+    if trades:
+        # At a trade's exit bar, cumulative equity should include that trade's realized P&L.
+        t = trades[0]
+        equity_at_exit = next(eq for ts, eq in engine.equity_curve if ts == t.exit_time)
+        equity_before_entry = 0.0
+        for ts, eq in engine.equity_curve:
+            if ts >= t.entry_time:
+                break
+            equity_before_entry = eq
+        assert equity_at_exit == pytest.approx(equity_before_entry + t.pnl_dollars, abs=1e-6)
