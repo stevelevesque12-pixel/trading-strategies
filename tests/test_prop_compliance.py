@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from backtest.prop_compliance import AccountProfile, rolling_eval_pass_rate
+from backtest.prop_compliance import AccountProfile, compress_equity_curve, rolling_eval_pass_rate
 
 
 def _minute_curve(daily_pnls, start=datetime(2024, 1, 2)):
@@ -107,3 +107,50 @@ def test_multiple_windows_produce_aggregate_pass_rate():
     assert report["num_windows"] == 4
     assert report["passed"] >= 1
     assert 0.0 <= report["pass_rate_pct"] <= 100.0
+
+
+def test_compression_is_lossless_for_pass_rate_computation():
+    """
+    Padding a curve with lots of redundant flat bars (the realistic case --
+    equity only moves while a position is open, which is a small fraction
+    of the trading day) must not change the compliance result at all.
+    """
+    profile = AccountProfile(
+        name="test", starting_balance=50_000, profit_target=3_000, max_drawdown=2_000,
+        drawdown_type="trailing_lock_at_breakeven", daily_loss_limit=1_000,
+    )
+    sparse_curve = _minute_curve([-800, 1200, -300, 900, 1100, 800, -200, 1500])
+
+    padded_curve = []
+    for ts, eq in sparse_curve:
+        for extra_min in range(0, 120, 5):  # 24 redundant flat points between each real one
+            padded_curve.append((ts + timedelta(minutes=extra_min), eq))
+
+    sparse_report = rolling_eval_pass_rate(sparse_curve, profile, eval_trading_days=5)
+    padded_report = rolling_eval_pass_rate(padded_curve, profile, eval_trading_days=5)
+
+    assert padded_report["num_windows"] == sparse_report["num_windows"]
+    assert padded_report["passed"] == sparse_report["passed"]
+    assert padded_report["breached"] == sparse_report["breached"]
+    for a, b in zip(sparse_report["results"], padded_report["results"]):
+        assert a.passed == b.passed
+        assert a.breached == b.breached
+        assert a.days_to_target == b.days_to_target
+
+
+def test_compress_equity_curve_keeps_one_point_per_flat_day_and_all_changes():
+    curve = [
+        (datetime(2024, 1, 2, 9, 30), 0.0),
+        (datetime(2024, 1, 2, 9, 31), 0.0),
+        (datetime(2024, 1, 2, 9, 32), 100.0),  # real change
+        (datetime(2024, 1, 2, 9, 33), 100.0),
+        (datetime(2024, 1, 3, 9, 30), 100.0),  # new day, still flat -- must be kept for day-open reference
+        (datetime(2024, 1, 3, 9, 31), 100.0),
+    ]
+    compressed = compress_equity_curve(curve)
+
+    assert compressed == [
+        (datetime(2024, 1, 2, 9, 30), 0.0),
+        (datetime(2024, 1, 2, 9, 32), 100.0),
+        (datetime(2024, 1, 3, 9, 30), 100.0),
+    ]

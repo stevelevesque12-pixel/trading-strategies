@@ -146,6 +146,36 @@ def evaluate_window(day_equity: pd.Series, day_of: pd.Series, profile: AccountPr
     )
 
 
+def compress_equity_curve(equity_curve: List[tuple]) -> List[tuple]:
+    """
+    Collapses flat stretches (bars where equity hasn't moved since the last
+    kept point -- true for the large majority of the day this strategy
+    holds no position, e.g. overnight/outside the trading windows) down to
+    their endpoints, while always keeping the first bar of every trading
+    day (so a day-open equity reference for the daily-loss-limit check is
+    never lost, even across a fully flat day). Lossless for the compliance
+    checks in this module: peak/floor/target/breach and days-to-target only
+    ever depend on the *values* equity takes and which day each value fell
+    on, never on how many redundant bars a flat stretch lasted -- but it cuts
+    a ~1,400-bars/trading-day raw curve down to just its handful of real
+    change points per day, which is what makes the eval-day sweep below
+    tractable (O(bars-with-an-open-position) instead of O(all bars) per
+    window).
+    """
+    if not equity_curve:
+        return []
+    compressed = [equity_curve[0]]
+    last_value = equity_curve[0][1]
+    last_day = equity_curve[0][0].date()
+    for ts, eq in equity_curve[1:]:
+        day = ts.date()
+        if day != last_day or eq != last_value:
+            compressed.append((ts, eq))
+            last_day = day
+            last_value = eq
+    return compressed
+
+
 def rolling_eval_pass_rate(
     equity_curve: List[tuple],
     profile: AccountProfile,
@@ -159,6 +189,7 @@ def rolling_eval_pass_rate(
     """
     import numpy as np
 
+    equity_curve = compress_equity_curve(equity_curve)
     ts, cum_pnl = zip(*equity_curve)
     s = pd.Series(cum_pnl, index=pd.DatetimeIndex(ts))
     day_of_arr = np.array([d for d in s.index.date])  # sorted, same order as s (s.index is time-sorted)

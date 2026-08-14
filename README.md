@@ -442,12 +442,36 @@ profile is the best case found and still only clears ~36%.
 strategy would not reliably pass a 2-week evaluation** -- it's a
 better-than-coinflip shot at best, not a "have your account funded"
 strategy. The edge is real (see the expectancy numbers above) but too thin,
-relative to typical eval drawdown/time budgets, to compress into 10 trading
-days without taking on breach risk that dominates the outcome distribution.
-A longer, less time-boxed evaluation (or a firm with a bigger drawdown
-budget relative to its profit target) would look considerably better on
-these same numbers -- the constraint here is specifically the 2-week clock,
-not the strategy's edge in isolation.
+relative to typical eval drawdown budgets, to clear reliably without taking
+on breach risk that dominates the outcome distribution.
+
+**Does a longer evaluation window fix it? No -- and this is worth stating
+plainly since it's the opposite of what you'd guess.** We swept 5 position
+sizings (NQ $1,000/500 down to MNQ $400/150/50) across 11 evaluation
+lengths from 10 up to **120 trading days (~6 months)**, on all 3 profiles --
+165 combinations total. Every one plateaus within the first 20-30 trading
+days and then stays essentially flat all the way out to 120 days; none ever
+reach a 75% pass rate. Best case found (NQ $500-1,000/trade, 50k static
+drawdown, no daily loss limit) tops out around **37-40%**, flat from ~20
+days onward. Tighter accounts (a daily loss limit, or the 150k profile's
+larger target) plateau much lower -- 19-20% and 7-12% respectively -- and
+sizing down further to reduce breach risk just makes windows time out
+before reaching the target instead (MNQ at $150/trade or below: ~0% at
+every window length tested, because profit accumulates too slowly to ever
+reach the target within 120 days).
+
+**Why more time doesn't help**: this is a race between two barriers (profit
+target vs. drawdown floor), and extending the deadline gives *both* outcomes
+more chances to occur -- it doesn't change the odds between them, because
+those odds are set by the ratio of the strategy's edge to the barrier sizes,
+not by how much time is on the clock. That ratio is what would need to
+change: reaching something like a 75% pass rate needs either a materially
+stronger edge (current net profit factor is ~1.1; getting there likely
+needs something like 1.4-1.6+) or a much more forgiving account structure
+(bigger drawdown budget relative to the profit target, and ideally no daily
+loss limit -- removing just the daily loss limit alone roughly doubled the
+pass rate at matched sizing in the sweep above). Sizing and eval-length are
+not the levers; the edge itself and the account's rule shape are.
 
 ## Running the tests
 
