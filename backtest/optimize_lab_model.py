@@ -90,8 +90,11 @@ def main() -> None:
     rows = []
     for sbt in stop_buffer_ticks:
         for ess in exec_swing_strengths:
-            strategy = LabModelStrategy(tick_size=instrument.tick_size, stop_buffer_ticks=sbt, exec_swing_strength=ess)
             for be in breakeven_at_rs:
+                # A fresh strategy instance per combination -- LabModelStrategy is stateful
+                # (zone/swing history, pending setups, reference candles), so reusing one
+                # across runs would let a later run start from a prior run's leftover state.
+                strategy = LabModelStrategy(tick_size=instrument.tick_size, stop_buffer_ticks=sbt, exec_swing_strength=ess)
                 engine = LabModelEngine(strategy=strategy, instrument=instrument, execution_tf=args.execution_tf, contracts=args.contracts, breakeven_at_r=be)
                 trades = engine.run_data(data)
 
