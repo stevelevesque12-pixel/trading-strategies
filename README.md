@@ -259,29 +259,83 @@ $20/point). Writes `trades_fair_value.csv` (now includes `window` and
 `phase` columns, useful for exactly this kind of breakdown) and prints
 summary metrics.
 
-**No NQ dataset was actually attached to this task** -- only the strategy
-PDF came through as an upload; no CSV was found in the session's uploads or
-already in the repo. Rather than block on that, this was backtested against
-the same real historical data source the Failed-2s README already uses and
-documents: `sample_data/fetch_real_data.py --instrument NAS100_USD`, OANDA's
-Nasdaq-100 CFD 1-minute series (2016-01 through 2020-05, ~1.49M bars, real
-market data, republished under GPL-3.0 by `FutureSharks/financial-data`).
-Same caveats as the SPX500 case apply: it's an index CFD proxy, not literal
-CME NQ tick data, and coverage stops mid-2020. **If you have real NQ 1-minute
-data, backtest against that before trusting these numbers** -- this run is
-meant to sanity-check the logic against real price action, not as a final
-verdict.
+**Primary results: real NQ futures data.** A private 1-minute NQ dataset
+(2022-12-26 through 2025-12-11, ~1.05M bars, real CME exchange volume) was
+supplied directly for this backtest. It is **not included in this repo** --
+likely paid-vendor data, kept out for licensing/privacy reasons the same way
+no other real historical CSV is committed here. It's gitignored at
+`sample_data/real_nq_1min_2022_2025.csv` (matches the existing
+`sample_data/real_*.csv` ignore rule); supply your own file at that path (or
+pass `--data <path>`) to reproduce these numbers or extend the range. One
+thing worth knowing: the file is exactly 1,048,576 lines -- Excel's row cap
+-- which is a common fingerprint of a CSV that got opened/saved in Excel and
+silently truncated. The internal gaps all line up with real market closures
+(weekends, Christmas, Thanksgiving half-days, etc.) with nothing that looks
+like a truncation artifact mid-file, so it reads as genuinely continuous --
+but it's possible data past 2025-12-11 existed upstream and got cut off when
+this file was prepared.
 
-**Results on that data** (`--symbol NQ`, default $1,000 target risk/trade,
-2016-01 through 2020-05):
+**Results** (`--symbol NQ`, default $1,000 target risk/trade,
+2022-12-26 through 2025-12-11):
+
+| | num_trades | win_rate | profit_factor | avg_r | expectancy/trade | total_pnl | max_dd |
+|---|---|---|---|---|---|---|---|
+| All trades | 1,372 | 43.3% | 1.10 | 0.051 | $51.03 | $70,020 | $26,665 |
+| `--restrict-to-first-hour` | 1,310 | 42.8% | 1.09 | 0.048 | $47.64 | $62,410 | $33,340 |
+
+The first-hour-only filter (the source PDF's own suggested optimization)
+made things slightly *worse* here, the opposite of what it did on the CFD
+proxy data below -- treat that filter as unconfirmed either way rather than
+a reliable improvement.
+
+Breaking the unrestricted run down by window/phase:
+
+| Segment | n | win_rate | profit_factor | expectancy/trade |
+|---|---|---|---|---|
+| AM window (9:30-11:00) | 1,178 | 43.7% | 1.12 | $66.10 |
+| PM window (14:00-15:00) | 194 | 40.7% | 0.92 | **-$40.30** |
+| Continuation phase | 895 | 42.7% | 1.10 | $58.10 |
+| Reversion phase | 477 | 44.4% | 1.08 | $37.80 |
+| Long trades | 684 | 43.4% | 1.08 | $45.30 |
+| Short trades | 688 | 43.2% | 1.11 | $56.80 |
+
+By year: 2023 $33.7/trade (444 trades), 2024 $59.8/trade (475 trades), 2025
+$55.4/trade (445 trades) -- positive in every full year covered, including
+2023's choppier regime, which is a better robustness signal than a single
+bull run. Long and short were both solidly profitable here too (unlike the
+CFD-proxy run below), consistent with 2022-2025 covering both the 2022 bear
+tail and the 2023-2025 rally rather than one-directional drift.
+
+**The AM-vs-PM split is now corroborated by two independent datasets**: the
+PM window (14:00-15:00) was a net loser both here (-$40.30/trade) and on
+the earlier NAS100 CFD proxy (-$13.60/trade, see below) -- across different
+instruments, different data sources, and non-overlapping time periods. A PM
+window that consistently costs money even with the strategy's own
+1.5R/no-management structure is one of the stronger findings from this
+backtest, not just a market-regime artifact. If you were to run this live,
+**AM-only would be the reasonable starting scope**, not the full two-window
+version.
+
+Also notable: `window_flatten` exits (window ended before hitting stop or
+target) were again the most profitable exit category (57.0% win rate,
+$139.20 expectancy/trade on 151 trades) -- more profitable than trades that
+ran to the full 1.5R target. That's the window cutoff acting as de facto
+trade management even though the source says "no trade management"; worth
+keeping in mind if you relax the window-flatten rule.
+
+**Earlier cross-check: NAS100 CFD proxy data (2016-2020).** Before real NQ
+data was available, this was backtested against
+`sample_data/fetch_real_data.py --instrument NAS100_USD`, OANDA's Nasdaq-100
+CFD 1-minute series (2016-01 through 2020-05, ~1.49M bars, republished under
+GPL-3.0 by `FutureSharks/financial-data`). It's an index CFD proxy, not
+literal CME NQ tick data, and its volume is OANDA's tick count, not real
+exchange volume -- kept here as a secondary, non-overlapping-period
+cross-check now that real NQ data has confirmed the same AM/PM pattern.
 
 | | num_trades | win_rate | profit_factor | avg_r | expectancy/trade | total_pnl | max_dd |
 |---|---|---|---|---|---|---|---|
 | All trades | 2,444 | 48.0% | 1.09 | 0.033 | $32.69 | $79,902 | $33,471 |
 | `--restrict-to-first-hour` | 2,309 | 48.2% | 1.11 | 0.040 | $39.82 | $91,944 | $33,198 |
-
-Breaking the unrestricted run down by window/phase (via the new `window`/
-`phase` trade-log columns) shows the edge is not evenly spread:
 
 | Segment | n | win_rate | profit_factor | expectancy/trade |
 |---|---|---|---|---|
@@ -290,18 +344,11 @@ Breaking the unrestricted run down by window/phase (via the new `window`/
 | Long trades | 1,248 | 51.3% | 1.17 | $57.40 |
 | Short trades | 1,196 | 44.6% | 1.02 | $6.90 |
 
-Takeaways: the whole edge over this period lives in the **AM window and the
-long side**; the PM window was a net loser on this dataset, and shorts
-barely broke even. That's consistent with 2016-2020 being a persistent
-Nasdaq-100 uptrend, so a "long-only, AM-only" variant may be overfit to that
-regime rather than a real edge -- worth checking against a period with a
-real downtrend/chop before concluding PM/shorts don't work. Also notable:
-`window_flatten` exits (window ended before hitting stop or target) were
-the single most profitable exit category (57.3% win rate, $110
-expectancy/trade on 1,278 trades) -- more profitable than trades that
-actually ran to the full 1.5R target. That's the window cutoff acting as de
-facto trade management even though the source says "no trade management";
-worth keeping in mind if you relax the window-flatten rule.
+On this dataset the edge leaned long (2016-2020 was a persistent Nasdaq-100
+uptrend), which the real-NQ run above doesn't repeat -- shorts were fine
+there. That's a useful reminder that the long-bias finding was likely a
+regime artifact of that specific period, while the AM/PM split held up
+across both.
 
 ## Running the tests
 
