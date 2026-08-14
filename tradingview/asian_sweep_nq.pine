@@ -1,0 +1,236 @@
+//@version=6
+// NQ Asian-range liquidity-sweep strategy, ported from asian_sweep/strategy.py.
+// Fires TradersPost-format webhook alerts. Written for NQ/MNQ (0.25 tick);
+// set "Point value" under Position sizing to 20 for NQ or 2 for MNQ.
+//
+// REQUIRED CHART SETUP: set this chart's own timeframe to 15 minutes.
+// Needs a data feed with overnight/pre-market coverage (most futures feeds
+// on TradingView have this by default -- just don't restrict "extended
+// hours" off).
+//
+// Cascade (see asian_sweep/strategy.py's docstring for the full rationale):
+//   1. Map the Asian box high/low from the 20:00-00:00 ET session.
+//   2. During the 00:00-09:30 ET pre-market window, watch for a bar to
+//      CLOSE beyond the box high/low -- a break, not just a wick.
+//   3. Wait for a Market Structure Shift (MSS) in the break direction on
+//      this same 15m chart. If the MSS bar also completes a qualifying
+//      3-bar Fair Value Gap (FVG), the retest level is the gap's near
+//      edge; otherwise it's the broken box boundary itself. (requireFvg
+//      forces the stricter mode: no FVG, no arm.)
+//   4. Entry fires the first time a later bar's range touches that retest
+//      level. Invalidated if price closes back across the broken boundary
+//      first -- the continuation premise already failed.
+//   5. Stop beyond the tighter[wider] of the MSS's confirming swing point
+//      or the broken boundary, plus a tick buffer.
+//   6. Target: a fixed R multiple (default 2R), or the prior trading day's
+//      high/low if targetMode is "Prev day H/L" and that's at least as far
+//      out (falls back to fixed R otherwise).
+//   7. All state resets at the start of each new box (20:00 ET). No new
+//      retests armed after the entry-window cutoff; flat by the flatten
+//      window.
+//
+// Not backtested against real overnight NQ data from this environment (no
+// free source available here provides pre-market futures history) -- this
+// is a logic port, unit-tested in Python against synthetic bars only
+// (tests/test_asian_sweep.py). Sanity-check on TradingView's own Strategy
+// Tester and forward-test carefully before trusting it with money.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL
+// (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("NQ Asian Sweep + Retest", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+boxSess         = input.session("2000-0000", "Asian box")
+sweepSess       = input.session("0000-0930", "Sweep / pre-market window")
+entrySess       = input.session("0000-1100", "Entry window (retest arming cutoff)")
+flattenSess     = input.session("1550-1600", "Flatten window")
+swingStrength   = input.int(2, "Swing strength (bars each side)", minval=1)
+minMSSBodyPct   = input.float(0.5, "Min MSS body %", minval=0.0, maxval=1.0, step=0.05)
+requireFvg      = input.bool(false, "Require FVG to confirm (else MSS alone arms the retest)")
+stopBufferTicks = input.int(4, "Stop buffer (ticks)", minval=0)
+tickSize        = input.float(0.25, "Tick size")
+targetR         = input.float(2.0, "Target R multiple")
+targetMode      = input.string("Fixed R", "Target mode", options=["Fixed R", "Prev day H/L"])
+riskPerTradeUsd = input.float(200.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(20.0, "Point value (USD/point) -- NQ=20, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts    = input.int(3, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York, overnight-aware) ----
+inBox     = not na(time(timeframe.period, boxSess, "America/New_York"))
+inSweep   = not na(time(timeframe.period, sweepSess, "America/New_York"))
+inEntry   = not na(time(timeframe.period, entrySess, "America/New_York"))
+inFlatten = not na(time(timeframe.period, flattenSess, "America/New_York"))
+
+newTradingDay = inBox and not inBox[1]  // box session just opened -> a new trading day's state begins
+boxJustEnded  = inBox[1] and not inBox  // box session just closed -> finalize it
+
+// ---- Previous trading day's H/L, for the optional liquidity target ----
+[prevDayHigh, prevDayLow] = request.security(syminfo.tickerid, "1D", [high[1], low[1]], lookahead=barmerge.lookahead_off)
+
+// ============================================================
+// Asian box accumulation + finalize.
+// ============================================================
+var float boxHiAcc  = na
+var float boxLoAcc  = na
+var float boxHigh   = na
+var float boxLow    = na
+var bool  haveBox   = false
+
+if newTradingDay
+    boxHiAcc := high
+    boxLoAcc := low
+    boxHigh  := na
+    boxLow   := na
+    haveBox  := false
+else if inBox
+    boxHiAcc := math.max(nz(boxHiAcc, high), high)
+    boxLoAcc := math.min(nz(boxLoAcc, low), low)
+
+if boxJustEnded
+    boxHigh := boxHiAcc
+    boxLow  := boxLoAcc
+    haveBox := true
+
+// ============================================================
+// Swing structure + MSS (native chart resolution, e.g. 15m).
+// ============================================================
+var float swingHigh = na
+var float swingLow  = na
+
+if newTradingDay
+    swingHigh := na
+    swingLow  := na
+
+pivotHigh = ta.pivothigh(high, swingStrength, swingStrength)
+pivotLow  = ta.pivotlow(low, swingStrength, swingStrength)
+if not na(pivotHigh)
+    swingHigh := pivotHigh
+if not na(pivotLow)
+    swingLow := pivotLow
+
+rangeVal = high - low
+bodyPct  = rangeVal != 0 ? math.abs(close - open) / rangeVal : 0.0
+mssLong  = not na(swingHigh) and close > swingHigh and close > open and bodyPct >= minMSSBodyPct
+mssShort = not na(swingLow) and close < swingLow and close < open and bodyPct >= minMSSBodyPct
+
+// 3-bar FVG vs. 2 bars back.
+fvgBullish = low > high[2]
+fvgBearish = high < low[2]
+
+// ============================================================
+// Break -> MSS confirmation -> retest state machine.
+// ============================================================
+var string breakDir     = na
+var float  sweptLevel   = na
+
+var string retestDir    = na
+var float  retestLevel  = na
+var float  retestStop   = na
+
+if newTradingDay
+    breakDir    := na
+    sweptLevel  := na
+    retestDir   := na
+    retestLevel := na
+    retestStop  := na
+
+// 1. Sweep window: a closing break of the box extreme sets the bias.
+if haveBox and inSweep and na(breakDir) and na(retestDir)
+    if close > boxHigh
+        breakDir   := "long"
+        sweptLevel := boxHigh
+    else if close < boxLow
+        breakDir   := "short"
+        sweptLevel := boxLow
+
+// 2. Confirmation: an MSS in the break direction arms the retest.
+if not na(breakDir)
+    confirmed  = breakDir == "long" ? mssLong : mssShort
+    fvgOk      = breakDir == "long" ? fvgBullish : fvgBearish
+    if confirmed and (not requireFvg or fvgOk)
+        retestDir   := breakDir
+        retestLevel := fvgOk ? (breakDir == "long" ? low[2] : high[2]) : sweptLevel
+        swingRef    = breakDir == "long" ? swingHigh : swingLow
+        retestStop  := breakDir == "long" ? math.min(swingRef, sweptLevel) - stopBufferTicks * tickSize
+             : math.max(swingRef, sweptLevel) + stopBufferTicks * tickSize
+        breakDir    := na
+        sweptLevel  := na
+
+// 3. Armed: retest touch (entry) or boundary give-back (invalidation).
+longSignal  = false
+shortSignal = false
+sigEntry    = float(na)
+sigStop     = float(na)
+sigTarget   = float(na)
+
+if not na(retestDir)
+    touched = retestLevel <= high and retestLevel >= low
+    if touched and inEntry
+        sigEntry := retestLevel
+        sigStop  := retestStop
+        if retestDir == "long"
+            risk = sigEntry - sigStop
+            sigTarget := sigEntry + risk * targetR
+            if targetMode == "Prev day H/L" and not na(prevDayHigh) and (prevDayHigh - sigEntry) >= risk * targetR
+                sigTarget := prevDayHigh
+            if risk > 0
+                longSignal := true
+        else
+            risk = sigStop - sigEntry
+            sigTarget := sigEntry - risk * targetR
+            if targetMode == "Prev day H/L" and not na(prevDayLow) and (sigEntry - prevDayLow) >= risk * targetR
+                sigTarget := prevDayLow
+            if risk > 0
+                shortSignal := true
+        retestDir   := na
+        retestLevel := na
+        retestStop  := na
+    else
+        gaveBack = (retestDir == "long" and close < boxHigh) or (retestDir == "short" and close > boxLow)
+        if gaveBack
+            retestDir   := na
+            retestLevel := na
+            retestStop  := na
+
+// ---- Position sizing ----
+riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+finalLongSignal  = longSignal  and qty > 0 and strategy.position_size == 0
+finalShortSignal = shortSignal and qty > 0 and strategy.position_size == 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlatten and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+bgcolor(inBox ? color.new(color.blue, 92) : inSweep ? color.new(color.orange, 94) : na)
+plot(haveBox ? boxHigh : na, title="Box high", color=color.new(color.teal, 20), style=plot.style_linebr)
+plot(haveBox ? boxLow : na, title="Box low", color=color.new(color.maroon, 20), style=plot.style_linebr)
+plot(not na(retestDir) ? retestLevel : na, title="Pending retest level", color=color.new(color.purple, 20), style=plot.style_circles, linewidth=2)

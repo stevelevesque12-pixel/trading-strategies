@@ -16,7 +16,14 @@ import numpy as np
 import pandas as pd
 
 
-def generate(days: int, seed: int, start_price: float, tz: str) -> pd.DataFrame:
+def generate(days: int, seed: int, start_price: float, tz: str, full_day: bool = False) -> pd.DataFrame:
+    """
+    full_day=False (default): RTH only, 9:30-16:00 (390 1-minute bars/day) --
+    what the Failed-2s/structure-scalp backtests need.
+    full_day=True: the full 24h clock, 00:00-23:59 (1440 bars/day) -- needed
+    by strategies that trade off overnight/pre-market data (e.g. asian_sweep's
+    20:00-00:00 ET box).
+    """
     rng = np.random.default_rng(seed)
     rows = []
     price = start_price
@@ -26,8 +33,12 @@ def generate(days: int, seed: int, start_price: float, tz: str) -> pd.DataFrame:
         session_date = start_date + pd.Timedelta(days=d)
         if session_date.dayofweek >= 5:  # skip weekends
             continue
-        session_start = session_date.replace(hour=9, minute=30)
-        minutes = pd.date_range(session_start, periods=390, freq="1min", tz=tz)  # 9:30-16:00
+        if full_day:
+            session_start = session_date.replace(hour=0, minute=0)
+            minutes = pd.date_range(session_start, periods=1440, freq="1min", tz=tz)  # 00:00-23:59
+        else:
+            session_start = session_date.replace(hour=9, minute=30)
+            minutes = pd.date_range(session_start, periods=390, freq="1min", tz=tz)  # 9:30-16:00
 
         for ts in minutes:
             drift = rng.normal(0, 0.6)
@@ -48,10 +59,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--start-price", type=float, default=5000.0)
     parser.add_argument("--tz", default="America/New_York")
+    parser.add_argument("--full-day", action="store_true", help="Generate the full 24h clock instead of RTH-only (needed for overnight-session strategies like asian_sweep)")
     parser.add_argument("--out", default="sample_data/sample_1min.csv")
     args = parser.parse_args()
 
-    df = generate(args.days, args.seed, args.start_price, args.tz)
+    df = generate(args.days, args.seed, args.start_price, args.tz, full_day=args.full_day)
     df.to_csv(args.out, index=False)
     print(f"Wrote {len(df)} synthetic 1-minute bars to {args.out}")
 
