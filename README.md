@@ -246,12 +246,15 @@ more windows are a small addition if you want to test that.
 
 One optional filter *is* wired up: `--restrict-to-first-hour` skips entries
 in a window's 2nd hour, which the source flags as a possible optimization
-worth testing (see backtest results below -- it does help slightly here).
+worth testing (mixed results below -- helped on one dataset, hurt on the
+other). `--windows` selects which session window(s) to trade (default
+`AM,PM`; see the AM-only comparison below for why you'd want just `AM`).
 
 **Run it:**
 
 ```bash
 python -m backtest.run_fair_value --data sample_data/real_nas100_2016_2020.csv --symbol NQ
+python -m backtest.run_fair_value --data sample_data/real_nq_1min_2022_2025.csv --symbol NQ --windows AM
 ```
 
 `--symbol` supports the same instruments as Failed-2s (NQ's point value is
@@ -298,6 +301,24 @@ Breaking the unrestricted run down by window/phase:
 | Reversion phase | 477 | 44.4% | 1.08 | $37.80 |
 | Long trades | 684 | 43.4% | 1.08 | $45.30 |
 | Short trades | 688 | 43.2% | 1.11 | $56.80 |
+
+**Running `--windows AM` explicitly confirms it**: dropping the PM window
+improves every metric, not just the ones that exclude PM by construction
+(max drawdown, in particular, isn't a simple sum, so this wasn't guaranteed
+in advance):
+
+| | trades | win_rate | profit_factor | expectancy/trade | total_pnl | max_dd |
+|---|---|---|---|---|---|---|
+| AM+PM (both windows) | 1,372 | 43.3% | 1.10 | $51.03 | $70,020 | $26,665 |
+| **AM-only** (`--windows AM`) | 1,178 | 43.7% | **1.12** | **$66.08** | **$77,840** | **$21,165** |
+
++11.2% total P&L on 194 fewer trades, +29.5% expectancy/trade, -20.6% max
+drawdown. PM entries can never affect AM trades (AM always closes by 11:00,
+hours before the 14:00 PM window opens each day), so the AM-only run is
+exactly the AM subset of the combined run -- but the max-drawdown
+improvement wasn't guaranteed by that alone and shows up in practice too.
+**If trading this live, AM-only is the reasonable starting scope**, not the
+full two-window version.
 
 By year: 2023 $33.7/trade (444 trades), 2024 $59.8/trade (475 trades), 2025
 $55.4/trade (445 trades) -- positive in every full year covered, including

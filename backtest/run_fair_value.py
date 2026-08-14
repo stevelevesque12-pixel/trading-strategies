@@ -10,11 +10,13 @@ import argparse
 
 from failed2s.instruments import INSTRUMENTS
 from failed2s.risk import RiskManager
-from fair_value.strategy import FairValueStrategy
+from fair_value.strategy import DEFAULT_WINDOWS, FairValueStrategy
 
 from .fair_value_engine import FairValueBacktestEngine
 from .metrics import compute_metrics
 from .report import write_trades_csv
+
+WINDOW_CHOICES = [w.name for w in DEFAULT_WINDOWS]
 
 
 def main() -> None:
@@ -32,8 +34,18 @@ def main() -> None:
     parser.add_argument("--min-mss-body-pct", type=float, default=0.5)
     parser.add_argument("--max-counter-wick-pct", type=float, default=0.20)
     parser.add_argument("--restrict-to-first-hour", action="store_true", help="PDF's optional 'skip 2nd hour of window' filter")
+    parser.add_argument(
+        "--windows", default=",".join(WINDOW_CHOICES),
+        help=f"Comma-separated subset of session windows to trade (default: all). Choices: {','.join(WINDOW_CHOICES)}",
+    )
     parser.add_argument("--out", default="trades_fair_value.csv")
     args = parser.parse_args()
+
+    window_names = [w.strip() for w in args.windows.split(",")]
+    unknown = [w for w in window_names if w not in WINDOW_CHOICES]
+    if unknown:
+        parser.error(f"Unknown window(s) {unknown}; choices are {WINDOW_CHOICES}")
+    windows = [w for w in DEFAULT_WINDOWS if w.name in window_names]
 
     instrument = INSTRUMENTS[args.symbol]
     strategy = FairValueStrategy(
@@ -42,6 +54,7 @@ def main() -> None:
         swing_strength=args.swing_strength,
         min_mss_body_pct=args.min_mss_body_pct,
         max_counter_wick_pct=args.max_counter_wick_pct,
+        windows=windows,
         restrict_to_first_hour=args.restrict_to_first_hour,
     )
     risk = RiskManager(daily_loss_limit=args.daily_loss_limit, max_daily_trades=args.max_daily_trades)
