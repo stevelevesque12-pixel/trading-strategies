@@ -27,6 +27,8 @@ class Trade:
     pnl_points: float
     pnl_dollars: float
     r_multiple: float
+    window: str = ""
+    phase: str = ""
 
 
 class BacktestEngine:

@@ -29,6 +29,9 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, `fair_value/`, codifies "JJ Simon's Fair Value Theory
+NQ Strategy"** -- see the dedicated section below.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -195,6 +198,110 @@ not yet wire Tradovate's order-fill/user-sync WebSocket back into the risk
 manager, so the daily-loss-limit lockout won't see live fills until you add
 that callback (`LiveRunner._on_finished_bar` has a note where to hook it
 in). Don't rely on the daily loss limit unattended until that's wired up.
+
+## Fair Value Theory (FVT) strategy — NQ
+
+Codifies "JJ Simon's Fair Value Theory NQ Strategy" (source: a PDF slide
+deck). Lives in `fair_value/` (strategy logic) and
+`backtest/fair_value_engine.py` + `backtest/run_fair_value.py` (backtester).
+Reuses the same `Bar`/`SwingTracker`/`detect_mss` primitives as Failed-2s
+(`failed2s/bars.py`, `failed2s/structure.py`) rather than re-implementing
+swing/structure detection.
+
+**Rules, as given in the source material:**
+
+1. Two intraday windows, NY time: **9:30-11:00** and **14:00-15:00**. Each
+   window's "fair value" anchor is the open price of its first 1-minute bar
+   (9:30 open / 2pm price) -- the idea being that absent new information,
+   price tends to revert to that anchor.
+2. First **~10-15 minutes** of a window ("continuation" phase): look for a
+   displacement candle + BOS/MSB *away* from fair value. Rest of the window
+   ("reversion" phase): look for a displacement candle + BOS/MSB *back
+   toward* fair value.
+3. **Entry**: market order on the signal bar's close, targeting 1.5R, no
+   trade management (no breakeven/trailing -- it's a fixed stop and target).
+4. **Stop/target distance** comes from an ATR bucket: ATR > 20 -> 50pt
+   SL / 75pt TP; 7-20 ATR -> 25pt SL / 37.5pt TP; ATR < 7 -> 16.5pt SL /
+   24.75pt TP. Contracts are sized (1-3) so `stop_points * $20/pt *
+   contracts` lands near $1,000 risk/trade, per the source material.
+5. Avoid the first 3 minutes after the 9:30 open.
+
+**Two interpretation calls the source leaves implicit, made explicit in
+code** (see the docstring in `fair_value/strategy.py`):
+- **Displacement candle** uses the source's own "more mechanical
+  definition": counter-wick <= 20% of the candle's high-low range.
+- **ATR** is computed on the entry timeframe itself (1-minute bars, the
+  strategy's stated general parameter), not a daily ATR -- the given bucket
+  thresholds (7 / 20 points) match a 1-minute NQ true range, not a daily one
+  (which runs into the hundreds of points for NQ).
+
+**Deliberately not implemented** -- the source material itself flags these
+as discretionary / unconfirmed rather than core mechanical rules:
+2nd-attempt re-entries, session VWAP as a discretionary confluence filter,
+8:30am red-folder-news reversions, and tagging extra continuation trades
+after price returns to fair value. The PDF's suggestion to also test first
+90m after Asia/London opens isn't implemented either (NY-hours windows
+only) but `fair_value/strategy.py`'s `SessionWindow` list is generic, so
+more windows are a small addition if you want to test that.
+
+One optional filter *is* wired up: `--restrict-to-first-hour` skips entries
+in a window's 2nd hour, which the source flags as a possible optimization
+worth testing (see backtest results below -- it does help slightly here).
+
+**Run it:**
+
+```bash
+python -m backtest.run_fair_value --data sample_data/real_nas100_2016_2020.csv --symbol NQ
+```
+
+`--symbol` supports the same instruments as Failed-2s (NQ's point value is
+$20/point). Writes `trades_fair_value.csv` (now includes `window` and
+`phase` columns, useful for exactly this kind of breakdown) and prints
+summary metrics.
+
+**No NQ dataset was actually attached to this task** -- only the strategy
+PDF came through as an upload; no CSV was found in the session's uploads or
+already in the repo. Rather than block on that, this was backtested against
+the same real historical data source the Failed-2s README already uses and
+documents: `sample_data/fetch_real_data.py --instrument NAS100_USD`, OANDA's
+Nasdaq-100 CFD 1-minute series (2016-01 through 2020-05, ~1.49M bars, real
+market data, republished under GPL-3.0 by `FutureSharks/financial-data`).
+Same caveats as the SPX500 case apply: it's an index CFD proxy, not literal
+CME NQ tick data, and coverage stops mid-2020. **If you have real NQ 1-minute
+data, backtest against that before trusting these numbers** -- this run is
+meant to sanity-check the logic against real price action, not as a final
+verdict.
+
+**Results on that data** (`--symbol NQ`, default $1,000 target risk/trade,
+2016-01 through 2020-05):
+
+| | num_trades | win_rate | profit_factor | avg_r | expectancy/trade | total_pnl | max_dd |
+|---|---|---|---|---|---|---|---|
+| All trades | 2,444 | 48.0% | 1.09 | 0.033 | $32.69 | $79,902 | $33,471 |
+| `--restrict-to-first-hour` | 2,309 | 48.2% | 1.11 | 0.040 | $39.82 | $91,944 | $33,198 |
+
+Breaking the unrestricted run down by window/phase (via the new `window`/
+`phase` trade-log columns) shows the edge is not evenly spread:
+
+| Segment | n | win_rate | profit_factor | expectancy/trade |
+|---|---|---|---|---|
+| AM window (9:30-11:00) | 1,643 | 48.0% | 1.14 | $55.30 |
+| PM window (14:00-15:00) | 801 | 48.1% | 0.95 | **-$13.60** |
+| Long trades | 1,248 | 51.3% | 1.17 | $57.40 |
+| Short trades | 1,196 | 44.6% | 1.02 | $6.90 |
+
+Takeaways: the whole edge over this period lives in the **AM window and the
+long side**; the PM window was a net loser on this dataset, and shorts
+barely broke even. That's consistent with 2016-2020 being a persistent
+Nasdaq-100 uptrend, so a "long-only, AM-only" variant may be overfit to that
+regime rather than a real edge -- worth checking against a period with a
+real downtrend/chop before concluding PM/shorts don't work. Also notable:
+`window_flatten` exits (window ended before hitting stop or target) were
+the single most profitable exit category (57.3% win rate, $110
+expectancy/trade on 1,278 trades) -- more profitable than trades that
+actually ran to the full 1.5R target. That's the window cutoff acting as de
+facto trade management even though the source says "no trade management";
+worth keeping in mind if you relax the window-flatten rule.
 
 ## Running the tests
 

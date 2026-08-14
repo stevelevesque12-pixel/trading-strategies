@@ -8,7 +8,7 @@ from .engine import Trade
 TRADE_FIELDS = [
     "entry_time", "exit_time", "direction", "entry_price", "stop_price",
     "target_price", "exit_price", "exit_reason", "contracts",
-    "pnl_points", "pnl_dollars", "r_multiple",
+    "pnl_points", "pnl_dollars", "r_multiple", "window", "phase",
 ]
 
 METRIC_FIELDS = [
@@ -27,6 +27,7 @@ def write_trades_csv(trades: List[Trade], path: str) -> None:
                     t.entry_time, t.exit_time, t.direction, t.entry_price, t.stop_price,
                     t.target_price, t.exit_price, t.exit_reason, t.contracts,
                     round(t.pnl_points, 4), round(t.pnl_dollars, 2), round(t.r_multiple, 3),
+                    t.window, t.phase,
                 ]
             )
 
