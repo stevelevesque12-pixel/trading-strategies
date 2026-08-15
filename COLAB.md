@@ -72,3 +72,52 @@ much smaller sample: 7 days of 1-minute data is roughly a week of trading,
 not enough to draw strong statistical conclusions about the `1m-15m` pair
 specifically -- treat it as a sanity check, not a verdict. The 60-day 5m
 data for the other two pairs gives a more usable sample size.
+
+## Lab Model (Trader Kane's NQ strategy)
+
+The Lab Model needs **two** symbols (NQ traded, ES for SMT), so it's the
+`--symbol=F` swap above plus a second fetch. Its best-known config after
+cost-aware optimization is `exec_swing_strength=5` at 1-minute execution --
+but 1-minute is capped at 7 days by Yahoo, same limit as above. For a
+60-day window, use the 5-minute config found in the same sweep instead
+(`stop_buffer_ticks=0, exec_swing_strength=3, breakeven_at_r=0.5`) -- see
+README.md's "Re-optimizing after adding costs" section for where these came
+from.
+
+**1. Get the code** (same as step 1 above) and **install dependencies**
+(same as step 2 above, `pip install -q -r requirements.txt yfinance`).
+
+**2. Fetch both symbols.** For the 60-day/5-minute test:
+
+```python
+!python sample_data/fetch_yfinance.py --symbol NQ=F --interval 5m --period 60d --out sample_data/yf_nq_5m.csv
+!python sample_data/fetch_yfinance.py --symbol ES=F --interval 5m --period 60d --out sample_data/yf_es_5m.csv
+```
+
+Optionally, also grab the 7-day 1-minute pair to sanity-check the
+1-minute/`exec_swing_strength=5` config on its (much shorter) native window:
+
+```python
+!python sample_data/fetch_yfinance.py --symbol NQ=F --interval 1m --period 7d --out sample_data/yf_nq_1m.csv
+!python sample_data/fetch_yfinance.py --symbol ES=F --interval 1m --period 7d --out sample_data/yf_es_1m.csv
+```
+
+**3. Run the backtest:**
+
+```python
+!python -m backtest.run_lab_model --nq-data sample_data/yf_nq_5m.csv --es-data sample_data/yf_es_5m.csv \
+    --execution-tf 5min --stop-buffer-ticks 0 --exec-swing-strength 3 --breakeven-at-r 0.5 \
+    --out yf_lab_model_trades_5m.csv
+
+# if you also fetched the 1-minute pair:
+!python -m backtest.run_lab_model --nq-data sample_data/yf_nq_1m.csv --es-data sample_data/yf_es_1m.csv \
+    --out yf_lab_model_trades_1m.csv
+```
+
+**4. Download the results** (or send the printed metrics/CSVs back here to interpret):
+
+```python
+from google.colab import files
+files.download("yf_lab_model_trades_5m.csv")
+# files.download("yf_lab_model_trades_1m.csv")  # if fetched
+```
