@@ -40,7 +40,10 @@ from .report import write_comparison_csv
 
 DEFAULT_STOP_BUFFER_TICKS = [0, 2, 4, 8, 12, 16]
 DEFAULT_BREAKEVEN_AT_R = ["none", 0.25, 0.5, 0.75, 1.0]
-DEFAULT_EXEC_SWING_STRENGTH = [1, 2, 3]
+# Widened from [1,2,3] after cost-aware sweeps showed the best combinations clustering at the
+# top of that range -- 5 turned out to be a local peak with 4, 6, 7, 8 all worse either side of
+# it (see README's "Re-optimizing after adding costs"), not a boundary effect.
+DEFAULT_EXEC_SWING_STRENGTH = [1, 2, 3, 4, 5]
 
 OPTIMIZE_METRIC_FIELDS = [
     "stop_buffer_ticks", "exec_swing_strength", "breakeven_at_r",

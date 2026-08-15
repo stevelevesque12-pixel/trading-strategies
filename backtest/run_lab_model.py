@@ -22,8 +22,8 @@ def main() -> None:
     parser.add_argument("--es-data", required=True, help="Path to ES 1-minute OHLCV CSV, timestamps aligned to the same clock as --nq-data")
     parser.add_argument("--execution-tf", default="1min", choices=["1min", "3min", "5min"])
     parser.add_argument("--contracts", type=int, default=1)
-    parser.add_argument("--stop-buffer-ticks", type=int, default=4, help="Extra ticks beyond the swept/recent H/L before the stop sits")
-    parser.add_argument("--exec-swing-strength", type=int, default=2, help="Fractal window (bars) confirming swings on the execution timeframe -- drives LLT/target selection")
+    parser.add_argument("--stop-buffer-ticks", type=int, default=2, help="Extra ticks beyond the swept/recent H/L before the stop sits")
+    parser.add_argument("--exec-swing-strength", type=int, default=5, help="Fractal window (bars) confirming swings on the execution timeframe -- drives LLT/target selection")
     parser.add_argument(
         "--breakeven-at-r",
         type=float,

@@ -54,9 +54,9 @@ class LabModelStrategy:
     def __init__(
         self,
         tick_size: float = 0.25,
-        stop_buffer_ticks: int = 4,
+        stop_buffer_ticks: int = 2,
         swing_strength: int = 2,
-        exec_swing_strength: int = 2,
+        exec_swing_strength: int = 5,
         pending_expiry_bars: int = 30,
         session: Optional[LabModelSession] = None,
     ):

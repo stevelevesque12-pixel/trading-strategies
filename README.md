@@ -333,14 +333,69 @@ python -m backtest.run_lab_model --nq-data sample_data/real_nq_2019.csv --es-dat
 ```
 
 The stop/target and execution-timeframe sweeps above (`optimize_lab_model`,
-`compare_lab_model`) both default to realistic costs now too, but their
-*rankings* were produced before this was added -- the best zero-cost
-combination is not guaranteed to be the best cost-adjusted one (a
-lower-frequency, higher-conviction parameter region could plausibly survive
-costs better than the highest-frequency one that won on paper). Re-running
-those sweeps with costs on, and specifically looking for configurations
-that trade less often but at higher expectancy per trade, is the natural
-next step before concluding the strategy has no edge at all.
+`compare_lab_model`) both default to realistic costs now too, but the
+*numbers quoted in those two sections* were produced before this was added
+-- treat the "Execution timeframe results" and "Stop-loss and target
+parameter results" sections above as historical (zero-cost) and superseded
+by the re-optimization below, which redid this search with costs on.
+
+### Re-optimizing after adding costs
+
+The best zero-cost combination is not guaranteed to be the best
+cost-adjusted one -- a lower-frequency, higher-conviction parameter region
+can plausibly survive costs better than the highest-frequency one that won
+on paper. Re-ran `compare_lab_model` (execution timeframe) and
+`optimize_lab_model` (stop/target grid, widened to `exec_swing_strength` up
+to 8) with costs on, on both windows.
+
+**Execution timeframe, with costs:** the ranking flips depending on the
+window -- 5-minute is the only profitable timeframe in 2019 alone (PF 1.14,
++$5.08/trade), but that doesn't replicate on 2018-2020, where 5-minute is
+the *worst* of the three (PF 0.69, -$17.57/trade on a thin 25-65 trade
+sample) and 1-minute is the least-bad, if still negative, choice in both
+windows. Same overfitting pattern as the earlier `exec_swing_strength`
+mixup -- a promising number on the smaller window that a second window
+doesn't confirm. 1-minute execution stays the default for that reason.
+
+**`exec_swing_strength` (the fractal window that picks the LLT target) is
+the parameter that actually matters here**, not stop-loss buffer or
+execution timeframe. At 1-minute execution, `stop_buffer_ticks=2,
+exec_swing_strength=5, breakeven_at_r=0.25` -- a wider fractal window than
+the old default of 2, giving fewer but farther-target trades -- is
+profitable **net of costs in both windows**:
+
+| Window | Trades | Win % | Profit Factor | Expectancy/trade |
+|---|---|---|---|---|
+| 2019 | 24 | 50.0% | **2.45** | **+$36.28** |
+| 2018-2020 | 69 | 42.0% | **1.64** | **+$14.21** |
+
+Swept `exec_swing_strength` from 4 through 8 at this stop/breakeven to
+check whether 5 was a genuine peak or just the edge of the originally
+tested range (1-3) -- it's a real local peak, not a boundary effect:
+
+| exec_swing_strength | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|
+| Profit factor (2018-2020) | 0.84 | **1.64** | 1.28 | 0.69 | 0.60 |
+| Expectancy/trade | -$5.18 | **+$14.21** | +$9.10 | -$10.69 | -$12.18 |
+
+`stop_buffer_ticks` was rechecked at `exec_swing_strength=5` too --
+0/2/4 are all close and all profitable on 2018-2020 (PF 1.58/1.64/1.54),
+so this isn't a fragile, knife-edge result; 2 is a modest, not dramatic,
+winner among them. A 5-minute config found in the same sweep
+(`stop_buffer_ticks=0, exec_swing_strength=3, breakeven_at_r=0.5`) also
+survives costs on both windows (PF 23.4 on 2019 collapsing to a much more
+believable PF 1.35 / +$21.23 per trade on 2018-2020 -- the 2019 number was
+mostly a 17-trade sample size artifact, but the underlying edge wasn't
+purely noise). **`exec_swing_strength=5` at 1-minute execution is now the
+default**, updated in `LabModelStrategy` and both CLIs.
+
+Same caveats as everywhere else in this section, plus one specific to this
+result: it was found by searching a large grid against the same two
+windows already used to validate everything else in this README, so some
+of its apparent edge is likely still fit to this particular dataset rather
+than a durable property of the strategy -- the right next check is genuinely
+fresh, out-of-sample data (a period/source not used anywhere in this
+tuning process) before trusting it further.
 
 ### Execution timeframe results
 
