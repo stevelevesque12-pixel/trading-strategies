@@ -63,6 +63,8 @@ class LabModelEngine:
         execution_tf: str = "1min",
         contracts: int = 1,
         breakeven_at_r: Optional[float] = 0.25,
+        commission_per_contract: float = 4.60,
+        slippage_ticks: float = 1.0,
     ):
         self.session = session or LabModelSession()
         self.strategy = strategy or LabModelStrategy(session=self.session)
@@ -70,6 +72,14 @@ class LabModelEngine:
         self.execution_tf = execution_tf
         self.contracts = contracts
         self.breakeven_at_r = breakeven_at_r
+        # Round-turn commission (all-in: exchange/NFA/broker fees), per contract, deducted once
+        # per trade. $4.60 is a representative retail NQ figure (e.g. Tradovate's per-side rate
+        # doubled) -- not a quote for any specific broker; override with your own.
+        self.commission_per_contract = commission_per_contract
+        # Applied against the trader on entry fills, stop-loss fills, and forced market closes
+        # (session flatten / end of data) -- NOT on target fills, which are modeled as limit
+        # orders that fill at (or better than) the limit price, so no adverse slippage.
+        self.slippage_ticks = slippage_ticks
 
         self.trades: List[Trade] = []
         self.position: Optional[dict] = None
@@ -163,7 +173,7 @@ class LabModelEngine:
             if signal is not None and self.position is None:
                 self.position = {
                     "direction": signal.direction,
-                    "entry_price": signal.entry_price,
+                    "entry_price": self._entry_fill(signal.entry_price, signal.direction),
                     "stop_price": signal.stop_price,
                     "initial_stop_price": signal.stop_price,
                     "target_price": signal.target_price,
@@ -211,14 +221,30 @@ class LabModelEngine:
                 pos["stop_price"] = min(pos["stop_price"], entry)
                 pos["breakeven_done"] = True
 
+    def _entry_fill(self, price: float, direction: str) -> float:
+        """Buying (entering long) fills higher than the signal price; selling (entering short) fills lower."""
+        adj = self.slippage_ticks * self.instrument.tick_size
+        return price + adj if direction == "long" else price - adj
+
+    def _exit_fill(self, price: float, direction: str, reason: str) -> float:
+        """Selling to close a long fills lower; buying to close a short fills higher. Target
+        exits are modeled as limit orders (no adverse slippage) -- everything else is a market
+        or stop order, which can slip against the trader."""
+        if reason == "target":
+            return price
+        adj = self.slippage_ticks * self.instrument.tick_size
+        return price - adj if direction == "long" else price + adj
+
     def _close_position(self, exit_price: float, exit_time, reason: str) -> None:
         pos = self.position
         direction = pos["direction"]
         entry_price = pos["entry_price"]
+        exit_price = self._exit_fill(exit_price, direction, reason)
 
         sign = 1 if direction == "long" else -1
         pnl_points = (exit_price - entry_price) * sign
         pnl_dollars = pnl_points * self.instrument.point_value * self.contracts
+        pnl_dollars -= self.commission_per_contract * self.contracts
         risk_points = abs(entry_price - pos["initial_stop_price"])
         r_multiple = pnl_points / risk_points if risk_points else 0.0
 

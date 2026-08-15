@@ -30,6 +30,8 @@ def main() -> None:
         default=0.25,
         help="Fraction of the way from entry to target that moves the stop to breakeven; pass a negative value to disable",
     )
+    parser.add_argument("--commission-per-contract", type=float, default=4.60, help="Round-turn commission per contract, deducted per trade; pass 0 to disable")
+    parser.add_argument("--slippage-ticks", type=float, default=1.0, help="Adverse slippage (in ticks) applied to entries, stop exits, and forced market closes -- not target exits; pass 0 to disable")
     parser.add_argument("--out", default="trades_lab_model.csv")
     args = parser.parse_args()
 
@@ -42,13 +44,15 @@ def main() -> None:
         execution_tf=args.execution_tf,
         contracts=args.contracts,
         breakeven_at_r=breakeven,
+        commission_per_contract=args.commission_per_contract,
+        slippage_ticks=args.slippage_ticks,
     )
     trades = engine.run(args.nq_data, args.es_data)
 
     write_trades_csv(trades, args.out)
 
     metrics = compute_metrics(trades)
-    print(f"Execution TF: {args.execution_tf}  Contracts: {args.contracts}")
+    print(f"Execution TF: {args.execution_tf}  Contracts: {args.contracts}  Commission: ${args.commission_per_contract}/contract  Slippage: {args.slippage_ticks} ticks")
     for k, v in metrics.items():
         print(f"  {k}: {v}")
     print(f"Trade log written to {args.out}")

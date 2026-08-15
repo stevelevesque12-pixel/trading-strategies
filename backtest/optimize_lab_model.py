@@ -71,6 +71,8 @@ def main() -> None:
     parser.add_argument("--stop-buffer-ticks", default=",".join(str(v) for v in DEFAULT_STOP_BUFFER_TICKS))
     parser.add_argument("--breakeven-at-r", default=",".join(str(v) for v in DEFAULT_BREAKEVEN_AT_R), help="'none' disables breakeven management")
     parser.add_argument("--exec-swing-strength", default=",".join(str(v) for v in DEFAULT_EXEC_SWING_STRENGTH))
+    parser.add_argument("--commission-per-contract", type=float, default=4.60, help="Round-turn commission per contract, deducted per trade; pass 0 to disable")
+    parser.add_argument("--slippage-ticks", type=float, default=1.0, help="Adverse slippage (in ticks) applied to entries, stop exits, and forced market closes -- not target exits; pass 0 to disable")
     parser.add_argument("--min-trades", type=int, default=10, help="Drop combinations with fewer trades than this (too noisy to rank)")
     parser.add_argument("--top", type=int, default=15, help="How many best combinations to print")
     parser.add_argument("--out", default="lab_model_stop_target_sweep.csv")
@@ -95,7 +97,10 @@ def main() -> None:
                 # (zone/swing history, pending setups, reference candles), so reusing one
                 # across runs would let a later run start from a prior run's leftover state.
                 strategy = LabModelStrategy(tick_size=instrument.tick_size, stop_buffer_ticks=sbt, exec_swing_strength=ess)
-                engine = LabModelEngine(strategy=strategy, instrument=instrument, execution_tf=args.execution_tf, contracts=args.contracts, breakeven_at_r=be)
+                engine = LabModelEngine(
+                    strategy=strategy, instrument=instrument, execution_tf=args.execution_tf, contracts=args.contracts,
+                    breakeven_at_r=be, commission_per_contract=args.commission_per_contract, slippage_ticks=args.slippage_ticks,
+                )
                 trades = engine.run_data(data)
 
                 metrics = compute_metrics(trades)

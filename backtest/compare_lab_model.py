@@ -31,6 +31,8 @@ def main() -> None:
         default=0.25,
         help="Fraction of the way from entry to target that moves the stop to breakeven; pass a negative value to disable",
     )
+    parser.add_argument("--commission-per-contract", type=float, default=4.60, help="Round-turn commission per contract, deducted per trade; pass 0 to disable")
+    parser.add_argument("--slippage-ticks", type=float, default=1.0, help="Adverse slippage (in ticks) applied to entries, stop exits, and forced market closes -- not target exits; pass 0 to disable")
     parser.add_argument("--out-prefix", default="trades_lab_model", help="Per-timeframe trade logs are written to <prefix>_<tf>.csv")
     parser.add_argument("--summary-out", default="lab_model_tf_comparison.csv")
     parser.add_argument(
@@ -54,7 +56,8 @@ def main() -> None:
     for tf in tfs:
         strategy = LabModelStrategy(tick_size=instrument.tick_size)
         engine = LabModelEngine(
-            strategy=strategy, instrument=instrument, execution_tf=tf, contracts=args.contracts, breakeven_at_r=breakeven
+            strategy=strategy, instrument=instrument, execution_tf=tf, contracts=args.contracts, breakeven_at_r=breakeven,
+            commission_per_contract=args.commission_per_contract, slippage_ticks=args.slippage_ticks,
         )
         trades = engine.run(args.nq_data, args.es_data)
 

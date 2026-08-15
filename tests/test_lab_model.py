@@ -340,3 +340,125 @@ def test_engine_runs_on_each_execution_timeframe(synthetic_csvs, execution_tf):
 
     trades = engine.run(nq_csv, es_csv)
     assert isinstance(trades, list)
+
+
+# ---------------------------------------------------------------------------
+# backtest/lab_model_engine.py -- commission and slippage
+# ---------------------------------------------------------------------------
+
+class _FireOnceLabModelStrategy:
+    """Test double: fires one signal on the first execution bar, then stays quiet.
+
+    Isolates the engine's fill/commission/slippage logic from the real
+    pattern-detection cascade in LabModelStrategy, mirroring
+    `test_backtest.py`'s `_FireOnceStrategy`.
+    """
+
+    def __init__(self, direction, entry_price, stop_price, target_price):
+        self._fired = False
+        self.direction = direction
+        self.entry_price = entry_price
+        self.stop_price = stop_price
+        self.target_price = target_price
+
+    def on_htf_bar(self, tf, bar):
+        pass
+
+    def on_es_4h_bar(self, bar):
+        pass
+
+    def on_execution_bars(self, nq_bar, es_bar):
+        if self._fired:
+            return None
+        self._fired = True
+        from lab_model.strategy import Signal
+
+        return Signal(
+            timestamp=nq_bar.timestamp,
+            direction=self.direction,
+            entry_price=self.entry_price,
+            stop_price=self.stop_price,
+            target_price=self.target_price,
+            reason="test",
+        )
+
+
+def _write_pair_csv(tmp_path, name, rows):
+    import pandas as pd
+
+    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    path = tmp_path / name
+    df.to_csv(path, index=False)
+    return str(path)
+
+
+def _two_bar_pair(tmp_path, nq_bar1, es_bar1=(100, 101, 99, 100, 10)):
+    """A 2-bar NQ+ES pair: bar0 (fires the signal) then bar1 (`nq_bar1`, drives the exit)."""
+    base_nq = [
+        ("2026-01-05 10:00:00-05:00", 100, 101, 99, 100, 10),
+        ("2026-01-05 10:01:00-05:00",) + nq_bar1,
+    ]
+    base_es = [
+        ("2026-01-05 10:00:00-05:00",) + es_bar1,
+        ("2026-01-05 10:01:00-05:00",) + es_bar1,
+    ]
+    nq_path = _write_pair_csv(tmp_path, "nq.csv", base_nq)
+    es_path = _write_pair_csv(tmp_path, "es.csv", base_es)
+    return nq_path, es_path
+
+
+def test_stop_exit_applies_slippage_and_commission(tmp_path):
+    nq_path, es_path = _two_bar_pair(tmp_path, nq_bar1=(94, 96, 90, 91, 10))  # low 90 breaches stop=95
+
+    instrument = INSTRUMENTS["NQ"]
+    strategy = _FireOnceLabModelStrategy("long", entry_price=100, stop_price=95, target_price=110)
+    engine = LabModelEngine(
+        strategy=strategy, instrument=instrument, breakeven_at_r=None,
+        commission_per_contract=4.60, slippage_ticks=1.0,
+    )
+    trades = engine.run(nq_path, es_path)
+
+    assert len(trades) == 1
+    t = trades[0]
+    assert t.exit_reason == "stop"
+    # entry fills worse (higher) than the signal price by 1 tick; stop exit fills worse (lower) by 1 tick
+    assert t.entry_price == 100 + 0.25
+    assert t.exit_price == 95 - 0.25
+    expected_points = (t.exit_price - t.entry_price)
+    expected_dollars = expected_points * instrument.point_value - 4.60
+    assert round(t.pnl_dollars, 6) == round(expected_dollars, 6)
+
+
+def test_target_exit_has_no_slippage(tmp_path):
+    nq_path, es_path = _two_bar_pair(tmp_path, nq_bar1=(101, 115, 100, 110, 10))  # high 115 clears target=110
+
+    instrument = INSTRUMENTS["NQ"]
+    strategy = _FireOnceLabModelStrategy("long", entry_price=100, stop_price=95, target_price=110)
+    engine = LabModelEngine(
+        strategy=strategy, instrument=instrument, breakeven_at_r=None,
+        commission_per_contract=0.0, slippage_ticks=1.0,
+    )
+    trades = engine.run(nq_path, es_path)
+
+    assert len(trades) == 1
+    t = trades[0]
+    assert t.exit_reason == "target"
+    assert t.entry_price == 100 + 0.25  # entry still slips
+    assert t.exit_price == 110  # target fills exactly -- modeled as a limit order, no slippage
+
+
+def test_zero_commission_and_slippage_matches_theoretical_prices(tmp_path):
+    nq_path, es_path = _two_bar_pair(tmp_path, nq_bar1=(94, 96, 90, 91, 10))
+
+    instrument = INSTRUMENTS["NQ"]
+    strategy = _FireOnceLabModelStrategy("long", entry_price=100, stop_price=95, target_price=110)
+    engine = LabModelEngine(
+        strategy=strategy, instrument=instrument, breakeven_at_r=None,
+        commission_per_contract=0.0, slippage_ticks=0.0,
+    )
+    trades = engine.run(nq_path, es_path)
+
+    t = trades[0]
+    assert t.entry_price == 100
+    assert t.exit_price == 95
+    assert t.pnl_dollars == (95 - 100) * instrument.point_value

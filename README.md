@@ -291,7 +291,56 @@ Same coverage/caveats as noted above for the OANDA CFD data (2005-mid 2020,
 not literal CME tick data, OANDA tick-count volume). Options:
 `--execution-tf` (1min/3min/5min), `--stop-buffer-ticks` (default 4),
 `--exec-swing-strength` (default 2), `--breakeven-at-r` (default 0.25,
-negative to disable), `--contracts`, `--out`.
+negative to disable), `--commission-per-contract` (default $4.60
+round-turn), `--slippage-ticks` (default 1.0), `--contracts`, `--out`.
+
+### Commission and slippage matter more than any parameter tuned above
+
+**All of the profit factors quoted in this README up through the previous
+section were computed with zero trading costs.** Once realistic costs are
+turned on (the defaults: $4.60 round-turn commission/contract, 1 tick of
+adverse slippage on entries, stop exits, and forced market closes -- not
+target exits, which are modeled as limit orders), the "optimized" 1m,
+stop=4, exec-swing=2, breakeven=0.25 configuration flips from profitable to
+a net loser in **both** windows:
+
+| Window | Trades | Win % | Profit Factor | Expectancy/trade |
+|---|---|---|---|---|
+| 2019, zero cost | 71 | 43.7% | 3.51 | +$13.30 |
+| 2019, realistic cost | 71 | 32.4% | **0.84** | **-$2.78** |
+| 2018-2020, zero cost | 138 | 44.9% | 2.01 | +$11.49 |
+| 2018-2020, realistic cost | 138 | 34.8% | **0.87** | **-$2.68** |
+
+The win rate drop (not just smaller wins) is a real, non-obvious mechanism,
+not a bug: entry slippage shifts the fill price on *every* trade, which
+shifts exactly where the breakeven-move threshold sits and where a
+breakeven-triggered stop actually exits (itself subject to further
+slippage). Since the engine only ever holds one position at a time, an
+exit landing on a different bar changes whether/when the *next* signal
+gets to fire, cascading into a different downstream sequence of trades --
+small per-trade friction compounds into a materially different trade
+history, not just a linear tax on the same trades.
+
+**Practical takeaway: at $4.60 + 1 tick of round-turn cost and ~40-70
+trades/year on a single contract, this configuration doesn't clear its own
+costs on this data.** That's a real result, not a caveat to skip past --
+before trusting any of the earlier optimization sections, re-run them with
+costs on, e.g.:
+
+```bash
+python -m backtest.run_lab_model --nq-data sample_data/real_nq_2019.csv --es-data sample_data/real_es_2019.csv
+python -m backtest.run_lab_model --nq-data sample_data/real_nq_2019.csv --es-data sample_data/real_es_2019.csv --commission-per-contract 0 --slippage-ticks 0  # to reproduce the earlier zero-cost numbers
+```
+
+The stop/target and execution-timeframe sweeps above (`optimize_lab_model`,
+`compare_lab_model`) both default to realistic costs now too, but their
+*rankings* were produced before this was added -- the best zero-cost
+combination is not guaranteed to be the best cost-adjusted one (a
+lower-frequency, higher-conviction parameter region could plausibly survive
+costs better than the highest-frequency one that won on paper). Re-running
+those sweeps with costs on, and specifically looking for configurations
+that trade less often but at higher expectancy per trade, is the natural
+next step before concluding the strategy has no edge at all.
 
 ### Execution timeframe results
 
