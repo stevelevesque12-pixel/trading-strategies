@@ -29,6 +29,20 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy lives in this repo**: `overextension/` -- a VWAP
+mean-reversion fade for high-beta tech futures (NQ/MNQ), trading a single
+lower timeframe (1m or 5m) directly rather than a bias+entry pair. Tracks
+the session VWAP and a volume-weighted stdev band around it, turning
+"distance from fair value" into a z-score; when price pushes several
+standard deviations away and then shows the first sign of exhaustion (a
+confirming-direction bar with the z-score already recovering off its
+extreme), it fades back toward VWAP. Stop sits beyond the extension's
+extreme, target is a (by default full) partial reversion back to the
+current VWAP. See `overextension/strategy.py` and
+`tradingview/overextension.pine`. Unlike structure_scalp, this one trades
+at 1m/5m resolution, so it's fully backtestable against the same
+1-minute data as Failed-2s -- see the Backtesting section below.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -53,9 +67,41 @@ Timeframe pairs implemented (entry timeframe, bias timeframe):
 | `5m-1h` | 5 minute | 1 hour |
 | `15m-4h` | 15 minute | 4 hour |
 
+## Strategy logic (VWAP Overextension)
+
+Single timeframe (no bias tier) -- run directly on 1-minute or 5-minute bars:
+
+1. **Session VWAP + band** — every bar accumulates a volume-weighted VWAP and
+   a volume-weighted standard deviation around it, both resetting at the
+   start of each session day. `z = (close - vwap) / stdev` (stdev floored at
+   `min_stdev_ticks` to avoid blowups early in a session).
+2. **Extension** — `z <= -entry_z` (or `>= entry_z` for the short side)
+   starts tracking an "extension" episode: the extreme price and the most
+   extreme z reached. It keeps extending on new extremes without firing —
+   firing on the threshold cross alone means fading a move still in
+   progress.
+3. **Exhaustion trigger** — fires the first bar that's both (a) in the
+   opposite direction (bullish to fade a downside extension, bearish for
+   upside) and (b) has recovered at least `confirm_z` off the episode's most
+   extreme z reading. That's the entry.
+4. **Stop** — the episode's extreme, plus a small tick buffer.
+5. **Target** — `entry + reversion_target_pct * (vwap - entry)`, i.e. a
+   (default full) reversion back toward fair value rather than a fixed R
+   multiple, since the thesis is literally "reverts to VWAP." Set
+   `reversion_target_pct` below 1.0 for a more conservative partial fade.
+6. **Trend-day guard** — an episode is abandoned (no trade) if its extreme z
+   ever exceeds `max_z`: a move that extended can still be a real trend day,
+   not a range-bound overextension, and this strategy shouldn't fade those.
+7. **Intraday only** — same session-reset/entry-window/flatten-cutoff
+   behavior as Failed-2s (`SessionConfig`, shared).
+
+Primarily meant for high-beta tech futures (NQ/MNQ), but works on any
+instrument in `failed2s/instruments.py`.
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
-- `backtest/` — event-driven backtester over OHLCV CSV data.
+- `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
+- `backtest/` — event-driven backtester over OHLCV CSV data (both Failed-2s and Overextension).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -117,6 +163,21 @@ profit factor, avg R, max drawdown, expectancy) and writes:
 
 Both CLIs support `--symbol` (MES, ES, MNQ, NQ, MCL, CL, MGC, GC),
 `--contracts`, `--daily-loss-limit`, `--max-daily-trades`, `--target-r`.
+
+**VWAP Overextension** (same 1-minute CSV, resampled to your chosen
+timeframe -- try real NASDAQ-100 data via `fetch_real_data.py
+--instrument NAS100_USD`, since this strategy is aimed at high-beta tech):
+
+```bash
+python -m backtest.run_overextension --data sample_data/sample_1min.csv --timeframe 5min --symbol MNQ
+```
+
+Supports `--timeframe` (`1min`/`5min`), `--symbol`, `--contracts`,
+`--daily-loss-limit`, `--max-daily-trades`, `--entry-z`, `--confirm-z`,
+`--max-z`, `--reversion-target-pct`, `--warmup-bars`. Same trade-log CSV
+format and metrics as `backtest.run`/`backtest.compare` above (uses the same
+`backtest.metrics`/`backtest.report` helpers) -- just a single timeframe, no
+`compare`-style multi-pair CLI since there's only one timeframe per run.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are

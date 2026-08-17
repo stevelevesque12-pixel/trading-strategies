@@ -1,0 +1,220 @@
+//@version=6
+// VWAP overextension mean-reversion scalp, ported from overextension/strategy.py.
+// Fires TradersPost-format webhook alerts (https://traderspost.io).
+//
+// Add this to a chart set to your trading timeframe (1 or 5 minutes --
+// there's no separate bias timeframe here, unlike failed2s/structure_scalp;
+// "distance from fair value" is evaluated on the same chart you trade off
+// of). Intended primarily for high-beta tech futures (NQ/MNQ) -- set
+// "Point value" under Position sizing to 20 for NQ or 2 for MNQ.
+//
+// Logic (long fade case; short is the exact mirror):
+//   1. Every bar, accumulate the session VWAP and a volume-weighted stdev
+//      band around it (both reset at the start of each NY session day).
+//      z = (close - vwap) / max(stdev, minStdevTicks * tickSize).
+//   2. z <= -entryZ starts a long-fade "extension" episode: track the
+//      lowest low and most negative z reached. Deliberately does not fire
+//      yet -- firing the instant the threshold is crossed means fading a
+//      move that's still accelerating (catching the knife).
+//   3. Fires on the first bar showing exhaustion: bullish (close > open)
+//      AND z has recovered by confirmZ off the episode's extreme.
+//   4. Stop = the episode's extreme, minus a tick buffer. Target = entry +
+//      reversionTargetPct * (current VWAP - entry) -- a partial (default
+//      full) reversion back to fair value, not a fixed R multiple.
+//   5. An episode is dropped with no signal if price fully round-trips back
+//      through VWAP on its own, it runs longer than maxExtensionBars, its
+//      extreme z exceeds maxZ (likely a real trend day, not a fade), or a
+//      fresh extension the opposite way supersedes it.
+//
+// This is a best-effort translation of the same rules, not guaranteed to be
+// bar-for-bar identical to the Python backtester -- validate on
+// TradingView's own Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets sent.
+// Paste your TradersPost strategy's unique webhook URL into the alert's
+// Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md for the full setup (same
+// TradersPost flow used by the other strategies in this repo).
+
+strategy("VWAP Overextension Scalp", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+entryZ             = input.float(2.0, "Entry z-score (stdevs from VWAP)", minval=0.1)
+confirmZ           = input.float(0.5, "Confirm recovery (stdevs off extreme)", minval=0.0)
+maxZ               = input.float(4.0, "Max z-score (skip beyond -- trend-day guard)", minval=0.1)
+reversionTargetPct = input.float(1.0, "Reversion target (% of distance back to VWAP)", minval=0.01, maxval=2.0, step=0.05)
+warmupBars         = input.int(20, "Warmup bars before trusting z-score", minval=1)
+minStdevTicks      = input.float(2.0, "Min stdev floor (ticks)", minval=0.0)
+tickSize           = input.float(0.25, "Tick size (NQ/MNQ = 0.25)")
+stopBufferTicks    = input.int(2, "Stop buffer (ticks)")
+maxExtensionBars   = input.int(30, "Max extension episode length (bars)", minval=1)
+entrySession       = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession     = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd    = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd      = input.float(2.0, "Point value (USD/point) -- MNQ=2, NQ=20", minval=0.01, group="Position sizing")
+maxContracts       = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- Session VWAP + volume-weighted stdev band (cumulative, reset daily) ----
+var float sumV  = 0.0
+var float sumPV = 0.0
+var float sumPV2 = 0.0
+var int   barCount = 0
+
+if newDay
+    sumV      := 0.0
+    sumPV     := 0.0
+    sumPV2    := 0.0
+    barCount  := 0
+
+typicalPrice = (high + low + close) / 3.0
+vol = volume > 0 ? volume : 1.0
+
+sumV     := sumV + vol
+sumPV    := sumPV + typicalPrice * vol
+sumPV2   := sumPV2 + typicalPrice * typicalPrice * vol
+barCount := barCount + 1
+
+vwap = sumV > 0 ? sumPV / sumV : na
+variance = sumV > 0 ? sumPV2 / sumV - vwap * vwap : na
+stdevRaw = not na(variance) ? math.sqrt(math.max(variance, 0.0)) : na
+stdev = not na(stdevRaw) ? math.max(stdevRaw, minStdevTicks * tickSize) : na
+
+warmedUp = barCount >= warmupBars
+z = (not na(vwap) and not na(stdev) and warmedUp) ? (close - vwap) / stdev : na
+
+// ---- Extension (overextension episode) state machine ----
+var string extDir      = na
+var float  extExtreme  = na
+var float  extExtremeZ = na
+var int    extBars     = 0
+
+if newDay
+    extDir      := na
+    extExtreme  := na
+    extExtremeZ := na
+    extBars     := 0
+
+longSignal  = false
+shortSignal = false
+sigEntry  = float(na)
+sigStop   = float(na)
+sigTarget = float(na)
+
+if not na(z)
+    if z <= -entryZ and (na(extDir) or extDir != "long")
+        // Fresh long-fade episode (first ever, or supersedes a short one). Founding bar never fires.
+        extDir      := "long"
+        extExtreme  := low
+        extExtremeZ := z
+        extBars     := 1
+    else if z >= entryZ and (na(extDir) or extDir != "short")
+        extDir      := "short"
+        extExtreme  := high
+        extExtremeZ := z
+        extBars     := 1
+    else if not na(extDir)
+        extBars := extBars + 1
+        if extBars > maxExtensionBars
+            extDir      := na
+            extExtreme  := na
+            extExtremeZ := na
+        else if extDir == "long"
+            extExtreme  := math.min(extExtreme, low)
+            extExtremeZ := math.min(extExtremeZ, z)
+            if math.abs(extExtremeZ) > maxZ
+                extDir      := na
+                extExtreme  := na
+                extExtremeZ := na
+            else if z > 0
+                extDir      := na
+                extExtreme  := na
+                extExtremeZ := na
+            else
+                recovered = z - extExtremeZ
+                if recovered >= confirmZ and close > open
+                    longSignal := true
+                    sigEntry   := close
+                    sigStop    := extExtreme - stopBufferTicks * tickSize
+                    sigTarget  := sigEntry + reversionTargetPct * (vwap - sigEntry)
+                    extDir      := na
+                    extExtreme  := na
+                    extExtremeZ := na
+        else
+            extExtreme  := math.max(extExtreme, high)
+            extExtremeZ := math.max(extExtremeZ, z)
+            if math.abs(extExtremeZ) > maxZ
+                extDir      := na
+                extExtreme  := na
+                extExtremeZ := na
+            else if z < 0
+                extDir      := na
+                extExtreme  := na
+                extExtremeZ := na
+            else
+                recovered = extExtremeZ - z
+                if recovered >= confirmZ and close < open
+                    shortSignal := true
+                    sigEntry    := close
+                    sigStop     := extExtreme + stopBufferTicks * tickSize
+                    sigTarget   := sigEntry - reversionTargetPct * (sigEntry - vwap)
+                    extDir      := na
+                    extExtreme  := na
+                    extExtremeZ := na
+
+longRisk  = longSignal  ? sigEntry - sigStop : na
+shortRisk = shortSignal ? sigStop - sigEntry : na
+
+finalLongSignal  = longSignal  and not na(longRisk)  and longRisk  > 0 and sigTarget > sigEntry and inEntryWindow and strategy.position_size == 0
+finalShortSignal = shortSignal and not na(shortRisk) and shortRisk > 0 and sigTarget < sigEntry and inEntryWindow and strategy.position_size == 0
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+longRiskPerContract  = finalLongSignal  ? longRisk  * pointValueUsd : na
+shortRiskPerContract = finalShortSignal ? shortRisk * pointValueUsd : na
+
+longQty  = (finalLongSignal  and longRiskPerContract  > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / longRiskPerContract),  maxContracts)) : 0
+shortQty = (finalShortSignal and shortRiskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / shortRiskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal and longQty > 0
+    strategy.entry("Long", strategy.long, qty=longQty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(longQty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and shortQty > 0
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(shortQty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(vwap, title="Session VWAP", color=color.new(color.blue, 0), linewidth=2)
+plot(not na(vwap) and not na(stdev) ? vwap + entryZ * stdev : na, title="+entryZ band", color=color.new(color.red, 60))
+plot(not na(vwap) and not na(stdev) ? vwap - entryZ * stdev : na, title="-entryZ band", color=color.new(color.green, 60))
+plotshape(finalLongSignal,  title="Long fade",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(finalShortSignal, title="Short fade", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
