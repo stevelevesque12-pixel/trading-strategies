@@ -1,0 +1,156 @@
+//@version=6
+// Opening Range Breakout (ORB) with an ATR velocity filter, ported from
+// orb/strategy.py. Fires TradersPost-format webhook alerts.
+//
+// Add this to a chart set to your trading timeframe (5 minutes is the
+// Python default; 1 minute also works).
+//
+// Adjusting the Opening Range length: edit the END time of "Opening Range
+// window" below (its start should stay at your session open). E.g. for a
+// 5-minute OR use "0930-0935", for 15-minute (the default) "0930-0945",
+// for 60-minute "0930-1030". Keep "Breakout window" starting exactly where
+// the OR window ends, and keep session.no_entry_after (the breakout
+// window's end) AFTER the OR window's end -- an OR that ends at/after the
+// breakout cutoff can mathematically never fire (the Python strategy
+// raises an error for this; watch for it here by checking num_trades in
+// the Strategy Tester if you widen the OR without also pushing the
+// breakout window's end out).
+//
+// Logic:
+//   1. Opening Range (OR) = the high/low of the "Opening Range window".
+//      Resets every session day.
+//   2. Trailing ATR = ta.sma(ta.tr, atrPeriod) -- a simple moving average
+//      of True Range, matching the Python strategy's rolling calculator
+//      (not Wilder's smoothed ATR). Deliberately NOT session-reset --
+//      Pine's ta.sma already just runs continuously bar to bar, which is
+//      exactly the "carries over from the prior session" behavior the
+//      Python version implements by hand (see its docstring for why: a
+//      14-period ATR reset at 9:30 wouldn't warm up again until well past
+//      a 10:15 breakout cutoff).
+//   3. Entries fire on the closed bar whose range first crosses OR High +
+//      atrMult*ATR (long) or OR Low - atrMult*ATR (short) -- simulated as
+//      filling at that exact trigger level, evaluated once per closed bar,
+//      same as the Python backtest and the same alert-per-bar-close
+//      convention the other scripts in this repo use (not a true intrabar
+//      stop order). If a single bar improbably crosses both triggers, long
+//      is checked first (same documented tie-break as the Python version).
+//   4. One breakout attempt per day -- once either side fires (or the
+//      breakout window passes with nothing triggering), no further entries
+//      that session.
+//   5. Stop = the opposite side of the Opening Range, +/- a tick buffer.
+//      Target = entry +/- risk * targetR.
+//   6. Square-off window force-closes any open position.
+//
+// This is a best-effort translation of the same rules, not guaranteed to
+// be bar-for-bar identical to the Python backtester -- validate on
+// TradingView's own Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets
+// sent. Paste your TradersPost strategy's unique webhook URL into the
+// alert's Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md for the full
+// setup (same TradersPost flow used by the other strategies in this repo).
+
+strategy("ORB + ATR Velocity Filter", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+orSession       = input.session("0930-0945", "Opening Range window (America/New_York) -- edit the end time to change OR length")
+breakoutSession = input.session("0945-1015", "Breakout window (America/New_York) -- start must match the OR window's end")
+atrPeriod       = input.int(14, "Trailing ATR period (bars)", minval=1)
+atrMult         = input.float(0.2, "Breakout buffer (x ATR)", minval=0.0)
+targetR         = input.float(1.0, "Target R multiple")
+tickSize        = input.float(0.25, "Tick size (MES/MNQ = 0.25)")
+stopBufferTicks = input.int(0, "Stop buffer (ticks)")
+flattenSession  = input.session("1545-1600", "Flatten / square-off window (America/New_York)")
+riskPerTradeUsd = input.float(200.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inORWindow       = not na(time(timeframe.period, orSession, "America/New_York"))
+inBreakoutWindow = not na(time(timeframe.period, breakoutSession, "America/New_York"))
+inFlattenWindow  = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- Opening Range (resets daily) ----
+var float orHigh = na
+var float orLow  = na
+var bool  tradedToday = false
+
+if newDay
+    orHigh      := na
+    orLow       := na
+    tradedToday := false
+
+if inORWindow
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow, low)
+
+// ---- Trailing ATR (NOT session-reset -- see header comment) ----
+atrVal = ta.sma(ta.tr, atrPeriod)
+
+// ---- Breakout triggers ----
+buyTrigger  = not na(orHigh) ? orHigh + atrMult * atrVal : na
+sellTrigger = not na(orLow)  ? orLow  - atrMult * atrVal : na
+
+canEnter = inBreakoutWindow and not tradedToday and not na(orHigh) and not na(atrVal) and strategy.position_size == 0
+
+longSignal  = canEnter and not na(buyTrigger) and high >= buyTrigger
+shortSignal = canEnter and not longSignal and not na(sellTrigger) and low <= sellTrigger
+
+sigEntry  = longSignal ? buyTrigger : shortSignal ? sellTrigger : float(na)
+stopBuffer = stopBufferTicks * tickSize
+sigStop   = longSignal ? orLow - stopBuffer : shortSignal ? orHigh + stopBuffer : float(na)
+sigRisk   = longSignal ? sigEntry - sigStop : shortSignal ? sigStop - sigEntry : float(na)
+sigTarget = longSignal ? sigEntry + sigRisk * targetR : shortSignal ? sigEntry - sigRisk * targetR : float(na)
+
+finalLongSignal  = longSignal  and not na(sigRisk) and sigRisk > 0
+finalShortSignal = shortSignal and not na(sigRisk) and sigRisk > 0
+
+if finalLongSignal or finalShortSignal
+    tradedToday := true  // one breakout attempt per day, win or lose
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+riskPerContract = (finalLongSignal or finalShortSignal) ? sigRisk * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(orHigh, title="OR High", color=color.new(color.orange, 0), style=plot.style_stepline)
+plot(orLow,  title="OR Low",  color=color.new(color.orange, 0), style=plot.style_stepline)
+plot(buyTrigger,  title="Buy trigger",  color=color.new(color.green, 40), style=plot.style_circles)
+plot(sellTrigger, title="Sell trigger", color=color.new(color.red, 40),   style=plot.style_circles)
+plotshape(finalLongSignal,  title="Long breakout",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(finalShortSignal, title="Short breakout", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)

@@ -43,6 +43,18 @@ current VWAP. See `overextension/strategy.py` and
 at 1m/5m resolution, so it's fully backtestable against the same
 1-minute data as Failed-2s -- see the Backtesting section below.
 
+**A fourth strategy lives in this repo**: `orb/` -- a classic Opening
+Range Breakout with an ATR "velocity" filter. Tracks the high/low of the
+first N minutes of the session (the Opening Range, N configurable -- 5, 15,
+60, whatever), then watches for the first bar whose range crosses OR High +
+`0.2 * ATR` (long) or OR Low - `0.2 * ATR` (short); the ATR buffer is what
+filters a real breakout from a tick-through-and-fade. Stop sits at the
+opposite side of the range, one breakout attempt per session day, unfilled
+orders are cancelled after a time cutoff (default 10:15 ET) and any open
+position is force-flattened later in the day (default 15:45 ET). See
+`orb/strategy.py` and `tradingview/orb.pine`. Trades at 1m/5m resolution
+like overextension, so it's backtestable against the same data.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -98,10 +110,49 @@ Single timeframe (no bias tier) -- run directly on 1-minute or 5-minute bars:
 Primarily meant for high-beta tech futures (NQ/MNQ), but works on any
 instrument in `failed2s/instruments.py`.
 
+## Strategy logic (ORB + ATR Velocity Filter)
+
+Single timeframe (no bias tier), same as Overextension:
+
+1. **Opening Range (OR)** — the high/low of the first `or_minutes` of the
+   session (default 15: 9:30-9:45 ET, but this is the one knob explicitly
+   meant to be turned — 5, 15, 60, whatever fits your instrument/timeframe).
+   Resets every session day.
+2. **Trailing ATR** — a rolling simple-moving-average of True Range over
+   `atr_period` bars (default 14). Deliberately **not** session-reset (see
+   the module docstring in `orb/strategy.py` for why: at the default 14
+   bars on a 5-minute chart, resetting it at 9:30 wouldn't warm it up again
+   until 70 minutes in — past the default 10:15 breakout cutoff). It
+   carries over from the prior session's trailing bars instead, same as it
+   would behave as an indicator on a real chart.
+3. **Breakout triggers** (resting-stop-style — they fire the instant a
+   bar's range crosses the level, at that exact level, not at the bar's
+   close): long on `bar.high >= OR High + atr_mult * ATR`, short on
+   `bar.low <= OR Low - atr_mult * ATR`. The ATR term is the "velocity"
+   filter — a breakout has to clear the range by a volatility-scaled
+   amount, not just tick through it.
+4. **One trade per day** — once a breakout fires (either side), no further
+   entries are taken that session, win or lose.
+5. **Time filter** — no entries once `no_entry_after` passes (default
+   10:15 ET), even if the OR breakout never triggered; any open position is
+   force-flattened at `flatten_at` (default 15:45 ET).
+6. **Stop / target** — stop at the opposite side of the Opening Range
+   (a breakout that fully round-trips back through the range has
+   invalidated its own thesis), plus an optional tick buffer (default 0).
+   Target = `target_r * risk` (default 1:1 — tune upward, ORB breakouts
+   with real velocity are commonly traded for >1R since the range itself is
+   often a tight stop).
+
+Picking `or_minutes` too large for the default 10:15 cutoff (e.g. a
+60-minute OR ending 10:30, after the cutoff) raises a `ValueError` at
+construction rather than silently producing zero trades — widen
+`no_entry_after` to match if you lengthen the OR.
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
-- `backtest/` — event-driven backtester over OHLCV CSV data (both Failed-2s and Overextension).
+- `orb/` — the ORB strategy's logic (`strategy.py`), same reuse pattern as overextension.
+- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, and ORB).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -178,6 +229,21 @@ Supports `--timeframe` (`1min`/`5min`), `--symbol`, `--contracts`,
 format and metrics as `backtest.run`/`backtest.compare` above (uses the same
 `backtest.metrics`/`backtest.report` helpers) -- just a single timeframe, no
 `compare`-style multi-pair CLI since there's only one timeframe per run.
+
+**ORB + ATR Velocity Filter** (same 1-minute CSV, resampled to your chosen timeframe):
+
+```bash
+python -m backtest.run_orb --data sample_data/sample_1min.csv --or-minutes 15 --timeframe 5min --symbol MES
+```
+
+Supports `--timeframe` (`1min`/`5min`), `--or-minutes` (the OR length --
+try 5, 15, 60, ...), `--atr-period`, `--atr-mult`, `--target-r`,
+`--stop-buffer-ticks`, `--no-breakout-after`/`--flatten-at` (`HH:MM` ET),
+`--symbol`, `--contracts`, `--daily-loss-limit`, `--max-daily-trades`. If
+you widen `--or-minutes` past `--no-breakout-after`, the strategy raises a
+clear error instead of silently trading zero times -- push
+`--no-breakout-after` out to match. Same trade-log/metrics plumbing as the
+other CLIs.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are
