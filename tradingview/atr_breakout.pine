@@ -1,0 +1,159 @@
+//@version=6
+// ATR-everything breakout, ported from atr_breakout/strategy.py. ATR sets
+// the entry trigger, the entry filter, AND the exit -- no other indicator
+// involved. Fires TradersPost-format webhook alerts.
+//
+// Works on any chart timeframe. Point value is auto-detected from the
+// symbol (syminfo.pointvalue) by default, with a manual override + an
+// on-chart readout table (bottom-right) if your data vendor's contract
+// metadata doesn't match the real exchange spec -- this has been observed
+// to happen for some micro-futures continuous contracts, so check the
+// table against a known-good value before trusting the backtest. (No tick
+// size input here -- unlike the other scripts in this repo, this strategy
+// is purely ATR-scaled with no tick-based stop buffer, so there's nothing
+// to feed it.)
+//
+// Logic (long case; short is the exact mirror):
+//   1. Entry -- every bar computes its own breakout level from that same
+//      bar's own open: longTrigger = open + entryAtrMult * atrLong
+//      (default entryAtrMult=2.5, atrLong = ATR(atrPeriodLong), default
+//      20). Fires the instant that same bar's range reaches the level,
+//      filled at the exact trigger price (a resting-stop-style entry). No
+//      lookahead: atrLong/atrShort used for THIS bar's trigger are always
+//      the value as of the END of the PREVIOUS bar -- Pine's ta.sma(ta.tr,
+//      period) naturally gives this (it's the trailing value as of the
+//      current bar's close, but the trigger math below uses [1] to read
+//      last bar's values so this bar's own range can't pollute its own
+//      trigger). If a bar's range improbably crosses both triggers, long
+//      is checked first (documented tie-break, consistent with the rest
+//      of this repo).
+//   2. Filter -- atrShort (atrPeriodShort, default 5) must be BELOW
+//      atrLong (volatility contraction -- "coiling") for an entry to be
+//      allowed at all. atrShort >= atrLong (already expanding) sits out
+//      entirely.
+//   3. Exit -- "flip the entry math": stop = entryPrice -/+ stopAtrMult *
+//      atrLong (default stopAtrMult=0.5, a genuine fraction of a full
+//      ATR). No fixed profit target by default -- the trade rides to the
+//      stop or the session flatten. Set targetAtrMult > 0 to opt into an
+//      ATR-scaled target instead (entryPrice +/- targetAtrMult *
+//      atrLong) -- an explicit, backtestable A/B toggle, same as the
+//      Python version's target_atr_mult=None default.
+//   4. ATR does NOT reset per session (ta.sma runs continuously bar to
+//      bar) -- same reasoning as the ORB script's trailing ATR.
+//   5. Multiple trades per day allowed -- a fresh breakout level exists on
+//      every bar.
+//
+// This is a best-effort translation of the same rules, not guaranteed to
+// be bar-for-bar identical to the Python backtester -- validate on
+// TradingView's own Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets
+// sent. Paste your TradersPost strategy's unique webhook URL into the
+// alert's Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md for the full
+// setup (same TradersPost flow used by the other strategies in this repo).
+
+strategy("ATR Everything Breakout", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+atrPeriodLong    = input.int(20, "ATR long period (bars)", minval=2)
+atrPeriodShort   = input.int(5, "ATR short period (bars)", minval=2)
+entryAtrMult     = input.float(2.5, "Entry breakout distance (x ATR long)", minval=0.1)
+stopAtrMult      = input.float(0.5, "Stop distance from entry (x ATR long)", minval=0.01)
+targetAtrMult    = input.float(0.0, "Target distance from entry (x ATR long) -- 0 = no fixed target, ride to stop/flatten", minval=0.0)
+entrySession     = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession   = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd  = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+maxContracts     = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+pointValueOverride = input.float(0.0, "Point value override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
+
+// ---- Instrument specs: auto-detected by default, overridable -- see
+// header comment for why this matters. ----
+pointValueUsd = pointValueOverride > 0 ? pointValueOverride : syminfo.pointvalue
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+// ---- ATR (NOT session-reset -- ta.sma runs continuously bar to bar) ----
+// Uses [1] (last bar's already-closed value) so this bar's own range can
+// never leak into the trigger computed for this same bar -- matches the
+// Python strategy's explicit "compute trigger, THEN update ATR" ordering.
+atrLongCurrent  = ta.sma(ta.tr, atrPeriodLong)
+atrShortCurrent = ta.sma(ta.tr, atrPeriodShort)
+atrLong  = atrLongCurrent[1]
+atrShort = atrShortCurrent[1]
+
+filterOk = not na(atrLong) and not na(atrShort) and atrShort < atrLong
+
+longTrigger  = not na(atrLong) ? open + entryAtrMult * atrLong : na
+shortTrigger = not na(atrLong) ? open - entryAtrMult * atrLong : na
+
+canEnter = inEntryWindow and filterOk and strategy.position_size == 0
+
+longSignal  = canEnter and not na(longTrigger) and high >= longTrigger
+shortSignal = canEnter and not longSignal and not na(shortTrigger) and low <= shortTrigger
+
+sigEntry  = longSignal ? longTrigger : shortSignal ? shortTrigger : float(na)
+sigStop   = longSignal ? sigEntry - stopAtrMult * atrLong : shortSignal ? sigEntry + stopAtrMult * atrLong : float(na)
+sigTarget = targetAtrMult <= 0 ? float(na) : (longSignal ? sigEntry + targetAtrMult * atrLong : shortSignal ? sigEntry - targetAtrMult * atrLong : float(na))
+
+sigRisk = longSignal ? sigEntry - sigStop : shortSignal ? sigStop - sigEntry : float(na)
+finalLongSignal  = longSignal  and not na(sigRisk) and sigRisk > 0
+finalShortSignal = shortSignal and not na(sigRisk) and sigRisk > 0
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+riskPerContract = (finalLongSignal or finalShortSignal) ? sigRisk * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+    if not na(sigTarget)
+        strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    else
+        strategy.exit("Long Stop", from_entry="Long", stop=sigStop)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         (not na(sigTarget) ? ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}' : '') + '}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+    if not na(sigTarget)
+        strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    else
+        strategy.exit("Short Stop", from_entry="Short", stop=sigStop)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         (not na(sigTarget) ? ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}' : '') + '}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(longTrigger,  title="Long trigger",  color=color.new(color.green, 40), style=plot.style_circles)
+plot(shortTrigger, title="Short trigger", color=color.new(color.red, 40),   style=plot.style_circles)
+plotshape(finalLongSignal,  title="Long breakout",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(finalShortSignal, title="Short breakout", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+
+// ---- Resolved-instrument readout -- confirm against the real exchange
+// spec before trusting the backtest; use the override above if wrong. ----
+var table specsTable = table.new(position.bottom_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
+if barstate.islast
+    table.cell(specsTable, 0, 0, "Point value", text_color=color.white)
+    table.cell(specsTable, 1, 0, str.tostring(pointValueUsd), text_color=pointValueOverride > 0 ? color.orange : color.white)
+    table.cell(specsTable, 0, 1, "ATR long/short", text_color=color.white)
+    table.cell(specsTable, 1, 1, str.tostring(atrLong) + " / " + str.tostring(atrShort), text_color=color.white)
+    table.cell(specsTable, 0, 2, "Filter (coiling?)", text_color=color.white)
+    table.cell(specsTable, 1, 2, filterOk ? "YES" : "no", text_color=filterOk ? color.green : color.gray)

@@ -76,6 +76,21 @@ literal minutes to the right bar count via `timeframe.in_seconds()`, so
 switching the chart between 1m/5m/etc. doesn't silently change what the
 Hurst window means or misapply another instrument's tick size.
 
+**A sixth strategy lives in this repo**: `atr_breakout/` -- ATR sets the
+entry trigger, the entry filter, *and* the exit; no other indicator is
+involved. Every bar computes its own breakout level from that bar's own
+open (`open +/- entry_atr_mult * ATR_long`, default 2.5x ATR(20)), fired
+the instant that same bar's range reaches it, but only while a short-term
+ATR sits below the long-term one (volatility contraction -- "coiling";
+short-term above long-term means the move is already expanding and likely
+exhausted, so it sits out). Stop is "the entry math flipped": a fraction
+of ATR_long back from the fill (default 0.5x). As specified, there's no
+fixed profit target -- a position rides to the stop or the session
+flatten, a real architectural difference from every other strategy here.
+An optional `target_atr_mult` parameter (`None` by default) lets you
+A/B test an ATR-scaled take-profit against the ride-it-out version. See
+`atr_breakout/strategy.py` and `tradingview/atr_breakout.pine`.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -201,12 +216,45 @@ minutes, not bars):
 7. **Intraday only** — same session-reset/entry-window/flatten-cutoff
    convention as the rest of this repo.
 
+## Strategy logic (ATR-Everything Breakout)
+
+Single timeframe, no other indicator:
+
+1. **Entry** — every bar computes `long_trigger = open + entry_atr_mult *
+   ATR_long`, `short_trigger = open - entry_atr_mult * ATR_long` from that
+   same bar's own open (default entry_atr_mult=2.5, ATR_long=ATR(20)).
+   Fires the instant that bar's own range reaches the level, at the exact
+   trigger price. `ATR_long`/`ATR_short` used for a bar's trigger are
+   always the value as of the *end of the previous bar* — computed before
+   this bar's own high/low/close are folded into the rolling window, to
+   avoid lookahead.
+2. **Filter** — `ATR_short` (`atr_period_short`, default 5) must be below
+   `ATR_long` (volatility contraction — "coiling") for an entry to be
+   allowed at all; `ATR_short >= ATR_long` (already expanding) sits out
+   entirely.
+3. **Exit** — "flip the entry math": stop = `entry_price -/+
+   stop_atr_mult * ATR_long` (default 0.5, a genuine fraction of a full
+   ATR). **No fixed profit target by default** — a position rides to the
+   stop or the session flatten, as specified; this is a real architectural
+   difference from every other strategy here. Set `target_atr_mult` (e.g.
+   2.0) to opt into an ATR-scaled target instead, for A/B testing against
+   the ride-it-out version.
+4. **ATR does not reset per session** — same reasoning as ORB's trailing
+   ATR (a 20-bar window reset at session open wouldn't be usable again for
+   a while, every single day).
+5. **Multiple trades per day allowed** — a fresh breakout level exists on
+   every bar.
+6. **Intraday only** — same entry-window/flatten-cutoff convention as the
+   rest of this repo; no other session-scoped state to reset (no VWAP, no
+   opening range).
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
 - `orb/` — the ORB strategy's logic (`strategy.py`), same reuse pattern as overextension.
 - `hurst_vwap/` — the Hurst-gated VWAP band fade's logic (`strategy.py`), reuses `overextension.strategy.SessionVWAP` directly.
-- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, and Hurst-VWAP).
+- `atr_breakout/` — the ATR-everything breakout's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
+- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, Hurst-VWAP, and ATR Breakout).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -310,6 +358,20 @@ Supports `--entry-sd`, `--stop-sd`, `--stop-buffer-ticks`,
 `--min-stdev-ticks`, `--symbol`, `--contracts`, `--daily-loss-limit`,
 `--max-daily-trades`. A `--stop-sd` at or below `--entry-sd` raises a clear
 error at construction. Same trade-log/metrics plumbing as the other CLIs.
+
+**ATR-Everything Breakout**:
+
+```bash
+python -m backtest.run_atr_breakout --data sample_data/sample_1min.csv --timeframe 5min --symbol MES
+```
+
+Supports `--timeframe` (`1min`/`5min`), `--atr-period-long`,
+`--atr-period-short`, `--entry-atr-mult`, `--stop-atr-mult`,
+`--target-atr-mult` (omit for no fixed target -- the default; set e.g.
+`2.0` to A/B test a take-profit), `--symbol`, `--contracts`,
+`--daily-loss-limit`, `--max-daily-trades`. Same trade-log/metrics
+plumbing as the other CLIs -- `target_price` is blank in the trade log
+when no target is set.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are
