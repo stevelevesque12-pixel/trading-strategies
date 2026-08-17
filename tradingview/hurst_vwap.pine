@@ -3,12 +3,17 @@
 // hurst_vwap/strategy.py. Fires TradersPost-format webhook alerts.
 //
 // Works on any chart timeframe -- tick size and point value are read
-// automatically from the symbol (syminfo.mintick / syminfo.pointvalue,
-// whatever contract you have loaded: MES, MNQ, MCL, ...), and the Hurst
-// window/warmup are specified in literal minutes, auto-converted to the
-// right bar count for whatever timeframe the chart is set to via
-// timeframe.in_seconds(). Switching the chart between 1m/5m/15m no longer
-// silently changes what "30 minutes" means.
+// automatically from the symbol by default (syminfo.mintick /
+// syminfo.pointvalue, whatever contract you have loaded: MES, MNQ, MCL,
+// ...), with an optional manual override under "Instrument overrides" if
+// your data vendor's contract metadata doesn't match the real exchange
+// spec (this does happen for some micro-futures continuous contracts --
+// check the on-chart readout table against a known-good value and use the
+// override if they disagree). The Hurst window/warmup are specified in
+// literal minutes, auto-converted to the right bar count for whatever
+// timeframe the chart is set to via timeframe.in_seconds(). Switching the
+// chart between 1m/5m/15m no longer silently changes what "30 minutes"
+// means.
 //
 // Logic (short case; long is the exact mirror -- the original spec only
 // described fading the upper band short, this port mirrors it to the
@@ -68,13 +73,21 @@ entrySession       = input.session("0930-1545", "Entry window (America/New_York)
 flattenSession     = input.session("1550-1600", "Flatten window (America/New_York)")
 riskPerTradeUsd    = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
 maxContracts       = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+tickSizeOverride   = input.float(0.0, "Tick size override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
+pointValueOverride = input.float(0.0, "Point value override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
 
 if stopSD <= entrySD
     runtime.error("stopSD must be greater than entrySD -- the hard stop has to sit outside the entry band.")
 
-// ---- Auto-detected instrument specs (no manual tick size / point value input needed) ----
-tickSize      = syminfo.mintick
-pointValueUsd = syminfo.pointvalue
+// ---- Instrument specs: auto-detected from the symbol by default, but
+// overridable -- TradingView's contract metadata (syminfo.mintick /
+// syminfo.pointvalue) is usually correct but isn't guaranteed accurate for
+// every data vendor's micro-futures continuous contract. If your backtest
+// results don't match a known-good manual value, check the on-chart
+// readout (bottom-right table) against the real exchange spec and set the
+// override here if they disagree. ----
+tickSize      = tickSizeOverride > 0 ? tickSizeOverride : syminfo.mintick
+pointValueUsd = pointValueOverride > 0 ? pointValueOverride : syminfo.pointvalue
 
 // ---- Minutes -> bars, for whatever timeframe this chart is actually on ----
 tfSeconds = timeframe.in_seconds(timeframe.period)
@@ -205,3 +218,15 @@ plot(not na(vwap) and not na(stdev) ? vwap + stopSD * stdev : na, title="+stopSD
 plot(not na(vwap) and not na(stdev) ? vwap - stopSD * stdev : na, title="-stopSD band", color=color.new(color.green, 70), style=plot.style_circles)
 plotshape(finalLongSignal,  title="Long fade",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
 plotshape(finalShortSignal, title="Short fade", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+
+// ---- Resolved-instrument readout -- confirm these against the real
+// exchange spec before trusting the backtest; use the overrides above if
+// they're wrong for your data feed. ----
+var table specsTable = table.new(position.bottom_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
+if barstate.islast
+    table.cell(specsTable, 0, 0, "Tick size", text_color=color.white)
+    table.cell(specsTable, 1, 0, str.tostring(tickSize), text_color=tickSizeOverride > 0 ? color.orange : color.white)
+    table.cell(specsTable, 0, 1, "Point value", text_color=color.white)
+    table.cell(specsTable, 1, 1, str.tostring(pointValueUsd), text_color=pointValueOverride > 0 ? color.orange : color.white)
+    table.cell(specsTable, 0, 2, "Hurst window", text_color=color.white)
+    table.cell(specsTable, 1, 2, str.tostring(hurstWindowBars) + " bars", text_color=color.white)
