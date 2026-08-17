@@ -1,0 +1,194 @@
+//@version=6
+// Hurst-gated VWAP standard-deviation band fade, ported from
+// hurst_vwap/strategy.py. Fires TradersPost-format webhook alerts.
+//
+// Add this to a chart set to 1 MINUTE -- the Hurst window is specified in
+// literal minutes (default 30), and this port assumes 1-minute bars to
+// match that, same as the Python version.
+//
+// Logic (short case; long is the exact mirror -- the original spec only
+// described fading the upper band short, this port mirrors it to the
+// lower band too, same as every other mean-reversion strategy in this
+// repo trades both sides):
+//   1. Session VWAP + a volume-weighted stdev band around it, both
+//      resetting at the start of each session day ("strictly from the
+//      current session's volume distribution").
+//   2. A rolling Hurst exponent (classic single-window R/S estimate,
+//      H = log(R/S)/log(N)) over the trailing hurstWindow bars. Unlike the
+//      VWAP band, this does NOT reset at session start -- it carries over
+//      from the prior session's trailing bars (same reasoning as the ORB
+//      script's trailing ATR: a 30-bar window reset at 9:30 wouldn't be
+//      usable again until 9:30 + 30 minutes every single day). H < 0.5 =>
+//      range-bound; H > 0.5 => trending. Known caveat: single-window R/S
+//      has a documented small-sample bias at N~30 -- treat hurstThreshold
+//      as a tunable backtested knob, not a literal textbook 0.5.
+//   3. Only while H < hurstThreshold: short fires the instant a bar's high
+//      touches VWAP + entrySD*stdev; long fires on a bar's low touching
+//      VWAP - entrySD*stdev. Fires at that exact band level, not the bar's
+//      close. If a single bar improbably touches both bands, short is
+//      checked first (same documented tie-break as the Python version).
+//   4. Hard stop just outside the stopSD band (default 3.0), plus a tick
+//      buffer -- "prevent catastrophic losses if the market suddenly
+//      shifts into an aggressive trend." stopSD must stay greater than
+//      entrySD.
+//   5. Target = the VWAP baseline, frozen at entry time (not the
+//      live-updating VWAP).
+//   6. Multiple trades per day allowed (unlike the ORB script's one-shot
+//      breakout) -- a range-bound session can bounce off the bands more
+//      than once.
+//
+// This is a best-effort translation of the same rules, not guaranteed to
+// be bar-for-bar identical to the Python backtester -- validate on
+// TradingView's own Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". The message you type in the alert dialog is ignored for
+// alert() calls -- the JSON string built below is what actually gets
+// sent. Paste your TradersPost strategy's unique webhook URL into the
+// alert's Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md for the full
+// setup (same TradersPost flow used by the other strategies in this repo).
+
+strategy("Hurst-Gated VWAP Band Fade", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+entrySD         = input.float(2.5, "Entry stdev band", minval=0.1)
+stopSD          = input.float(3.0, "Hard stop stdev band (must be > entry)", minval=0.1)
+stopBufferTicks = input.int(2, "Stop buffer (ticks)")
+tickSize        = input.float(0.25, "Tick size (MES/MNQ = 0.25)")
+hurstWindow     = input.int(30, "Rolling Hurst window (bars = minutes on a 1m chart)", minval=3)
+hurstThreshold  = input.float(0.5, "Hurst threshold (trade only below this)", minval=0.0, maxval=1.0)
+warmupBars      = input.int(20, "Warmup bars before trusting the VWAP band", minval=1)
+minStdevTicks   = input.float(2.0, "Min stdev floor (ticks)", minval=0.0)
+entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+if stopSD <= entrySD
+    runtime.error("stopSD must be greater than entrySD -- the hard stop has to sit outside the entry band.")
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- Session VWAP + volume-weighted stdev band (cumulative, reset daily) ----
+var float sumV   = 0.0
+var float sumPV  = 0.0
+var float sumPV2 = 0.0
+var int   barCount = 0
+
+if newDay
+    sumV     := 0.0
+    sumPV    := 0.0
+    sumPV2   := 0.0
+    barCount := 0
+
+typicalPrice = (high + low + close) / 3.0
+vol = volume > 0 ? volume : 1.0
+
+sumV     := sumV + vol
+sumPV    := sumPV + typicalPrice * vol
+sumPV2   := sumPV2 + typicalPrice * typicalPrice * vol
+barCount := barCount + 1
+
+vwap = sumV > 0 ? sumPV / sumV : na
+variance = sumV > 0 ? sumPV2 / sumV - vwap * vwap : na
+stdevRaw = not na(variance) ? math.sqrt(math.max(variance, 0.0)) : na
+stdev = not na(stdevRaw) ? math.max(stdevRaw, minStdevTicks * tickSize) : na
+warmedUp = barCount >= warmupBars
+
+// ---- Rolling Hurst exponent (NOT session-reset -- see header comment) ----
+var array<float> closesBuf = array.new_float()
+array.push(closesBuf, close)
+if array.size(closesBuf) > hurstWindow + 1
+    array.shift(closesBuf)
+
+f_rollingHurst(buf) =>
+    n = array.size(buf) - 1
+    result = float(na)
+    if n >= 2
+        sumRet = 0.0
+        for i = 0 to n - 1
+            sumRet += math.log(array.get(buf, i + 1) / array.get(buf, i))
+        meanRet = sumRet / n
+        cumSum = 0.0
+        cumMax = -1e10
+        cumMin = 1e10
+        sumSq = 0.0
+        for i = 0 to n - 1
+            d = math.log(array.get(buf, i + 1) / array.get(buf, i)) - meanRet
+            cumSum += d
+            cumMax := math.max(cumMax, cumSum)
+            cumMin := math.min(cumMin, cumSum)
+            sumSq += d * d
+        rr = cumMax - cumMin
+        s = math.sqrt(sumSq / n)
+        result := (s == 0 or rr == 0) ? na : math.log(rr / s) / math.log(n)
+    result
+
+hurstVal = array.size(closesBuf) >= hurstWindow + 1 ? f_rollingHurst(closesBuf) : na
+
+// ---- Entry triggers ----
+canEnter = inEntryWindow and warmedUp and not na(hurstVal) and hurstVal < hurstThreshold and strategy.position_size == 0
+
+shortTrigger = not na(vwap) and not na(stdev) ? vwap + entrySD * stdev : na
+longTrigger  = not na(vwap) and not na(stdev) ? vwap - entrySD * stdev : na
+
+shortSignal = canEnter and not na(shortTrigger) and high >= shortTrigger
+longSignal  = canEnter and not shortSignal and not na(longTrigger) and low <= longTrigger
+
+stopBuffer = stopBufferTicks * tickSize
+sigEntry  = shortSignal ? shortTrigger : longSignal ? longTrigger : float(na)
+sigStop   = shortSignal ? vwap + stopSD * stdev + stopBuffer : longSignal ? vwap - stopSD * stdev - stopBuffer : float(na)
+sigTarget = (shortSignal or longSignal) ? vwap : float(na)  // frozen VWAP baseline at entry
+
+sigRisk = shortSignal ? sigStop - sigEntry : longSignal ? sigEntry - sigStop : float(na)
+finalShortSignal = shortSignal and not na(sigRisk) and sigRisk > 0
+finalLongSignal  = longSignal  and not na(sigRisk) and sigRisk > 0
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+riskPerContract = (finalShortSignal or finalLongSignal) ? sigRisk * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(vwap, title="Session VWAP", color=color.new(color.blue, 0), linewidth=2)
+plot(shortTrigger, title="+entrySD band", color=color.new(color.red, 40))
+plot(longTrigger,  title="-entrySD band", color=color.new(color.green, 40))
+plot(not na(vwap) and not na(stdev) ? vwap + stopSD * stdev : na, title="+stopSD band", color=color.new(color.red, 70), style=plot.style_circles)
+plot(not na(vwap) and not na(stdev) ? vwap - stopSD * stdev : na, title="-stopSD band", color=color.new(color.green, 70), style=plot.style_circles)
+plotshape(finalLongSignal,  title="Long fade",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(finalShortSignal, title="Short fade", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)

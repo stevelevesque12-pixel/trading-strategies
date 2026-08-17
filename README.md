@@ -55,6 +55,21 @@ position is force-flattened later in the day (default 15:45 ET). See
 `orb/strategy.py` and `tradingview/orb.pine`. Trades at 1m/5m resolution
 like overextension, so it's backtestable against the same data.
 
+**A fifth strategy lives in this repo**: `hurst_vwap/` -- a VWAP
+standard-deviation band fade gated by a rolling Hurst exponent regime
+filter. Same session VWAP/stdev band as overextension, but here the bands
+are literal fixed multiples (default 2.5 for entry, 3.0 for the hard stop)
+rather than a z-score, and entries are only allowed while a rolling Hurst
+exponent over the trailing 30 minutes confirms the market is range-bound
+(H < 0.5) rather than trending. Short fires the instant price touches
+VWAP + `entry_sd * stdev`; long mirrors it at the lower band (the original
+spec described only the short side -- this port trades both, like every
+other mean-reversion strategy here). Hard stop sits just outside the
+`stop_sd` band, target is the VWAP baseline itself, frozen at entry. See
+`hurst_vwap/strategy.py` and `tradingview/hurst_vwap.pine`. Runs at
+1-minute resolution only (the Hurst window is specified in literal
+minutes), so it's backtestable against the same data as the others.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -148,11 +163,44 @@ Picking `or_minutes` too large for the default 10:15 cutoff (e.g. a
 construction rather than silently producing zero trades — widen
 `no_entry_after` to match if you lengthen the OR.
 
+## Strategy logic (Hurst-Gated VWAP Band Fade)
+
+Single timeframe (1-minute only — the Hurst window is specified in literal
+minutes, not bars):
+
+1. **Session VWAP + stdev band** — reuses the same cumulative
+   volume-weighted VWAP/stdev calculator as Overextension
+   (`SessionVWAP`), resetting at the start of each session day. Bands are
+   `vwap +/- k * stdev` for any `k`.
+2. **Rolling Hurst exponent** — a classic single-window R/S (rescaled
+   range) estimate, `H = log(R/S) / log(N)`, over the trailing
+   `hurst_window` bars (default 30). Does **not** reset at session start —
+   carries over from the prior session's trailing bars, same reasoning as
+   ORB's trailing ATR (a 30-bar window reset at 9:30 wouldn't be usable
+   again for 30 more minutes, every single day). H < 0.5 => range-bound;
+   H > 0.5 => trending. This is a lightweight single-scale estimator with a
+   known small-sample bias at N~30 — treat `hurst_threshold` as a
+   backtested knob, not a literal textbook 0.5.
+3. **Entry** (only while `H < hurst_threshold`) — short the instant
+   `bar.high >= vwap + entry_sd * stdev` (default entry_sd=2.5); long
+   mirrors it at `bar.low <= vwap - entry_sd * stdev`. Fires at the exact
+   touched band level, like ORB's breakout triggers, not at the bar's
+   close.
+4. **Hard stop** — just outside the `stop_sd` band (default 3.0), plus a
+   tick buffer — the trend-day protection the spec calls for.
+   `stop_sd` must be greater than `entry_sd` (validated at construction).
+5. **Target** — the VWAP baseline, frozen at entry time.
+6. **Multiple trades per day allowed** — unlike ORB's one-shot breakout, a
+   range-bound session can bounce off the bands more than once.
+7. **Intraday only** — same session-reset/entry-window/flatten-cutoff
+   convention as the rest of this repo.
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
 - `orb/` — the ORB strategy's logic (`strategy.py`), same reuse pattern as overextension.
-- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, and ORB).
+- `hurst_vwap/` — the Hurst-gated VWAP band fade's logic (`strategy.py`), reuses `overextension.strategy.SessionVWAP` directly.
+- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, and Hurst-VWAP).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -244,6 +292,18 @@ you widen `--or-minutes` past `--no-breakout-after`, the strategy raises a
 clear error instead of silently trading zero times -- push
 `--no-breakout-after` out to match. Same trade-log/metrics plumbing as the
 other CLIs.
+
+**Hurst-Gated VWAP Band Fade** (always 1-minute resolution -- no `--timeframe` choice, since the Hurst window is specified in literal minutes):
+
+```bash
+python -m backtest.run_hurst_vwap --data sample_data/sample_1min.csv --symbol MES
+```
+
+Supports `--entry-sd`, `--stop-sd`, `--stop-buffer-ticks`,
+`--hurst-window`, `--hurst-threshold`, `--warmup-bars`,
+`--min-stdev-ticks`, `--symbol`, `--contracts`, `--daily-loss-limit`,
+`--max-daily-trades`. A `--stop-sd` at or below `--entry-sd` raises a clear
+error at construction. Same trade-log/metrics plumbing as the other CLIs.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are
