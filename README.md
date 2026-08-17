@@ -66,9 +66,15 @@ VWAP + `entry_sd * stdev`; long mirrors it at the lower band (the original
 spec described only the short side -- this port trades both, like every
 other mean-reversion strategy here). Hard stop sits just outside the
 `stop_sd` band, target is the VWAP baseline itself, frozen at entry. See
-`hurst_vwap/strategy.py` and `tradingview/hurst_vwap.pine`. Runs at
-1-minute resolution only (the Hurst window is specified in literal
-minutes), so it's backtestable against the same data as the others.
+`hurst_vwap/strategy.py` and `tradingview/hurst_vwap.pine`. The Python
+backtester runs at 1-minute resolution only (the Hurst window is specified
+in literal minutes), so it's backtestable against the same data as the
+others. The Pine port works on any chart timeframe -- it reads tick
+size/point value automatically from the symbol (`syminfo.mintick`/
+`syminfo.pointvalue`) and auto-converts the Hurst/warmup windows from
+literal minutes to the right bar count via `timeframe.in_seconds()`, so
+switching the chart between 1m/5m/etc. doesn't silently change what the
+Hurst window means or misapply another instrument's tick size.
 
 ## Strategy logic (Failed-2s)
 

@@ -2,9 +2,13 @@
 // Hurst-gated VWAP standard-deviation band fade, ported from
 // hurst_vwap/strategy.py. Fires TradersPost-format webhook alerts.
 //
-// Add this to a chart set to 1 MINUTE -- the Hurst window is specified in
-// literal minutes (default 30), and this port assumes 1-minute bars to
-// match that, same as the Python version.
+// Works on any chart timeframe -- tick size and point value are read
+// automatically from the symbol (syminfo.mintick / syminfo.pointvalue,
+// whatever contract you have loaded: MES, MNQ, MCL, ...), and the Hurst
+// window/warmup are specified in literal minutes, auto-converted to the
+// right bar count for whatever timeframe the chart is set to via
+// timeframe.in_seconds(). Switching the chart between 1m/5m/15m no longer
+// silently changes what "30 minutes" means.
 //
 // Logic (short case; long is the exact mirror -- the original spec only
 // described fading the upper band short, this port mirrors it to the
@@ -14,14 +18,15 @@
 //      resetting at the start of each session day ("strictly from the
 //      current session's volume distribution").
 //   2. A rolling Hurst exponent (classic single-window R/S estimate,
-//      H = log(R/S)/log(N)) over the trailing hurstWindow bars. Unlike the
-//      VWAP band, this does NOT reset at session start -- it carries over
-//      from the prior session's trailing bars (same reasoning as the ORB
-//      script's trailing ATR: a 30-bar window reset at 9:30 wouldn't be
-//      usable again until 9:30 + 30 minutes every single day). H < 0.5 =>
-//      range-bound; H > 0.5 => trending. Known caveat: single-window R/S
-//      has a documented small-sample bias at N~30 -- treat hurstThreshold
-//      as a tunable backtested knob, not a literal textbook 0.5.
+//      H = log(R/S)/log(N)) over the trailing hurstWindowMinutes worth of
+//      bars. Unlike the VWAP band, this does NOT reset at session start --
+//      it carries over from the prior session's trailing bars (same
+//      reasoning as the ORB script's trailing ATR: a 30-bar window reset
+//      at 9:30 wouldn't be usable again until 9:30 + 30 minutes every
+//      single day). H < 0.5 => range-bound; H > 0.5 => trending. Known
+//      caveat: single-window R/S has a documented small-sample bias at
+//      N~30 -- treat hurstThreshold as a tunable backtested knob, not a
+//      literal textbook 0.5.
 //   3. Only while H < hurstThreshold: short fires the instant a bar's high
 //      touches VWAP + entrySD*stdev; long fires on a bar's low touching
 //      VWAP - entrySD*stdev. Fires at that exact band level, not the bar's
@@ -52,22 +57,30 @@ strategy("Hurst-Gated VWAP Band Fade", overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
 
 // ---- Inputs ----
-entrySD         = input.float(2.5, "Entry stdev band", minval=0.1)
-stopSD          = input.float(3.0, "Hard stop stdev band (must be > entry)", minval=0.1)
-stopBufferTicks = input.int(2, "Stop buffer (ticks)")
-tickSize        = input.float(0.25, "Tick size (MES/MNQ = 0.25)")
-hurstWindow     = input.int(30, "Rolling Hurst window (bars = minutes on a 1m chart)", minval=3)
-hurstThreshold  = input.float(0.5, "Hurst threshold (trade only below this)", minval=0.0, maxval=1.0)
-warmupBars      = input.int(20, "Warmup bars before trusting the VWAP band", minval=1)
-minStdevTicks   = input.float(2.0, "Min stdev floor (ticks)", minval=0.0)
-entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
-flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
-riskPerTradeUsd = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
-pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
-maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+entrySD            = input.float(2.5, "Entry stdev band", minval=0.1)
+stopSD             = input.float(3.0, "Hard stop stdev band (must be > entry)", minval=0.1)
+stopBufferTicks    = input.int(2, "Stop buffer (ticks)")
+hurstWindowMinutes = input.int(30, "Rolling Hurst window (real minutes -- auto-converted to bars for this chart's timeframe)", minval=5)
+hurstThreshold     = input.float(0.5, "Hurst threshold (trade only below this)", minval=0.0, maxval=1.0)
+warmupMinutes      = input.int(20, "Warmup (real minutes) before trusting the VWAP band", minval=1)
+minStdevTicks      = input.float(2.0, "Min stdev floor (ticks)", minval=0.0)
+entrySession       = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession     = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd    = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+maxContracts       = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
 
 if stopSD <= entrySD
     runtime.error("stopSD must be greater than entrySD -- the hard stop has to sit outside the entry band.")
+
+// ---- Auto-detected instrument specs (no manual tick size / point value input needed) ----
+tickSize      = syminfo.mintick
+pointValueUsd = syminfo.pointvalue
+
+// ---- Minutes -> bars, for whatever timeframe this chart is actually on ----
+tfSeconds = timeframe.in_seconds(timeframe.period)
+tfSecondsSafe = tfSeconds > 0 ? tfSeconds : 60  // fallback for non-standard chart types
+hurstWindowBars = math.max(3, int(math.round(hurstWindowMinutes * 60 / tfSecondsSafe)))
+warmupBars      = math.max(1, int(math.round(warmupMinutes * 60 / tfSecondsSafe)))
 
 // ---- Session gating (explicit America/New_York, NOT the exchange default) ----
 inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
@@ -107,7 +120,7 @@ warmedUp = barCount >= warmupBars
 // ---- Rolling Hurst exponent (NOT session-reset -- see header comment) ----
 var array<float> closesBuf = array.new_float()
 array.push(closesBuf, close)
-if array.size(closesBuf) > hurstWindow + 1
+if array.size(closesBuf) > hurstWindowBars + 1
     array.shift(closesBuf)
 
 f_rollingHurst(buf) =>
@@ -133,7 +146,7 @@ f_rollingHurst(buf) =>
         result := (s == 0 or rr == 0) ? na : math.log(rr / s) / math.log(n)
     result
 
-hurstVal = array.size(closesBuf) >= hurstWindow + 1 ? f_rollingHurst(closesBuf) : na
+hurstVal = array.size(closesBuf) >= hurstWindowBars + 1 ? f_rollingHurst(closesBuf) : na
 
 // ---- Entry triggers ----
 canEnter = inEntryWindow and warmedUp and not na(hurstVal) and hurstVal < hurstThreshold and strategy.position_size == 0
