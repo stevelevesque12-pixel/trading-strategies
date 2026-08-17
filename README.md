@@ -91,6 +91,28 @@ An optional `target_atr_mult` parameter (`None` by default) lets you
 A/B test an ATR-scaled take-profit against the ride-it-out version. See
 `atr_breakout/strategy.py` and `tradingview/atr_breakout.pine`.
 
+**A seventh strategy lives in this repo**: `supertrend_trinity/` -- ported
+from a user-supplied Pine script ("Trinity Trend Triple ATR SuperTrend Pro
+Strategy"), not designed from a prose spec like the others. Three
+independent SuperTrend indicators (the entry timeframe plus two higher
+ones, e.g. 15m/1h/4h by default), trading only when they align.
+`entry_mode` picks how strict that alignment has to be: `single` (ST1
+flips, either direction), `double` (ST1 flips + ST2 agrees), or `triple`
+(ST1 flips + ST2 + ST3 both agree -- the original script's default).
+Stop is "the entry math flipped" -- a multiple of ATR back from the fill,
+either fixed or trailing (ratcheting, never loosens); target is always
+fixed, never trailed, matching the original. **This is the one genuine
+swing/trend strategy in this repo** -- unlike the other six, it is NOT
+force-flattened at end of day by default (confirming against 1h/4h trend
+direction only makes sense if a position can ride a multi-day trend); pass
+a `session` to opt into daily flattening if your account requires
+day-trading only. See `supertrend_trinity/strategy.py` and
+`tradingview/supertrend_trinity.pine` -- the Pine port also fixes a real
+issue in the original (it fetched the higher timeframes with
+`lookahead=barmerge.lookahead_on`, which repaints; this port uses the
+same non-repainting `[1]` + `lookahead_off` recipe `failed2s_mes.pine`
+already established elsewhere in this repo).
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -248,13 +270,40 @@ Single timeframe, no other indicator:
    rest of this repo; no other session-scoped state to reset (no VWAP, no
    opening range).
 
+## Strategy logic (Trinity Trend Triple SuperTrend)
+
+Multi-timeframe, three SuperTrend instances (ST1 = entry timeframe, ST2/ST3
+= higher timeframes, e.g. 15m/1h/4h):
+
+1. **SuperTrend** — standard algorithm: bands ratchet in the trend's favor
+   using the *prior* bar's close vs. the *prior* bar's already-finalized
+   band (never this bar's own high/low — no lookahead), direction flips
+   when price closes through the opposite band. Uses Wilder-smoothed ATR
+   (`ta.atr()`'s Pine default), deliberately different from the
+   simple-moving-average True Range the ORB/ATR-breakout strategies use —
+   SuperTrend is conventionally defined with Wilder smoothing.
+2. **Entry mode** (`single`/`double`/`triple`) — `single`: ST1 flips
+   (either direction); `double`: ST1 flips AND ST2's current direction
+   agrees; `triple` (default, matching the original script): ST1 flips AND
+   ST2 AND ST3 both currently agree. Only ST1's *flip event* matters for
+   timing — ST2/ST3 only need to currently agree, not flip themselves.
+3. **Exit** — stop = `entry_price -/+ sl_mult * ATR_risk` (`ATR_risk` =
+   ST2's ATR if `use_htf_atr`, else ST1's), fixed by default or
+   `trailing=True` for a ratcheting stop (ATR- or percent-based, monotonic,
+   never loosens). Target is **always fixed**, never trailed — matching
+   the original script, which only ever trails the stop.
+4. **Genuine swing behavior by default** — see the intro paragraph above;
+   pass a `session` to opt into the rest of this repo's daily-flatten
+   convention.
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
 - `orb/` — the ORB strategy's logic (`strategy.py`), same reuse pattern as overextension.
 - `hurst_vwap/` — the Hurst-gated VWAP band fade's logic (`strategy.py`), reuses `overextension.strategy.SessionVWAP` directly.
 - `atr_breakout/` — the ATR-everything breakout's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
-- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, Hurst-VWAP, and ATR Breakout).
+- `supertrend_trinity/` — the Trinity SuperTrend strategy's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
+- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, Hurst-VWAP, ATR Breakout, and Trinity SuperTrend).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -372,6 +421,22 @@ Supports `--timeframe` (`1min`/`5min`), `--atr-period-long`,
 `--daily-loss-limit`, `--max-daily-trades`. Same trade-log/metrics
 plumbing as the other CLIs -- `target_price` is blank in the trade log
 when no target is set.
+
+**Trinity Trend Triple SuperTrend** (multi-timeframe -- pass three separate pandas resample rules):
+
+```bash
+python -m backtest.run_supertrend_trinity --data sample_data/sample_1min.csv --tf1 15min --tf2 1h --tf3 4h --symbol MES
+```
+
+Supports `--tf1`/`--tf2`/`--tf3`, `--atr-period1/2/3`, `--mult1/2/3`,
+`--entry-mode` (`single`/`double`/`triple`), `--sl-mult`, `--tp-mult`,
+`--use-htf-atr`/`--no-htf-atr`, `--trailing`, `--trail-source`
+(`atr`/`percent`), `--trail-atr-period`, `--trail-atr-mult`,
+`--trail-pct`, `--flatten-at` (`HH:MM` ET -- omit for genuine swing
+behavior, the default; set it to opt into daily flattening),  `--symbol`,
+`--contracts`, `--daily-loss-limit`, `--max-daily-trades`. Same
+trade-log/metrics plumbing as the other CLIs, except trades may span
+multiple calendar days when `--flatten-at` is omitted.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are

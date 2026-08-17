@@ -1,0 +1,192 @@
+//@version=6
+// Trinity Trend: three SuperTrend indicators (entry timeframe + two higher
+// timeframes, e.g. 15m/1h/4h), trading only when they align. Ported from a
+// user-supplied Pine v5 script ("Trinity Trend Triple ATR SuperTrend Pro
+// Strategy") and adapted to this repo's conventions. Fires TradersPost-
+// format webhook alerts.
+//
+// Add this to a chart set to your ENTRY timeframe (ST1) -- tf2/tf3 below
+// are fetched via request.security, matching how failed2s_mes.pine
+// handles its own higher (bias) timeframe.
+//
+// **This is a swing/trend system, not a scalp.** Unlike every other
+// script in this repo, it does NOT force-flatten at end of day by
+// default -- confirming against 1h/4h trend direction only makes sense if
+// a position can actually ride a multi-day trend. Set
+// enableSessionFlatten if your account requires day-trading only; leave
+// it off (the default) for genuine swing behavior.
+//
+// **Fixed from the original**: the original script fetched ST2/ST3 with
+// `lookahead=barmerge.lookahead_on`, which repaints (it can use a still-
+// forming higher-timeframe bar's data). This port uses `[1]` + `lookahead
+// = barmerge.lookahead_off` instead -- the same double-safe non-repainting
+// recipe failed2s_mes.pine already uses elsewhere in this repo -- so
+// ST2/ST3 only ever reference an already-closed higher-timeframe bar.
+//
+// Logic:
+//   1. SuperTrend (`f_supertrend`) -- standard algorithm: bands ratchet in
+//      the trend's favor using the PRIOR bar's close vs. the PRIOR bar's
+//      already-finalized band (never this bar's own high/low), direction
+//      flips when price closes through the opposite band.
+//   2. Entry modes (entryMode input): "single" = ST1 flips (either
+//      direction); "double" = ST1 flips AND ST2 currently agrees;
+//      "triple" (default, matches the original's default) = ST1 flips AND
+//      ST2 AND ST3 both currently agree.
+//   3. Exit -- stop = entryPrice -/+ slMult * atrRisk (atrRisk = ST2's ATR
+//      if useHtfAtr, else ST1's). If trailing=true, the stop instead
+//      ratchets every bar (ATR- or percent-based, monotonic, never
+//      loosens) instead of staying fixed. Target is always fixed:
+//      entryPrice +/- tpMult * atrRisk -- the original never trails the
+//      target, only the stop.
+//
+// This is a best-effort translation, not guaranteed to be bar-for-bar
+// identical to the Python backtester -- validate on TradingView's own
+// Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". Paste your TradersPost strategy's unique webhook URL
+// into the alert's Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Trinity Trend Triple SuperTrend", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0, calc_on_every_tick=false)
+
+// ---- Inputs ----
+tf2               = input.timeframe("60", "ST2 timeframe", group="SuperTrend")
+tf3               = input.timeframe("240", "ST3 timeframe", group="SuperTrend")
+atrPeriod1        = input.int(10, "ST1 ATR period", minval=1, group="SuperTrend")
+mult1             = input.float(1.0, "ST1 multiplier", step=0.1, minval=0.1, group="SuperTrend")
+atrPeriod2        = input.int(10, "ST2 ATR period", minval=1, group="SuperTrend")
+mult2             = input.float(1.0, "ST2 multiplier", step=0.1, minval=0.1, group="SuperTrend")
+atrPeriod3        = input.int(10, "ST3 ATR period", minval=1, group="SuperTrend")
+mult3             = input.float(1.0, "ST3 multiplier", step=0.1, minval=0.1, group="SuperTrend")
+entryMode         = input.string("triple", "Entry mode", options=["single", "double", "triple"], group="Strategy")
+slMult            = input.float(1.0, "Stop distance (x ATR)", minval=0.01, group="Strategy")
+tpMult            = input.float(1.0, "Target distance (x ATR)", minval=0.01, group="Strategy")
+useHtfAtr         = input.bool(true, "Use ST2's ATR for stop/target sizing (else ST1's)", group="Strategy")
+trailing          = input.bool(false, "Use a trailing stop instead of a fixed one", group="Strategy")
+trailSource       = input.string("ATR", "Trail source", options=["ATR", "Percent"], group="Strategy")
+trailAtrPeriod    = input.int(14, "Trailing ATR period", minval=1, group="Strategy")
+trailAtrMult      = input.float(2.0, "Trailing ATR multiplier", minval=0.1, step=0.1, group="Strategy")
+trailPct          = input.float(1.5, "Trailing stop percent", minval=0.1, step=0.1, group="Strategy")
+enableSessionFlatten = input.bool(false, "Force-flatten daily? (off = genuine swing behavior, the default)", group="Session")
+flattenSession    = input.session("1550-1600", "Flatten window (America/New_York, only used if enabled above)", group="Session")
+riskPerTradeUsd   = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+maxContracts      = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+pointValueOverride = input.float(0.0, "Point value override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
+
+pointValueUsd = pointValueOverride > 0 ? pointValueOverride : syminfo.pointvalue
+
+// ---- SuperTrend function (identical formula to the original script) ----
+f_supertrend(_high, _low, _close, _len, _mult) =>
+    atr = ta.atr(_len)
+    hl2 = (_high + _low) / 2
+    up = hl2 - _mult * atr
+    dn = hl2 + _mult * atr
+    up := _close[1] > up[1] ? math.max(up, up[1]) : up
+    dn := _close[1] < dn[1] ? math.min(dn, dn[1]) : dn
+    var int dir = 1
+    dir := _close > dn[1] ? -1 : _close < up[1] ? 1 : nz(dir[1], 1)
+    st = dir == -1 ? up : dn
+    [st, dir]
+
+// ---- ST1: computed directly on THIS chart's timeframe (no security() needed) ----
+[st1, dir1] = f_supertrend(high, low, close, atrPeriod1, mult1)
+atr1 = ta.atr(atrPeriod1)
+prevDir1 = dir1[1]
+
+// ---- ST2/ST3: higher timeframes, non-repainting ([1] + lookahead_off --
+// see header comment for why this differs from the original script) ----
+[st2, dir2] = request.security(syminfo.tickerid, tf2, f_supertrend(high[1], low[1], close[1], atrPeriod2, mult2), lookahead=barmerge.lookahead_off)
+atr2 = request.security(syminfo.tickerid, tf2, ta.atr(atrPeriod2)[1], lookahead=barmerge.lookahead_off)
+[st3, dir3] = request.security(syminfo.tickerid, tf3, f_supertrend(high[1], low[1], close[1], atrPeriod3, mult3), lookahead=barmerge.lookahead_off)
+
+// ---- Session gating (only if enabled -- see header comment) ----
+inFlattenWindow = enableSessionFlatten and not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+// ---- Entry logic ----
+flippedBull = not na(prevDir1) and dir1 == -1 and prevDir1 == 1
+flippedBear = not na(prevDir1) and dir1 == 1 and prevDir1 == -1
+
+alignedBull = entryMode == "single" or (entryMode == "double" and dir2 == -1) or (entryMode == "triple" and dir2 == -1 and dir3 == -1)
+alignedBear = entryMode == "single" or (entryMode == "double" and dir2 == 1) or (entryMode == "triple" and dir2 == 1 and dir3 == 1)
+
+longSignal  = flippedBull and alignedBull and strategy.position_size == 0
+shortSignal = flippedBear and alignedBear and strategy.position_size == 0
+
+atrRisk = useHtfAtr ? atr2 : atr1
+
+sigEntry  = longSignal ? close : shortSignal ? close : float(na)
+sigStop   = longSignal ? sigEntry - slMult * atrRisk : shortSignal ? sigEntry + slMult * atrRisk : float(na)
+sigTarget = longSignal ? sigEntry + tpMult * atrRisk : shortSignal ? sigEntry - tpMult * atrRisk : float(na)
+
+finalLongSignal  = longSignal  and not na(atrRisk) and sigStop < sigEntry and sigTarget > sigEntry
+finalShortSignal = shortSignal and not na(atrRisk) and sigStop > sigEntry and sigTarget < sigEntry
+
+// ---- Persistent stop (ratcheted every bar if trailing) + target (fixed
+// at entry, never trailed -- both need to persist past the entry bar
+// itself, since longSignal/shortSignal (and therefore sigStop/sigTarget)
+// require position_size==0 and so go na again on every subsequent bar). ----
+var float activeStop = na
+var float activeTarget = na
+if strategy.position_size == 0
+    activeStop := na
+    activeTarget := na
+if finalLongSignal or finalShortSignal
+    activeStop := sigStop
+    activeTarget := sigTarget
+
+trailAtr = ta.atr(trailAtrPeriod)
+if trailing and strategy.position_size != 0
+    trailOffset = trailSource == "ATR" ? trailAtr * trailAtrMult : close * trailPct / 100.0
+    if strategy.position_size > 0
+        activeStop := math.max(nz(activeStop, close - trailOffset), close - trailOffset)
+    else
+        activeStop := math.min(nz(activeStop, close + trailOffset), close + trailOffset)
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+riskPerContract = (finalLongSignal or finalShortSignal) ? math.abs(sigEntry - sigStop) * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + manage exits + TradersPost webhook alerts ----
+if finalLongSignal and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+if strategy.position_size != 0
+    strategy.exit("Exit", stop=activeStop, limit=activeTarget)
+
+// ---- Session flatten (only if enabled) ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(st1, "ST1", color=dir1 == -1 ? color.new(color.teal, 0) : color.new(color.maroon, 0), linewidth=2)
+plot(st2, "ST2", color=dir2 == -1 ? color.new(color.blue, 40) : color.new(color.purple, 40), linewidth=1)
+plot(st3, "ST3", color=dir3 == -1 ? color.new(color.green, 60) : color.new(color.red, 60), linewidth=1)
+plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.small)
+plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.small)
+
+// ---- Resolved-instrument readout ----
+var table specsTable = table.new(position.bottom_right, 2, 3, bgcolor=color.new(color.black, 20), border_width=1)
+if barstate.islast
+    table.cell(specsTable, 0, 0, "Point value", text_color=color.white)
+    table.cell(specsTable, 1, 0, str.tostring(pointValueUsd), text_color=pointValueOverride > 0 ? color.orange : color.white)
+    table.cell(specsTable, 0, 1, "Dir 1/2/3", text_color=color.white)
+    table.cell(specsTable, 1, 1, str.tostring(dir1) + " / " + str.tostring(dir2) + " / " + str.tostring(dir3), text_color=color.white)
+    table.cell(specsTable, 0, 2, "Entry mode", text_color=color.white)
+    table.cell(specsTable, 1, 2, entryMode, text_color=color.white)
