@@ -113,6 +113,25 @@ issue in the original (it fetched the higher timeframes with
 same non-repainting `[1]` + `lookahead_off` recipe `failed2s_mes.pine`
 already established elsewhere in this repo).
 
+**An eighth strategy lives in this repo**: `donchian_macd_vol/` -- a
+Donchian Channel breakout (the core of the original "Turtle Trading"
+system), confirmed by MACD momentum and a volume filter. Three
+indicators, each measuring something different (pure price-action range,
+momentum, participation) -- deliberately no reuse of the VWAP/ATR/
+SuperTrend machinery from the other seven strategies here. Fires the
+instant a bar's range reaches its own rolling N-bar high/low channel
+(computed from prior bars only), but only if the prior bar's MACD
+histogram already agrees with the breakout direction and this bar's
+volume is at least `volume_mult` times its rolling average -- filtering
+out momentum-less, low-conviction breaks. Stop sits at the opposite edge
+of that same channel; target is `target_r * risk`. `donchian_period`
+defaults to 10 bars on a 5-minute chart (not the classic Turtle system's
+20) -- tuned against real 2019 NAS100 data to land around 2-3 trades per
+active day, a deliberate frequency target rather than a generic textbook
+default (see `donchian_macd_vol/strategy.py`'s module docstring for the
+alternative configs tested and why 10 won out). See
+`donchian_macd_vol/strategy.py` and `tradingview/donchian_macd_vol.pine`.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -296,6 +315,36 @@ Multi-timeframe, three SuperTrend instances (ST1 = entry timeframe, ST2/ST3
    pass a `session` to opt into the rest of this repo's daily-flatten
    convention.
 
+## Strategy logic (Donchian + MACD + Volume Breakout)
+
+Single timeframe, three independent-signal indicators:
+
+1. **Donchian Channel** — a rolling `donchian_period`-bar high/low
+   channel, computed from the *prior* bars only (never the current bar).
+   Does not reset per session, same reasoning as ORB's/ATR-breakout's
+   trailing ATR.
+2. **MACD** (12/26/9 standard) — the histogram *as of the prior bar* is
+   the momentum filter, same no-lookahead discipline used throughout this
+   repo for close-based indicators.
+3. **Volume** — the breakout bar's own volume must be at least
+   `volume_mult` times its rolling `volume_period`-bar average (computed
+   from prior bars).
+4. **Entry** — resting-stop-style (fires at the exact channel level the
+   instant a bar's range reaches it, not at the bar's close, same fill
+   convention as ORB/ATR-breakout): long needs a break above the upper
+   channel AND prior-bar MACD histogram > 0 AND the volume filter; short
+   mirrors it.
+5. **Stop / target** — stop at the opposite edge of the *same* entry-time
+   channel, plus a tick buffer. Target = `target_r * risk` (default 1.5:1).
+6. **Multiple trades per day allowed**, same as overextension/ATR-
+   breakout.
+7. **Intraday only** — same convention as the rest of this repo.
+
+`donchian_period` defaults to 10 (not the classic Turtle system's 20) —
+tuned against real 2019 NAS100 data on the default 5-minute timeframe to
+land around 2-3 trades per active day, a deliberate frequency target. See
+the module docstring for the alternative configs tested.
+
 Code layout:
 - `failed2s/` — pure strategy logic (bar classification, Failed-2, swing/MSS/FVG, the signal engine, risk manager, instrument specs). Shared by backtest, live, and the webhook path.
 - `overextension/` — the VWAP overextension strategy's logic (`strategy.py`), independent of failed2s aside from reusing `Bar`/`SessionConfig`.
@@ -303,7 +352,8 @@ Code layout:
 - `hurst_vwap/` — the Hurst-gated VWAP band fade's logic (`strategy.py`), reuses `overextension.strategy.SessionVWAP` directly.
 - `atr_breakout/` — the ATR-everything breakout's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
 - `supertrend_trinity/` — the Trinity SuperTrend strategy's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
-- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, Hurst-VWAP, ATR Breakout, and Trinity SuperTrend).
+- `donchian_macd_vol/` — the Donchian+MACD+Volume strategy's logic (`strategy.py`), independent of the others aside from reusing `Bar`/`SessionConfig`.
+- `backtest/` — event-driven backtester over OHLCV CSV data (Failed-2s, Overextension, ORB, Hurst-VWAP, ATR Breakout, Trinity SuperTrend, and Donchian+MACD+Volume).
 - `live/` — Tradovate REST/WebSocket client + a Python live runner (polls/streams Tradovate directly).
 - `tradingview/` — the current recommended way to go live: a Pine Script port runs on TradingView (which has the market data and computes risk-based position size), fires a webhook formatted for **TradersPost** (a hosted bridge that connects to Tradovate with a regular login — no paid API Access Add-On needed, which matters on a prop-firm sim account). See **TRADINGVIEW_WEBHOOK.md** for setup.
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
@@ -437,6 +487,20 @@ behavior, the default; set it to opt into daily flattening),  `--symbol`,
 `--contracts`, `--daily-loss-limit`, `--max-daily-trades`. Same
 trade-log/metrics plumbing as the other CLIs, except trades may span
 multiple calendar days when `--flatten-at` is omitted.
+
+**Donchian + MACD + Volume Breakout**:
+
+```bash
+python -m backtest.run_donchian_macd_vol --data sample_data/sample_1min.csv --symbol MNQ
+```
+
+Supports `--timeframe` (`1min`/`5min`/`15min`), `--donchian-period`,
+`--macd-fast`/`--macd-slow`/`--macd-signal`, `--volume-period`,
+`--volume-mult`, `--target-r`, `--stop-buffer-ticks`, `--symbol`,
+`--contracts`, `--daily-loss-limit`, `--max-daily-trades`. Prints a
+`trades_per_active_day` line alongside the usual metrics, since this
+strategy was explicitly tuned around a trades/day target rather than pure
+profit factor. Same trade-log/metrics plumbing as the other CLIs.
 
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are

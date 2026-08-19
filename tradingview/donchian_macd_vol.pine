@@ -1,0 +1,142 @@
+//@version=6
+// Donchian Channel breakout, confirmed by MACD momentum and volume, ported
+// from donchian_macd_vol/strategy.py. Fires TradersPost-format webhook
+// alerts. Three indicators, each measuring something different (pure
+// price-action range, momentum, participation) -- no VWAP/ATR/SuperTrend
+// reuse from the other scripts in this repo.
+//
+// Add this to a chart set to your trading timeframe (5 minutes is the
+// Python default, tuned to land around 2-3 trades/day -- see below).
+//
+// Logic:
+//   1. Donchian Channel -- a rolling donchianPeriod-bar high/low channel,
+//      computed from the PRIOR bars only (never including the current bar
+//      -- ta.highest/ta.lowest with an offset of 1 achieves this
+//      natively in Pine).
+//   2. MACD (12/26/9 standard) -- the histogram AS OF THE PRIOR BAR (an
+//      offset of 1) is the momentum filter, same no-lookahead discipline
+//      as the Donchian channel: you can only know a close-based
+//      indicator's confirmed value one bar behind the one you're
+//      evaluating a breakout on.
+//   3. Volume -- requires the breakout bar's own volume to be at least
+//      volumeMult times the rolling volumePeriod-bar average (computed
+//      from PRIOR bars).
+//   4. Entry fires the instant a bar's range reaches the channel level, at
+//      that exact level, not at the bar's close (resting-stop-style, same
+//      fill convention as orb.pine/atr_breakout.pine). Long needs the
+//      break above the upper channel AND prior-bar MACD histogram > 0 AND
+//      the volume filter; short mirrors it. If a bar's range improbably
+//      crosses both edges, long is checked first (documented tie-break).
+//   5. Stop = the opposite edge of the SAME entry-time channel, plus a
+//      tick buffer. Target = targetR * risk.
+//
+// donchianPeriod defaults to 10 (not the classic Turtle system's 20) --
+// tuned against real 2019 NAS100 data on the Python side to land around
+// 2-3 trades/day, a deliberate frequency target. See
+// donchian_macd_vol/strategy.py's module docstring for the tuning
+// rationale and alternative configs tested.
+//
+// This is a best-effort translation, not guaranteed to be bar-for-bar
+// identical to the Python backtester -- validate on TradingView's own
+// Strategy Tester before wiring up the webhook.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call". Paste your TradersPost strategy's unique webhook URL
+// into the alert's Webhook URL field. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Donchian + MACD + Volume Breakout", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+donchianPeriod  = input.int(10, "Donchian period (bars)", minval=2)
+macdFast        = input.int(12, "MACD fast length", minval=1)
+macdSlow        = input.int(26, "MACD slow length", minval=1)
+macdSignalLen   = input.int(9, "MACD signal length", minval=1)
+volumePeriod    = input.int(20, "Volume average period (bars)", minval=1)
+volumeMult      = input.float(1.5, "Volume multiple required", minval=0.1)
+targetR         = input.float(1.5, "Target R multiple")
+stopBufferTicks = input.int(2, "Stop buffer (ticks)")
+entrySession    = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd = input.float(150.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+tickSizeOverride    = input.float(0.0, "Tick size override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
+pointValueOverride  = input.float(0.0, "Point value override (0 = auto-detect from symbol)", minval=0.0, group="Instrument overrides")
+
+tickSize      = tickSizeOverride > 0 ? tickSizeOverride : syminfo.mintick
+pointValueUsd = pointValueOverride > 0 ? pointValueOverride : syminfo.pointvalue
+
+// ---- Session gating (explicit America/New_York, NOT the exchange default) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+// ---- Donchian Channel (prior bars only -- offset of 1 excludes the current bar) ----
+donchianUpper = ta.highest(high, donchianPeriod)[1]
+donchianLower = ta.lowest(low, donchianPeriod)[1]
+
+// ---- MACD, using the PRIOR bar's histogram as the filter ----
+[macdLine, macdSignal, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignalLen)
+priorHist = macdHist[1]
+
+// ---- Volume filter (prior-bar rolling average vs. this bar's own volume) ----
+avgVolume = ta.sma(volume, volumePeriod)[1]
+volumeOk = not na(avgVolume) and volume >= volumeMult * avgVolume
+
+// ---- Entry triggers ----
+canEnter = inEntryWindow and not na(donchianUpper) and not na(donchianLower) and not na(priorHist) and strategy.position_size == 0
+
+longSignal  = canEnter and high >= donchianUpper and priorHist > 0 and volumeOk
+shortSignal = canEnter and not longSignal and low <= donchianLower and priorHist < 0 and volumeOk
+
+stopBuffer = stopBufferTicks * tickSize
+sigEntry  = longSignal ? donchianUpper : shortSignal ? donchianLower : float(na)
+sigStop   = longSignal ? donchianLower - stopBuffer : shortSignal ? donchianUpper + stopBuffer : float(na)
+sigRisk   = longSignal ? sigEntry - sigStop : shortSignal ? sigStop - sigEntry : float(na)
+sigTarget = longSignal ? sigEntry + sigRisk * targetR : shortSignal ? sigEntry - sigRisk * targetR : float(na)
+
+finalLongSignal  = longSignal  and not na(sigRisk) and sigRisk > 0
+finalShortSignal = shortSignal and not na(sigRisk) and sigRisk > 0
+
+// ---- Position sizing (risk budget / stop distance, floored, clamped) ----
+riskPerContract = (finalLongSignal or finalShortSignal) ? sigRisk * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal and qty > 0
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal and qty > 0
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(donchianUpper, title="Donchian upper", color=color.new(color.green, 30))
+plot(donchianLower, title="Donchian lower", color=color.new(color.red, 30))
+plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.small)
+plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.small)
+
+// ---- Resolved-instrument readout ----
+var table specsTable = table.new(position.bottom_right, 2, 2, bgcolor=color.new(color.black, 20), border_width=1)
+if barstate.islast
+    table.cell(specsTable, 0, 0, "Tick size", text_color=color.white)
+    table.cell(specsTable, 1, 0, str.tostring(tickSize), text_color=tickSizeOverride > 0 ? color.orange : color.white)
+    table.cell(specsTable, 0, 1, "Point value", text_color=color.white)
+    table.cell(specsTable, 1, 1, str.tostring(pointValueUsd), text_color=pointValueOverride > 0 ? color.orange : color.white)
