@@ -97,6 +97,35 @@ pipeline (pure random walk, no real edge signal to find):
 python sample_data/generate_sample.py --days 20 --out sample_data/sample_1min.csv
 ```
 
+**`sample_data/real_multi_instrument/`** — real CME/COMEX/CBOT/NYMEX
+futures data supplied directly by the user (not via `fetch_real_data.py`/
+`fetch_yfinance.py`), stored as parquet rather than CSV specifically so it
+sidesteps `.gitignore`'s `sample_data/real_*.csv` rule (that rule exists
+on purpose - real data is normally meant to be fetched on demand, not
+committed - see the git history for the discussion before adding more
+here). `--data` now accepts these directly; `backtest/data.py`'s
+`load_1m_csv` dispatches on file extension.
+
+- Micro contracts (MES, MNQ, MYM, MGC, MCL, SIL, M2K) at 1m/5m/15m -
+  depth is per-interval, shared across all seven symbols: 1m covers
+  2026-08-02 to 2026-08-25 (~3.5 weeks), 5m covers 2026-05-10 to
+  2026-08-25 (~3.5 months), 15m covers 2025-09-30 to 2026-08-25
+  (~11 months).
+- Full-size contracts (ES, NQ, GC, SI) at 15m only, 2016-05 to 2026-08
+  (~10 years, ~240k bars each).
+
+Only the 1m files are genuine 1-minute data - the `1m-15m` pair needs
+that resolution specifically. The 5m/15m files load and resample fine
+for `5m-1h`/`15m-4h` (their OHLC is just built from coarser source bars
+than a true 1-minute feed would give you), but don't point them at
+`1m-15m` - the resample can't invent finer bars than the file has.
+
+Provenance beyond "the user supplied these directly" wasn't stated and
+hasn't been independently verified (which vendor, whether `volume` is
+real exchange volume) - treat results from this data as "real market
+data, source TBD" rather than production-grade until that's confirmed,
+same caveat as the OANDA data above.
+
 **Single pair:**
 
 ```bash
