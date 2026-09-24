@@ -1,0 +1,228 @@
+//@version=6
+// TR-scaled open breakout for MNQ, ported from vol_breakout/strategy.py.
+// Fires TradersPost-format webhooks via strategy order-fill alerts.
+//
+// Rules:
+//   1. TR1 = true range of the previous full session (default: the
+//      TradingView daily bar, which for CME futures is the full Globex
+//      session 18:00-17:00 ET; optionally the previous 09:30-16:00 RTH).
+//      Buy stop at Open + 0.25*TR1, sell stop at Open - 0.25*TR1, where
+//      Open = the 09:30 ET bar's open. Orders live 09:30-13:00 ET.
+//   2. Stop = 0.25*TR1 from entry (i.e. the open) = 1R.
+//   3. Once a completed bar has reached +0.50*TR1 (+2R), the stop moves to
+//      entry from the next bar.
+//   4. Exit on stop, break-even, or market at 15:55 ET. No target/trail.
+//   5. After a stop-out, that side re-arms once price trades back through
+//      its entry level from the other side. Max 3 entries/day, long+short.
+//   6. Risk 1% of equity per trade (compounding strategy equity, or a
+//      fixed account size you enter -- see "Position sizing").
+//   Costs: $0.475/contract per fill ($0.95 round trip) + 1 tick slippage.
+//
+// REQUIRED CHART SETUP: MNQ1! (or MNQ contract), 1-minute chart,
+// extended-hours session (ETH) so the daily TR1 and the 09:30 bar line up.
+// Any timeframe that divides 09:30 works, but on historical bars Pine can
+// only place the day's orders at the CLOSE of the 09:30 bar, so the
+// Strategy Tester misses breakouts inside that first bar -- 1 minute keeps
+// that gap to one minute. Live (realtime) the orders go in on the first
+// tick of the 09:30 bar.
+//
+// Live execution caveat: TradingView fills the stop entry in its own
+// broker emulator and THEN fires the alert, so TradersPost sends a market
+// order a second or two after price crosses the level. Expect live fills
+// somewhat worse than the Strategy Tester (the Python backtest shows the
+// edge survives 4 ticks/side of slippage, but with a much bigger drawdown).
+//
+// Alerting: create ONE alert on this strategy, condition "Order fills
+// only", message exactly {{strategy.order.alert_message}}, webhook URL =
+// your TradersPost strategy URL. Every entry sends a market order with a
+// broker-side protective stop at the open; every exit (stop, break-even,
+// 15:55) sends "exit". An "exit" after the broker stop already filled is
+// a harmless no-op on a flat position. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("TR Open Breakout (MNQ)", overlay=true, initial_capital=100000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.475,
+     slippage=1, pyramiding=0, calc_on_every_tick=true, calc_on_order_fills=true,
+     process_orders_on_close=false, max_bars_back=5000)
+
+// ---- Inputs ----
+entryMult   = input.float(0.25, "Entry distance (x TR1)", minval=0.01, step=0.05)
+stopMult    = input.float(0.25, "Stop distance = 1R (x TR1)", minval=0.01, step=0.05)
+beMult      = input.float(0.50, "Break-even trigger (x TR1 from entry)", minval=0.01, step=0.05)
+maxEntries  = input.int(3, "Max entries per day (long + short)", minval=1)
+trSource    = input.string("ETH (daily bar)", "TR1 session", options=["ETH (daily bar)", "RTH 09:30-16:00"])
+entryEndHM  = input.int(1300, "Stop orders active until (HHMM ET)", minval=931, maxval=1600)
+flatHM      = input.int(1555, "Market exit at (HHMM ET)", minval=931, maxval=1659)
+
+riskPct     = input.float(1.0, "Risk per trade (% of equity)", minval=0.01, step=0.1, group="Position sizing")
+sizingMode  = input.string("Strategy equity (compounding)", "Equity used for sizing",
+     options=["Strategy equity (compounding)", "Fixed account size"], group="Position sizing",
+     tooltip="Live, TradingView does not know your broker balance. 'Fixed account size' sizes off the number below -- update it as your account changes.")
+fixedEquity = input.float(100000, "Fixed account size (USD)", minval=0, group="Position sizing")
+pointValue  = input.float(2.0, "Point value (USD/point) -- MNQ=2, NQ=20", minval=0.01, group="Position sizing")
+maxQty      = input.int(50, "Max contracts (hard cap)", minval=1, group="Position sizing",
+     tooltip="Set this to your prop-firm / account limit. The Python backtest has no cap, so set it very high to reproduce it.")
+
+// ---- New York clock ----
+NY = "America/New_York"
+openMin  = hour(time, NY) * 60 + minute(time, NY)
+closeMin = hour(time_close, NY) * 60 + minute(time_close, NY)
+rthStart = 9 * 60 + 30
+rthEnd   = 16 * 60
+entryEnd = math.floor(entryEndHM / 100) * 60 + entryEndHM % 100
+flatMin  = math.floor(flatHM / 100) * 60 + flatHM % 100
+
+isOpenBar = openMin == rthStart
+inRth     = openMin >= rthStart and openMin < rthEnd
+
+// Historical bars: orders issued at a bar's close work on the NEXT bar,
+// so gate on this bar's close time. Realtime (every tick): gate on the
+// current bar's open time.
+nowMin      = barstate.isrealtime ? openMin : closeMin
+entriesOpen = nowMin >= rthStart and nowMin < entryEnd
+flatNow     = nowMin >= flatMin and openMin < 17 * 60
+
+// ---- TR1 ----
+// Previous completed daily bar's true range; [1] + lookahead_on is the
+// standard non-repainting form.
+trEth = request.security(syminfo.tickerid, "D", ta.tr(true)[1], lookahead=barmerge.lookahead_on)
+
+var float rH      = na
+var float rL      = na
+var float rC      = na
+var float rPrevC  = na
+var float trRth   = na
+if isOpenBar
+    if not na(rH)
+        pc = na(rPrevC) ? rC : rPrevC
+        trRth  := math.max(rH, pc) - math.min(rL, pc)
+        rPrevC := rC
+    rH := na
+    rL := na
+if inRth
+    rH := na(rH) ? high : math.max(rH, high)
+    rL := na(rL) ? low : math.min(rL, low)
+    rC := close
+
+// ---- Daily levels ----
+var float dayOpen  = na
+var float tr1      = na
+var float longLvl  = na
+var float shortLvl = na
+var float riskPts  = na
+var int   dayStart = na
+if isOpenBar
+    dayOpen  := open
+    tr1      := trSource == "ETH (daily bar)" ? trEth : trRth
+    longLvl  := dayOpen + entryMult * tr1
+    shortLvl := dayOpen - entryMult * tr1
+    riskPts  := stopMult * tr1
+    dayStart := time
+
+// Levels are only good for the day they were set (skips days with no
+// 09:30 bar, e.g. holidays, instead of reusing stale levels).
+validDay = not na(dayStart) and not na(tr1) and tr1 > 0 and time - dayStart < 7 * 60 * 60 * 1000
+
+// ---- Today's trades (derived from the trade list, so realtime tick
+// rollback can't desync a counter) ----
+int entriesToday  = 0
+int lastLongExit  = -1
+int lastShortExit = -1
+if validDay and strategy.closedtrades > 0
+    for i = strategy.closedtrades - 1 to 0
+        if strategy.closedtrades.entry_time(i) < dayStart
+            break
+        entriesToday += 1
+        if strategy.closedtrades.size(i) > 0
+            if lastLongExit == -1
+                lastLongExit := strategy.closedtrades.exit_bar_index(i)
+        else
+            if lastShortExit == -1
+                lastShortExit := strategy.closedtrades.exit_bar_index(i)
+openToday = strategy.opentrades > 0 and validDay and strategy.opentrades.entry_time(0) >= dayStart
+if openToday
+    entriesToday += 1
+
+isLong  = strategy.position_size > 0
+isShort = strategy.position_size < 0
+longOpenToday  = openToday and isLong
+shortOpenToday = openToday and isShort
+
+// Re-arm: a side is armed if it hasn't traded today, or if price has
+// traded back beyond its level since that side's last exit.
+float lowSinceLongExit = na
+if lastLongExit >= 0
+    lowSinceLongExit := low
+    for j = 0 to math.min(bar_index - lastLongExit, 4999)
+        lowSinceLongExit := math.min(lowSinceLongExit, low[j])
+float highSinceShortExit = na
+if lastShortExit >= 0
+    highSinceShortExit := high
+    for j = 0 to math.min(bar_index - lastShortExit, 4999)
+        highSinceShortExit := math.max(highSinceShortExit, high[j])
+
+armedLong  = not longOpenToday and (lastLongExit == -1 or lowSinceLongExit < longLvl)
+armedShort = not shortOpenToday and (lastShortExit == -1 or highSinceShortExit > shortLvl)
+
+// ---- Sizing ----
+sizingEquity = sizingMode == "Strategy equity (compounding)" ? strategy.initial_capital + strategy.netprofit : fixedEquity
+perContract  = riskPts * pointValue
+qty = validDay and perContract > 0 ? math.min(math.floor(sizingEquity * riskPct / 100 / perContract), maxQty) : 0
+
+// ---- Webhook payloads (TradersPost) ----
+fmt(x) => str.tostring(x, format.mintick)
+longMsg  = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+     ',"quantity":' + str.tostring(qty) + ',"signalPrice":' + fmt(longLvl) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}}'
+shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+     ',"quantity":' + str.tostring(qty) + ',"signalPrice":' + fmt(shortLvl) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}}'
+exitMsg  = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+
+// ---- Entries (resting stop orders) ----
+canEnter = validDay and entriesOpen and not flatNow and entriesToday < maxEntries and strategy.position_size == 0 and qty >= 1
+
+if canEnter and armedLong
+    strategy.entry("Long", strategy.long, qty=qty, stop=longLvl, alert_message=longMsg)
+else
+    strategy.cancel("Long")
+
+if canEnter and armedShort
+    strategy.entry("Short", strategy.short, qty=qty, stop=shortLvl, alert_message=shortMsg)
+else
+    strategy.cancel("Short")
+
+// ---- Stops + break-even ----
+// BE is active once any COMPLETED bar since entry reached +2R. On a
+// realtime bar still forming, the current bar doesn't count yet.
+beActive = false
+if strategy.position_size != 0 and validDay
+    entryBar = strategy.opentrades.entry_bar_index(0)
+    firstJ   = barstate.isrealtime and not barstate.isconfirmed ? 1 : 0
+    lastJ    = math.min(bar_index - entryBar, 4999)
+    if lastJ >= firstJ
+        for j = firstJ to lastJ
+            if isLong and high[j] >= longLvl + beMult * tr1
+                beActive := true
+            if isShort and low[j] <= shortLvl - beMult * tr1
+                beActive := true
+
+if isLong
+    strategy.exit("Long Exit", from_entry="Long", stop=beActive ? longLvl : longLvl - riskPts,
+         alert_message=exitMsg, comment=beActive ? "breakeven" : "stop")
+if isShort
+    strategy.exit("Short Exit", from_entry="Short", stop=beActive ? shortLvl : shortLvl + riskPts,
+         alert_message=exitMsg, comment=beActive ? "breakeven" : "stop")
+
+// ---- 15:55 market exit ----
+if flatNow and strategy.position_size != 0
+    strategy.close_all(comment="eod", alert_message=exitMsg)
+
+// ---- Visuals ----
+showLvls = validDay and inRth
+plot(showLvls ? dayOpen : na, "Open / initial stop", color=color.gray, style=plot.style_linebr)
+plot(showLvls ? longLvl : na, "Long entry", color=color.green, style=plot.style_linebr, linewidth=2)
+plot(showLvls ? shortLvl : na, "Short entry", color=color.red, style=plot.style_linebr, linewidth=2)
+plot(showLvls ? longLvl + beMult * tr1 : na, "Long +2R (BE trigger)", color=color.new(color.green, 70), style=plot.style_linebr)
+plot(showLvls ? shortLvl - beMult * tr1 : na, "Short +2R (BE trigger)", color=color.new(color.red, 70), style=plot.style_linebr)
+bgcolor(showLvls and not entriesOpen ? color.new(color.gray, 94) : na, title="Entry window closed")

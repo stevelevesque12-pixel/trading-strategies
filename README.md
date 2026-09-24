@@ -41,6 +41,9 @@ equity from $100k; $0.95 RT commission/contract + 1 tick slippage per side.
 See the docstring in `vol_breakout/strategy.py` for how tick-level rules
 are modelled on OHLC bars.
 
+TradingView port (TradersPost webhooks): `tradingview/vol_breakout_mnq.pine`
+-- setup in TRADINGVIEW_WEBHOOK.md, section "TR open breakout".
+
 ```bash
 python -m vol_breakout.backtest --symbol MNQ \
     --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet

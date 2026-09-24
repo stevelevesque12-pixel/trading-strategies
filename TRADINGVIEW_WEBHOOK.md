@@ -101,6 +101,38 @@ plan's alert/webhook limits.
    check with real (very small) size.
 3. Watch a handful of live signals closely before trusting it unattended.
 
+## TR open breakout (`tradingview/vol_breakout_mnq.pine`)
+
+Same TradersPost pipeline, but this script alerts differently from the
+Failed-2s / structure-scalp scripts, so the chart and alert setup differ:
+
+1. **Chart**: `MNQ1!`, **1-minute**, **extended hours on** (the TR1 comes
+   from the daily bar = full Globex session, and the levels are set from
+   the 09:30 bar). If your TradingView data settings use settlement as the
+   daily close, TR1 will differ by a few points from a last-trade close.
+2. **Inputs**: under **Position sizing**, pick the equity source. The
+   default (compounding strategy equity) is right for the Strategy
+   Tester; for live, switch to **Fixed account size** and enter your
+   actual account balance, since TradingView can't see your broker
+   balance. Set **Max contracts** to your account's limit.
+3. **Alert**: condition = this strategy, **"Order fills only"**, message
+   exactly `{{strategy.order.alert_message}}`, webhook URL = your
+   TradersPost URL. (Not "alert() function calls" -- this script has no
+   `alert()` calls; the JSON rides on each order.)
+4. **TradersPost setting**: make sure an `exit` signal also **cancels
+   open orders** for the ticker. Each entry sends a broker-side stop at
+   the day's open; break-even and 15:55 exits are managed by TradingView
+   and sent as `exit`, and that leftover protective stop must be cancelled
+   with it or it could open a new position later.
+
+Entries are resting stop orders inside TradingView's broker emulator; the
+webhook fires when the emulator fills, so the real order is a market
+order sent a moment later (expect some extra slippage vs. the tester).
+The Strategy Tester on 1-minute history should roughly track
+`python -m vol_breakout.backtest` for the same dates, but it misses
+breakouts during the 09:30 bar itself: on historical bars Pine can only
+place the day's orders at that bar's close.
+
 ## Risk-based position sizing
 
 `riskPerTradeUsd` is the dollar amount you're willing to risk per trade.
