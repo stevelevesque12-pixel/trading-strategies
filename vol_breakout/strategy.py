@@ -63,6 +63,17 @@ class VolBreakoutConfig:
     slippage_ticks: int = 1  # per side, every fill
     tr_session: Literal["eth", "rth"] = "eth"
     tz: str = "America/New_York"
+    # ---- Optional additions (all off by default = the original rules) ----
+    # Profit target, in TR1 multiples from the entry level (limit order, no
+    # slippage). None = no target.
+    target_mult: Optional[float] = None
+    # Volatility filter: skip the day unless TR1 >= vol_min_ratio x the
+    # average TR of the vol_lookback sessions ending with TR1's session.
+    vol_lookback: int = 0
+    vol_min_ratio: float = 0.0
+    # Trend filter: longs only if the day's open is above the SMA of the last
+    # trend_sma session closes, shorts only if below. 0 = off.
+    trend_sma: int = 0
 
 
 @dataclass
@@ -75,7 +86,7 @@ class VBTrade:
     entry_price: float  # actual fill, incl. slippage
     initial_stop: float
     exit_price: float  # actual fill, incl. slippage
-    exit_reason: str  # stop | breakeven | eod
+    exit_reason: str  # stop | breakeven | target | eod
     contracts: int
     tr1: float
     risk_dollars: float  # planned 1R in dollars (level -> initial stop)
@@ -105,6 +116,15 @@ def true_ranges(df: pd.DataFrame, cfg: VolBreakoutConfig) -> pd.Series:
     return (hi - lo).rename("tr")
 
 
+def session_closes(df: pd.DataFrame, cfg: VolBreakoutConfig) -> pd.Series:
+    """Last close of each session, same session keys as true_ranges()."""
+    if cfg.tr_session == "eth":
+        return df["close"].groupby((df.index + pd.Timedelta(hours=6)).date).last()
+    t = df.index.time
+    sess = df[(t >= cfg.session_open) & (t < time(16, 0))]
+    return sess["close"].groupby(sess.index.date).last()
+
+
 def _bar_path(o: float, h: float, l: float, c: float) -> Tuple[float, float, float, float]:
     # Nearer extreme first; ties go high-first.
     if abs(h - o) <= abs(o - l):
@@ -122,6 +142,7 @@ class _Position:
     risk_dollars: float
     entry_time: object
     best: float  # most favourable price seen since the fill
+    target: Optional[float] = None
     be_armed: bool = False  # +2R reached; stop moves to level after this bar
 
 
@@ -145,6 +166,8 @@ def simulate_day(
     tick_size: float,
     point_value: float,
     cfg: VolBreakoutConfig,
+    allow_long: bool = True,
+    allow_short: bool = True,
 ) -> Tuple[List[VBTrade], float]:
     """
     Run one RTH day. `bars` are (start_ts, open, high, low, close) from the
@@ -167,7 +190,7 @@ def simulate_day(
     def close_pos(price_pre_slip: float, ts, reason: str) -> None:
         pos = st.pos
         sign = 1 if pos.direction == "long" else -1
-        exit_fill = price_pre_slip - sign * slip
+        exit_fill = price_pre_slip - sign * (0.0 if reason == "target" else slip)
         pnl = (exit_fill - pos.fill) * sign * point_value * pos.contracts - cfg.commission_rt * pos.contracts
         st.equity += pnl
         st.trades.append(
@@ -213,6 +236,7 @@ def simulate_day(
             risk_dollars=contracts * per_contract,
             entry_time=ts,
             best=price_pre_slip,
+            target=level + sign * cfg.target_mult * tr1 if cfg.target_mult else None,
         )
 
     def rearm(price: float) -> None:
@@ -238,6 +262,10 @@ def simulate_day(
                         cur = px
                         continue
                     pos.best = max(pos.best, b)
+                    if pos.target is not None and cur < pos.target <= b:
+                        close_pos(b if gap else pos.target, ts, "target")
+                        cur = b if gap else pos.target
+                        continue
                 else:
                     pos.best = min(pos.best, cur)
                     if cur < pos.stop <= b or (cur == pos.stop and b > cur):
@@ -247,16 +275,20 @@ def simulate_day(
                         cur = px
                         continue
                     pos.best = min(pos.best, b)
+                    if pos.target is not None and b <= pos.target < cur:
+                        close_pos(b if gap else pos.target, ts, "target")
+                        cur = b if gap else pos.target
+                        continue
                 return
 
             if not orders_active or st.entries >= cfg.max_entries_per_day:
                 return
-            if b > cur and st.armed_long and cur < st.long_level <= b:
+            if b > cur and allow_long and st.armed_long and cur < st.long_level <= b:
                 px = b if gap else st.long_level
                 open_pos("long", st.long_level, px, ts)
                 cur = px
                 continue
-            if b < cur and st.armed_short and b <= st.short_level < cur:
+            if b < cur and allow_short and st.armed_short and b <= st.short_level < cur:
                 px = b if gap else st.short_level
                 open_pos("short", st.short_level, px, ts)
                 cur = px
@@ -310,6 +342,9 @@ def run_backtest(
     """
     cfg = cfg or VolBreakoutConfig()
     trs = true_ranges(df, cfg)
+    closes = session_closes(df, cfg)
+    tr_avg = trs.rolling(cfg.vol_lookback).mean() if cfg.vol_lookback else None
+    sma = closes.rolling(cfg.trend_sma).mean() if cfg.trend_sma else None
     tr_dates = list(trs.index)
     tr_pos = {d: i for i, d in enumerate(tr_dates)}
 
@@ -331,7 +366,20 @@ def run_backtest(
         tr1 = trs.iloc[i - 1]
         if pd.isna(tr1):
             continue
+        if tr_avg is not None:
+            avg = tr_avg.iloc[i - 1]
+            if pd.isna(avg) or tr1 < cfg.vol_min_ratio * avg:
+                continue
+        allow_long = allow_short = True
+        if sma is not None:
+            ma = sma.iloc[i - 1]
+            if pd.isna(ma):
+                continue
+            day_open = day["open"].iloc[0]
+            allow_long, allow_short = day_open > ma, day_open < ma
         bars = list(zip(day.index, day["open"], day["high"], day["low"], day["close"]))
-        day_trades, equity = simulate_day(bars, float(tr1), equity, tick_size, point_value, cfg)
+        day_trades, equity = simulate_day(
+            bars, float(tr1), equity, tick_size, point_value, cfg, allow_long, allow_short
+        )
         trades.extend(day_trades)
     return trades
