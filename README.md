@@ -29,6 +29,41 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, `vol_breakout/`**, is the first one here validated on
+10 years of real data: a TR-scaled breakout from the 09:30 open on MNQ.
+TR1 = true range of the previous full (Globex) session; buy-stop at
+`open + 0.25*TR1`, sell-stop at `open - 0.25*TR1`, orders live 09:30-13:00
+ET; stop = 0.25*TR1 (the open) = 1R; once a completed bar has reached +2R
+the stop moves to entry from the next bar; exit on stop, break-even or at
+15:55 ET (no target, no trail); a side re-arms after a stop-out once price
+trades back through its level; max 3 entries/day; risk 1% of compounding
+equity from $100k; $0.95 RT commission/contract + 1 tick slippage per side.
+See the docstring in `vol_breakout/strategy.py` for how tick-level rules
+are modelled on OHLC bars.
+
+```bash
+python -m vol_breakout.backtest --symbol MNQ \
+    --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet
+```
+
+Result on the 10-year NQ 15m file (traded as MNQ): 3,295 trades, 36% win
+rate, +0.14R/trade, PF 1.31, CAGR ~49%, **max drawdown ~40%**. It is
+strongly volatility-dependent: 2016-2017 (NQ TR1 ~45 pts) lost money
+(-15%, -2%, both with 30%+ drawdowns), while high-volatility years
+(2018, 2022, 2024, 2025) made +85% to +116%. The most recent 3.5 months
+(May-Aug 2026) are -11%.
+
+Robustness checks run: the 15m result matches 1m and 5m data trade-for-
+trade/in aggregate on the windows where finer data exists; every
+entry/stop multiple from 0.15 to 0.35 and break-even from 0.4 to 0.75 (or
+none) is positive; it survives 4 ticks/side slippage (CAGR ~24%, DD 67%)
+and an RTH-only TR1 (`--tr-session rth`). It is **sensitive to intrabar
+path assumptions** -- forcing every bar to trade high-first or low-first
+turns it negative (those assumptions are deliberately wrong on trend bars,
+but it shows how much P&L lives inside the 09:30-10:00 bars). Use a
+drawdown-tolerant account size: a 40% peak-to-trough is not survivable
+under typical prop-firm trailing drawdown rules at 1% risk.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
