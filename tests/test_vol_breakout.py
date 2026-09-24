@@ -130,3 +130,22 @@ def test_run_backtest_uses_previous_session_tr():
     trades = run_backtest(_frame(rows), TICK, PV, 100_000.0, VolBreakoutConfig(tr_session="rth"))
     assert len(trades) == 1
     assert trades[0].tr1 == 100 and trades[0].level == 1025
+
+
+def test_profit_target_fills_at_limit_without_slippage():
+    cfg = VolBreakoutConfig(target_mult=0.75)  # long 1025 -> target 1100 (3R)
+    trades, _ = run(bars((1000, 1030, 995, 1028), (1028, 1110, 1027, 1105)), cfg=cfg)
+    assert [t.exit_reason for t in trades] == ["target"]
+    assert trades[0].exit_price == 1100
+    assert trades[0].r_multiple == pytest.approx(((1100 - 1025.25) * PV * 20 - 0.95 * 20) / 1000)
+
+
+def test_trend_filter_blocks_counter_trend_side():
+    rows = [(f"2026-01-0{d} 09:30", 2000, 2050, 1950, 2000, 1) for d in (2, 5)]  # closes 2000 -> SMA 2000
+    rows += [
+        ("2026-01-06 09:30", 1000, 1030, 995, 1028, 1),  # open 1000 < SMA: long breakout is ignored
+        ("2026-01-06 09:45", 1028, 1029, 900, 905, 1),  # ...but the short side still trades
+    ]
+    cfg = VolBreakoutConfig(tr_session="rth", trend_sma=2)
+    trades = run_backtest(_frame(rows), TICK, PV, 100_000.0, cfg)
+    assert [t.direction for t in trades] == ["short"]

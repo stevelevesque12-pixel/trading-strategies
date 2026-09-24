@@ -93,6 +93,10 @@ def main() -> None:
     p.add_argument("--tr-session", choices=["eth", "rth"], default="eth")
     p.add_argument("--commission-rt", type=float, default=0.95)
     p.add_argument("--slippage-ticks", type=int, default=1)
+    p.add_argument("--breakeven-mult", type=float, default=0.50, help="x TR1; 0.25 = +1R")
+    p.add_argument("--target-mult", type=float, default=0.0, help="profit target, x TR1 from entry (0 = none)")
+    p.add_argument("--trend-sma", type=int, default=0, help="trade with the N-session SMA of closes (0 = off)")
+    p.add_argument("--max-entries", type=int, default=3)
     p.add_argument("--start", help="Only trade from this date (YYYY-MM-DD)")
     p.add_argument("--end", help="Only trade up to this date (YYYY-MM-DD)")
     p.add_argument("--out", default="vol_breakout_trades.csv")
@@ -103,6 +107,10 @@ def main() -> None:
         tr_session=args.tr_session,
         commission_rt=args.commission_rt,
         slippage_ticks=args.slippage_ticks,
+        breakeven_mult=args.breakeven_mult,
+        target_mult=args.target_mult or None,
+        trend_sma=args.trend_sma,
+        max_entries_per_day=args.max_entries,
     )
     inst = INSTRUMENTS[args.symbol]
     df = load_1m_csv(args.data, tz=cfg.tz)

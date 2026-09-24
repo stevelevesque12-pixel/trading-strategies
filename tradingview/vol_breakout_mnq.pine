@@ -16,6 +16,14 @@
 //      its entry level from the other side. Max 3 entries/day, long+short.
 //   6. Risk 1% of equity per trade (compounding strategy equity, or a
 //      fixed account size you enter -- see "Position sizing").
+//
+//   Lower-drawdown defaults ("Filters & exits" inputs). The original rules
+//   are: break-even 0.50, profit target 0, trend filter 0. The defaults are
+//   break-even at +1R (0.25), a 3R profit target (0.75 x TR1) and trading
+//   only with the 50-day trend (longs if the open is above the 50-session
+//   SMA of daily closes, shorts if below). In the 10-year NQ backtest at 1%
+//   risk this cut max drawdown from ~40% to ~13% (CAGR ~50% -> ~34%, no
+//   losing year). For a higher win rate (~44%) use a 1.5R target (0.375).
 //   Costs: $0.475/contract per fill ($0.95 round trip) + 1 tick slippage.
 //
 // CHART SETUP: MNQ1! (or MNQ contract), extended-hours session (ETH) ON.
@@ -57,7 +65,9 @@ strategy("TR Open Breakout (MNQ)", overlay=true, initial_capital=100000,
 // ---- Inputs ----
 entryMult   = input.float(0.25, "Entry distance (x TR1)", minval=0.01, step=0.05)
 stopMult    = input.float(0.25, "Stop distance = 1R (x TR1)", minval=0.01, step=0.05)
-beMult      = input.float(0.50, "Break-even trigger (x TR1 from entry)", minval=0.01, step=0.05)
+beMult      = input.float(0.25, "Break-even trigger (x TR1 from entry; original rules 0.50)", minval=0.01, step=0.05, group="Filters & exits")
+targetMult  = input.float(0.75, "Profit target (x TR1 from entry; 0 = none, original rules)", minval=0.0, step=0.125, group="Filters & exits")
+trendLen    = input.int(50, "Trend filter: SMA of daily closes (0 = off, original rules)", minval=0, group="Filters & exits")
 maxEntries  = input.int(3, "Max entries per day (long + short)", minval=1)
 trSource    = input.string("ETH (daily bar)", "TR1 session", options=["ETH (daily bar)", "RTH 09:30-16:00"])
 entryEndHM  = input.int(1300, "Stop orders active until (HHMM ET)", minval=931, maxval=1600)
@@ -98,6 +108,8 @@ flatNow     = nowMin >= flatMin and openMin < 17 * 60
 // Previous completed daily bar's true range; [1] + lookahead_on is the
 // standard non-repainting form.
 trEth = request.security(syminfo.tickerid, "D", ta.tr(true)[1], lookahead=barmerge.lookahead_on)
+// Trend filter: SMA of completed daily closes (same non-repainting form).
+trendSma = request.security(syminfo.tickerid, "D", ta.sma(close, math.max(trendLen, 1))[1], lookahead=barmerge.lookahead_on)
 
 var float rH      = na
 var float rL      = na
@@ -182,6 +194,11 @@ if lastShortExit >= 0
 armedLong  = not longOpenToday and (lastLongExit == -1 or lowSinceLongExit < longLvl)
 armedShort = not shortOpenToday and (lastShortExit == -1 or highSinceShortExit > shortLvl)
 
+allowLong  = trendLen == 0 or (not na(trendSma) and dayOpen > trendSma)
+allowShort = trendLen == 0 or (not na(trendSma) and dayOpen < trendSma)
+longTgt    = targetMult > 0 ? longLvl + targetMult * tr1 : na
+shortTgt   = targetMult > 0 ? shortLvl - targetMult * tr1 : na
+
 // ---- Sizing ----
 sizingEquity = sizingMode == "Strategy equity (compounding)" ? strategy.initial_capital + strategy.netprofit : fixedEquity
 perContract  = riskPts * pointValue
@@ -191,21 +208,23 @@ qty = validDay and perContract > 0 ? math.min(math.floor(sizingEquity * riskPct 
 fmt(x) => str.tostring(x, format.mintick)
 longMsg  = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
      ',"quantity":' + str.tostring(qty) + ',"signalPrice":' + fmt(longLvl) +
-     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}}'
+     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}' +
+     (targetMult > 0 ? ',"takeProfit":{"limitPrice":' + fmt(longTgt) + '}' : '') + '}'
 shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
      ',"quantity":' + str.tostring(qty) + ',"signalPrice":' + fmt(shortLvl) +
-     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}}'
+     ',"stopLoss":{"type":"stop","stopPrice":' + fmt(dayOpen) + '}' +
+     (targetMult > 0 ? ',"takeProfit":{"limitPrice":' + fmt(shortTgt) + '}' : '') + '}'
 exitMsg  = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
 
 // ---- Entries (resting stop orders) ----
 canEnter = validDay and entriesOpen and not flatNow and entriesToday < maxEntries and strategy.position_size == 0 and qty >= 1
 
-if canEnter and armedLong
+if canEnter and armedLong and allowLong
     strategy.entry("Long", strategy.long, qty=qty, stop=longLvl, alert_message=longMsg)
 else
     strategy.cancel("Long")
 
-if canEnter and armedShort
+if canEnter and armedShort and allowShort
     strategy.entry("Short", strategy.short, qty=qty, stop=shortLvl, alert_message=shortMsg)
 else
     strategy.cancel("Short")
@@ -226,11 +245,11 @@ if strategy.position_size != 0 and validDay
                 beActive := true
 
 if isLong
-    strategy.exit("Long Exit", from_entry="Long", stop=beActive ? longLvl : longLvl - riskPts,
-         alert_message=exitMsg, comment=beActive ? "breakeven" : "stop")
+    strategy.exit("Long Exit", from_entry="Long", stop=beActive ? longLvl : longLvl - riskPts, limit=longTgt,
+         alert_message=exitMsg, comment_profit="target", comment_loss=beActive ? "breakeven" : "stop")
 if isShort
-    strategy.exit("Short Exit", from_entry="Short", stop=beActive ? shortLvl : shortLvl + riskPts,
-         alert_message=exitMsg, comment=beActive ? "breakeven" : "stop")
+    strategy.exit("Short Exit", from_entry="Short", stop=beActive ? shortLvl : shortLvl + riskPts, limit=shortTgt,
+         alert_message=exitMsg, comment_profit="target", comment_loss=beActive ? "breakeven" : "stop")
 
 // ---- 15:55 market exit ----
 if flatNow and strategy.position_size != 0
@@ -241,6 +260,9 @@ showLvls = validDay and (inRth or isPreOpenBar)
 plot(showLvls ? dayOpen : na, "Open / initial stop", color=color.gray, style=plot.style_linebr)
 plot(showLvls ? longLvl : na, "Long entry", color=color.green, style=plot.style_linebr, linewidth=2)
 plot(showLvls ? shortLvl : na, "Short entry", color=color.red, style=plot.style_linebr, linewidth=2)
-plot(showLvls ? longLvl + beMult * tr1 : na, "Long +2R (BE trigger)", color=color.new(color.green, 70), style=plot.style_linebr)
-plot(showLvls ? shortLvl - beMult * tr1 : na, "Short +2R (BE trigger)", color=color.new(color.red, 70), style=plot.style_linebr)
+plot(showLvls ? longLvl + beMult * tr1 : na, "Long BE trigger", color=color.new(color.green, 70), style=plot.style_linebr)
+plot(showLvls ? shortLvl - beMult * tr1 : na, "Short BE trigger", color=color.new(color.red, 70), style=plot.style_linebr)
+plot(showLvls ? longTgt : na, "Long target", color=color.new(color.blue, 30), style=plot.style_linebr)
+plot(showLvls ? shortTgt : na, "Short target", color=color.new(color.orange, 30), style=plot.style_linebr)
+plot(trendLen > 0 and showLvls ? trendSma : na, "Trend SMA (daily)", color=color.new(color.purple, 50), style=plot.style_linebr)
 bgcolor(showLvls and not entriesOpen ? color.new(color.gray, 94) : na, title="Entry window closed")

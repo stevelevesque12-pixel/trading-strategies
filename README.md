@@ -56,6 +56,18 @@ strongly volatility-dependent: 2016-2017 (NQ TR1 ~45 pts) lost money
 (2018, 2022, 2024, 2025) made +85% to +116%. The most recent 3.5 months
 (May-Aug 2026) are -11%.
 
+**Lower-drawdown variant (the Pine script's defaults).** A 540-combination
+grid chosen on 2016-2021 only and checked blind on 2022-2026 found that
+adding a 3R profit target (`--target-mult 0.75`), break-even at +1R
+(`--breakeven-mult 0.25`) and a 50-day trend filter (`--trend-sma 50`,
+longs only above the 50-session SMA of closes, shorts only below) cuts
+max drawdown from ~40% to ~13% at the same 1% risk (CAGR ~50% -> ~34%,
+PF 1.25 -> 1.39, no losing year in 10, ~175 trades/yr). For comparison,
+the original rules at a 13-14% drawdown (0.3% risk) only make ~14%/yr.
+A 1.5R target (`--target-mult 0.375`) instead raises the win rate to ~44%
+at ~15% drawdown and ~24%/yr. Volatility-expansion filters (TR1 vs its
+20-day average) made results worse in both periods.
+
 Robustness checks run: the 15m result matches 1m and 5m data trade-for-
 trade/in aggregate on the windows where finer data exists; every
 entry/stop multiple from 0.15 to 0.35 and break-even from 0.4 to 0.75 (or
