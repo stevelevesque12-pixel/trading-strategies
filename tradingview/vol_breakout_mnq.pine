@@ -18,13 +18,17 @@
 //      fixed account size you enter -- see "Position sizing").
 //   Costs: $0.475/contract per fill ($0.95 round trip) + 1 tick slippage.
 //
-// REQUIRED CHART SETUP: MNQ1! (or MNQ contract), 1-minute chart,
-// extended-hours session (ETH) so the daily TR1 and the 09:30 bar line up.
-// Any timeframe that divides 09:30 works, but on historical bars Pine can
-// only place the day's orders at the CLOSE of the 09:30 bar, so the
-// Strategy Tester misses breakouts inside that first bar -- 1 minute keeps
-// that gap to one minute. Live (realtime) the orders go in on the first
-// tick of the 09:30 bar.
+// CHART SETUP: MNQ1! (or MNQ contract), extended-hours session (ETH) ON.
+// Any timeframe that divides 09:30 works (1/3/5/15/30 min). For the longest
+// Strategy Tester history use 15 minutes: TradingView loads a fixed number
+// of bars, so 15m covers ~15x more days than 1m.
+//
+// Historical bars: Pine can only place orders at a bar's close, so the
+// day's stop orders are placed at the close of the bar ENDING at 09:30,
+// using that close as "Open" (on NQ it differs from the 09:30 open by a
+// median of 1 tick; the 10-year Python backtest is unchanged by it). This
+// lets the tester catch breakouts inside the first bar. Live (realtime)
+// the levels use the real 09:30 open, set on its first tick.
 //
 // Live execution caveat: TradingView fills the stop entry in its own
 // broker emulator and THEN fires the alert, so TradersPost sends a market
@@ -74,6 +78,9 @@ flatMin  = math.floor(flatHM / 100) * 60 + flatHM % 100
 
 isOpenBar = openMin == rthStart
 inRth     = openMin >= rthStart and openMin < rthEnd
+// Historical only: the bar that closes exactly at 09:30 (needs ETH bars).
+isPreOpenBar = not barstate.isrealtime and closeMin == rthStart and openMin < rthStart
+nyDateKey    = year(time_close, NY) * 10000 + month(time_close, NY) * 100 + dayofmonth(time_close, NY)
 
 // Historical bars: orders issued at a bar's close work on the NEXT bar,
 // so gate on this bar's close time. Realtime (every tick): gate on the
@@ -92,11 +99,13 @@ var float rL      = na
 var float rC      = na
 var float rPrevC  = na
 var float trRth   = na
-if isOpenBar
-    if not na(rH)
-        pc = na(rPrevC) ? rC : rPrevC
-        trRth  := math.max(rH, pc) - math.min(rL, pc)
-        rPrevC := rC
+// Finalize an RTH session on the first bar after it (ETH charts), or on the
+// next day's 09:30 bar (RTH-only charts).
+rthEnded = (inRth[1] and not inRth) or (isOpenBar and inRth[1])
+if rthEnded and not na(rH)
+    pc = na(rPrevC) ? rC : rPrevC
+    trRth  := math.max(rH, pc) - math.min(rL, pc)
+    rPrevC := rC
     rH := na
     rL := na
 if inRth
@@ -111,13 +120,17 @@ var float longLvl  = na
 var float shortLvl = na
 var float riskPts  = na
 var int   dayStart = na
-if isOpenBar
-    dayOpen  := open
-    tr1      := trSource == "ETH (daily bar)" ? trEth : trRth
-    longLvl  := dayOpen + entryMult * tr1
-    shortLvl := dayOpen - entryMult * tr1
-    riskPts  := stopMult * tr1
-    dayStart := time
+var int   levelsDay = na
+setFromPreOpen = isPreOpenBar
+setFromOpen    = isOpenBar and (barstate.isrealtime or levelsDay != nyDateKey)
+if setFromPreOpen or setFromOpen
+    dayOpen   := setFromPreOpen ? close : open
+    tr1       := trSource == "ETH (daily bar)" ? trEth : trRth
+    longLvl   := dayOpen + entryMult * tr1
+    shortLvl  := dayOpen - entryMult * tr1
+    riskPts   := stopMult * tr1
+    dayStart  := setFromPreOpen ? time_close : time
+    levelsDay := nyDateKey
 
 // Levels are only good for the day they were set (skips days with no
 // 09:30 bar, e.g. holidays, instead of reusing stale levels).
@@ -219,7 +232,7 @@ if flatNow and strategy.position_size != 0
     strategy.close_all(comment="eod", alert_message=exitMsg)
 
 // ---- Visuals ----
-showLvls = validDay and inRth
+showLvls = validDay and (inRth or isPreOpenBar)
 plot(showLvls ? dayOpen : na, "Open / initial stop", color=color.gray, style=plot.style_linebr)
 plot(showLvls ? longLvl : na, "Long entry", color=color.green, style=plot.style_linebr, linewidth=2)
 plot(showLvls ? shortLvl : na, "Short entry", color=color.red, style=plot.style_linebr, linewidth=2)

@@ -106,9 +106,13 @@ plan's alert/webhook limits.
 Same TradersPost pipeline, but this script alerts differently from the
 Failed-2s / structure-scalp scripts, so the chart and alert setup differ:
 
-1. **Chart**: `MNQ1!`, **1-minute**, **extended hours on** (the TR1 comes
-   from the daily bar = full Globex session, and the levels are set from
-   the 09:30 bar). If your TradingView data settings use settlement as the
+1. **Chart**: `MNQ1!`, **extended hours on** (the TR1 comes from the
+   daily bar = full Globex session, and on history the orders are placed
+   at the close of the bar ending 09:30). Any timeframe that divides 09:30
+   works; use **15 minutes** to see the most history in the Strategy
+   Tester (TradingView loads a fixed number of bars, so 15m covers ~15x
+   more days than 1m). Live, the timeframe barely matters: realtime
+   levels use the real 09:30 open. If your TradingView data settings use settlement as the
    daily close, TR1 will differ by a few points from a last-trade close.
 2. **Inputs**: under **Position sizing**, pick the equity source. The
    default (compounding strategy equity) is right for the Strategy
@@ -128,10 +132,10 @@ Failed-2s / structure-scalp scripts, so the chart and alert setup differ:
 Entries are resting stop orders inside TradingView's broker emulator; the
 webhook fires when the emulator fills, so the real order is a market
 order sent a moment later (expect some extra slippage vs. the tester).
-The Strategy Tester on 1-minute history should roughly track
-`python -m vol_breakout.backtest` for the same dates, but it misses
-breakouts during the 09:30 bar itself: on historical bars Pine can only
-place the day's orders at that bar's close.
+The Strategy Tester should roughly track `python -m vol_breakout.backtest`
+for the same dates. On history the "Open" is the close of the bar ending
+09:30 (Pine can only place orders at a bar's close); on NQ that is a
+median 1 tick from the true open and doesn't change the 10-year result.
 
 ## Risk-based position sizing
 
