@@ -137,5 +137,7 @@ def test_prop_eval_pass_and_fail():
     days = [1, 2, 3]
     rules = PropRules()
     assert run_eval(days, {1: [1500], 2: [1600]}, 0, rules) == ("pass", 2)
-    # EOD trail: +1500 lifts the floor to 49,500; -1600 next day breaches it.
-    assert run_eval(days, {1: [1500], 2: [-1600]}, 0, rules) == ("fail", 2)
+    # EOD trail: +1500 lifts the floor to 49,500 -> a -1600 day survives
+    # (49,900), a -2100 day breaches it.
+    assert run_eval(days, {1: [1500], 2: [-1600]}, 0, rules)[0] == "open"
+    assert run_eval(days, {1: [1500], 2: [-2100]}, 0, rules) == ("fail", 2)
