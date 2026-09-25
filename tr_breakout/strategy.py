@@ -11,7 +11,8 @@ Rules (as specified):
 4. Exit: stop, break-even, or market exit at 15:55 ET. No target/trailing.
 5. Re-entry after a stop-out once price trades back through the entry level
    from the other side. Max 3 entries per day across long + short.
-6. Sizing: risk 1% of current (compounding) equity per trade in MNQ.
+6. Sizing: risk 1% of the $100k starting equity ($1,000) per trade in MNQ,
+   fixed -- no compounding (`compound=True` sizes off current equity instead).
 7. No filters.
 Costs: $0.95 round-trip commission per contract + 1 tick slippage per side.
 
@@ -28,7 +29,7 @@ Interpretation choices (the spec is silent on these; all are parameters):
 - Market exit at 15:55 fills at the open of the first bar starting >= 15:55;
   on bars too coarse to have one (e.g. 15m), at the close of the last bar
   starting before 15:55 (i.e. 16:00 on 15m data).
-- Contracts = floor(1% equity / (stop points x point value)); a day whose
+- Contracts = floor(1% x sizing equity / (stop points x point value)); a day whose
   stop is so wide that 0 contracts fit is skipped.
 """
 
@@ -53,6 +54,7 @@ class Config:
     max_entries: int = 3
     risk_pct: float = 0.01
     start_equity: float = 100_000.0
+    compound: bool = False          # False: always risk risk_pct of start_equity
     tick_size: float = 0.25
     point_value: float = 2.0        # MNQ
     commission_rt: float = 0.95     # per contract, round trip
@@ -130,7 +132,8 @@ class _Day:
     # --- helpers -----------------------------------------------------------
     def _open(self, side, ts, trigger_px):
         cfg = self.cfg
-        contracts = floor(cfg.risk_pct * self.equity / (self.dist * cfg.point_value))
+        sizing_equity = self.equity if cfg.compound else cfg.start_equity
+        contracts = floor(cfg.risk_pct * sizing_equity / (self.dist * cfg.point_value))
         if contracts < 1:
             self.unsizable = True  # stop too wide for 1% risk: stand aside today
             return
@@ -288,10 +291,11 @@ def summarize(trades: List[Trade], cfg: Config) -> dict:
         "end_equity": eq.iloc[-1],
         "return_%": 100 * (eq.iloc[-1] / cfg.start_equity - 1),
         "max_dd_%": 100 * dd,
+        "max_dd_$": (eq - eq.cummax()).min(),
         "costs": sum(t.contracts * (cfg.commission_rt + 2 * cfg.slippage_ticks * cfg.tick_size * cfg.point_value)
                      for t in trades),
     }
-    return {k: v if k == "trades" else round(float(v), 3 if k == "avg_R" else 1) for k, v in out.items()}
+    return {k: v if k == "trades" else round(float(v), 3 if k == "avg_R" else 2 if k == "profit_factor" else 1) for k, v in out.items()}
 
 
 def trades_frame(trades: List[Trade]) -> pd.DataFrame:

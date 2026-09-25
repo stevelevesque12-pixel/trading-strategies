@@ -34,7 +34,8 @@ MNQ. Stop-entry orders at RTH open +/- 0.25 x the prior session's true range
 (TR1), active 09:30-13:00 ET; 1R stop = 0.25 x TR1; stop to break-even from
 the bar after a completed bar reaches +2R; exit on stop/BE or at 15:55 ET;
 re-entry after a stop once price crosses back through the level (max 3
-entries/day); 1% of compounding equity risked per trade from $100k; $0.95
+entries/day); fixed $1,000 risk per trade (1% of $100k, not compounded --
+`--compound` sizes off current equity instead); $0.95
 RT commission + 1 tick slippage per side. Assumptions the spec leaves open
 (RTH vs full-Globex TR1, intrabar ordering on OHLC bars, 15:55 exit on 15m
 bars) are documented at the top of `tr_breakout/strategy.py`.
@@ -43,12 +44,12 @@ bars) are documented at the top of `tr_breakout/strategy.py`.
 python -m tr_breakout.run --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet
 ```
 
-Result on 10 years of NQ 15m bars (sized as MNQ at $2/pt): 3,732 trades,
-32% win rate, +0.15R avg, PF 1.28, -47% max drawdown (2016-05 to 2017-05,
-right at the start). Losing years were 2016 and 2017 (low absolute TR, where
-fixed costs are ~0.1R per trade); 2026 YTD is +12% with May-Aug -16%.
-The compounded end-equity figure is meaningless in practice because
-position size reaches hundreds of MNQ. Bucketing by TR1 as a % of price
+Result on 10 years of NQ 15m bars (sized as MNQ at $2/pt, fixed $1,000
+risk): 3,731 trades, 32% win rate, +0.15R avg, PF 1.27, +$550k net
+(~$55k/yr on $100k), max drawdown -$58k (2016-05 to 2017-05, right at the
+start -- equity bottomed at ~$42k). Losing years were 2016 (-$15k) and 2017
+(-$4k), when TR was small in points and fixed costs were ~0.1R per trade;
+2026 YTD is +$13k with May-Aug -$14k. Bucketing by TR1 as a % of price
 does *not* show "higher volatility = better": the top quintile was the
 weakest (+0.03R), so the weak early years look driven more by cost per R
 than by volatility. On the overlapping periods, 15m, 5m and 1m data give

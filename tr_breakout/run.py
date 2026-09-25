@@ -20,10 +20,11 @@ def main():
     ap.add_argument("--data", required=True)
     ap.add_argument("--session", default="rth", choices=["rth", "eth"])
     ap.add_argument("--point-value", type=float, default=2.0)
+    ap.add_argument("--compound", action="store_true", help="size off current equity instead of fixed $100k")
     ap.add_argument("--trades-out", default=None)
     args = ap.parse_args()
 
-    cfg = Config(session=args.session, point_value=args.point_value)
+    cfg = Config(session=args.session, point_value=args.point_value, compound=args.compound)
     df = load_1m_csv(args.data)
     trades = run_backtest(df, cfg)
     print("Overall:")
@@ -39,7 +40,10 @@ def main():
         "trades": tf.groupby("year").size(),
         "win_%": (tf.groupby("year")["pnl"].apply(lambda s: (s > 0).mean() * 100)).round(1),
         "avg_R": tf.groupby("year")["r_multiple"].mean().round(3),
-        "return_%": ((tf.groupby("year")["equity_after"].last() / start_eq - 1) * 100).round(1),
+        "net_pnl": tf.groupby("year")["pnl"].sum().round(0),
+        # Fixed sizing: % of starting capital. Compounding: % of equity at year start.
+        "return_%": ((tf.groupby("year")["equity_after"].last() / start_eq - 1) * 100).round(1)
+        if cfg.compound else (tf.groupby("year")["pnl"].sum() / cfg.start_equity * 100).round(1),
         "median_TR1": tf.groupby("year")["tr1"].median().round(1),
     })
     print("\nBy year:")

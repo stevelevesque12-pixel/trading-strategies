@@ -110,7 +110,7 @@ def test_time_exit_at_1555_on_5m_bars():
     assert t.exit_time.strftime("%H:%M") == "15:55"
 
 
-def test_equity_compounds_into_sizing():
+def test_sizing_is_fixed_by_default_and_compounds_when_asked():
     df = day2(
         ("09:30", 1000, 1011, 999, 1011),
         ("09:45", 1011, 1011, 999, 999),     # loss -> equity < 100k
@@ -118,5 +118,8 @@ def test_equity_compounds_into_sizing():
         ("15:45", 1011, 1011, 1011, 1011),
     )
     t1, t2 = run_backtest(df, CFG)
+    assert t1.contracts == t2.contracts == 50  # $1000 of $100k, regardless of the loss
+
+    t1, t2 = run_backtest(df, Config(compound=True))
     assert t2.contracts == int(0.01 * t1.equity_after / 20)
     assert t2.contracts < t1.contracts
