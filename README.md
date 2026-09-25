@@ -56,6 +56,14 @@ than by volatility. On the overlapping periods, 15m, 5m and 1m data give
 nearly identical results, so the intrabar-path assumption isn't driving the
 numbers.
 
+**Prop-firm check:** `python -m tr_breakout.prop_sim --data <parquet> --from 2022-01-01`
+replays the trade stream from every start day through a generic 50K
+evaluation (+$3,000 target, $2,000 EOD trailing max loss, 50 MNQ cap -- set
+the flags to your firm's rules) at several fixed $-risk levels. Since 2022:
+~71% pass at $200/trade, ~63% at $250, ~49% at $400 (a zero-edge coin flip
+passes ~40% with a 3k/2k target/drawdown). Below ~$200 risk, 1 MNQ is often
+too big for the stop at current NQ prices and most days get skipped.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

@@ -123,3 +123,19 @@ def test_sizing_is_fixed_by_default_and_compounds_when_asked():
     t1, t2 = run_backtest(df, Config(compound=True))
     assert t2.contracts == int(0.01 * t1.equity_after / 20)
     assert t2.contracts < t1.contracts
+
+
+def test_max_contracts_caps_size():
+    df = day2(("09:30", 1000, 1011, 999, 1011), ("15:45", 1011, 1011, 1011, 1011))
+    (t,) = run_backtest(df, Config(max_contracts=5))
+    assert t.contracts == 5
+
+
+def test_prop_eval_pass_and_fail():
+    from tr_breakout.prop_sim import PropRules, run_eval
+
+    days = [1, 2, 3]
+    rules = PropRules()
+    assert run_eval(days, {1: [1500], 2: [1600]}, 0, rules) == ("pass", 2)
+    # EOD trail: +1500 lifts the floor to 49,500; -1600 next day breaches it.
+    assert run_eval(days, {1: [1500], 2: [-1600]}, 0, rules) == ("fail", 2)

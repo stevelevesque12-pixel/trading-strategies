@@ -54,6 +54,7 @@ class Config:
     max_entries: int = 3
     risk_pct: float = 0.01
     start_equity: float = 100_000.0
+    max_contracts: Optional[int] = None  # position cap (prop-firm limits)
     compound: bool = False          # False: always risk risk_pct of start_equity
     tick_size: float = 0.25
     point_value: float = 2.0        # MNQ
@@ -134,6 +135,8 @@ class _Day:
         cfg = self.cfg
         sizing_equity = self.equity if cfg.compound else cfg.start_equity
         contracts = floor(cfg.risk_pct * sizing_equity / (self.dist * cfg.point_value))
+        if cfg.max_contracts is not None:
+            contracts = min(contracts, cfg.max_contracts)
         if contracts < 1:
             self.unsizable = True  # stop too wide for 1% risk: stand aside today
             return
