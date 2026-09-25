@@ -70,6 +70,15 @@ into 20k random paths: 1-year P&L/drawdown for a $100k account at fixed
 $1,000 risk, and prop-eval pass odds per $ risk level. `--haircut 0.5`
 stress-tests with half the historical edge.
 
+**Tradeify Select Flex 50K:** `python -m tr_breakout.tradeify --data <parquet> --from 2022-01-01 --cushion 3000`
+models the evaluation (+$3k, $2k EOD trail locking at $50,100, 40%
+consistency) and the funded Flex account (payout every 5 days of >= $150,
+50% of profit capped at $2,500, 90% split, floor locked at $50,100 after the
+first payout). `--cushion` is your withdrawal policy: only take payouts that
+leave that much profit in the account. Taking the max every time busts ~97%
+of funded accounts within a year; keeping a $3k cushion at $200 risk roughly
+doubles expected take-home.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

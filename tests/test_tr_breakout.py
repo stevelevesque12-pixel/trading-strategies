@@ -160,3 +160,23 @@ def test_monte_carlo_prop_paths():
     lose = np.array([-700.0]), np.array([-700.0])
     status, used = prop_mc(*lose, rules, rng, 3, 10, 1)
     assert (status == -1).all() and (used == 3).all()
+
+
+def test_tradeify_eval_consistency_and_funded_payout_lock():
+    import numpy as np
+
+    from tr_breakout.tradeify import eval_mc, funded_mc
+
+    # +3000 in one day hits the target but breaks the 40% rule -> keep trading.
+    tot = np.array([[3000.0, 1000.0, 1000.0, 0.0]])
+    st, used = eval_mc(tot, np.zeros_like(tot), 3000, 4)
+    assert st[0] == 0
+    tot = np.array([[1200.0, 1000.0, 1000.0, 0.0]])
+    st, used = eval_mc(tot, np.zeros_like(tot), 3000, 4)
+    assert (st[0], used[0]) == (1, 3)
+
+    # 5 winning days of $400 -> payout of 50% of $2,000 profit; the floor then
+    # locks at +$100, so a -$1,000 day busts the account.
+    tot = np.array([[400.0] * 5 + [-1000.0]])
+    paid, n_pay, first, bust, _ = funded_mc(tot, np.minimum(tot, 0))
+    assert n_pay[0] == 1 and paid[0] == 0.9 * 1000 and first[0] == 5 and bust[0] == 6
