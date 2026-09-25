@@ -64,6 +64,12 @@ the flags to your firm's rules) at several fixed $-risk levels. Since 2022:
 passes ~40% with a 3k/2k target/drawdown). Below ~$200 risk, 1 MNQ is often
 too big for the stop at current NQ prices and most days get skipped.
 
+**Monte Carlo:** `python -m tr_breakout.monte_carlo --data <parquet> --from 2022-01-01 --block 20`
+resamples whole trading days (20-day blocks keep streaks/regimes clustered)
+into 20k random paths: 1-year P&L/drawdown for a $100k account at fixed
+$1,000 risk, and prop-eval pass odds per $ risk level. `--haircut 0.5`
+stress-tests with half the historical edge.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

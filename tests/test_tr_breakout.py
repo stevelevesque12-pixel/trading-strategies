@@ -141,3 +141,22 @@ def test_prop_eval_pass_and_fail():
     # (49,900), a -2100 day breaches it.
     assert run_eval(days, {1: [1500], 2: [-1600]}, 0, rules)[0] == "open"
     assert run_eval(days, {1: [1500], 2: [-2100]}, 0, rules) == ("fail", 2)
+
+
+def test_monte_carlo_prop_paths():
+    import numpy as np
+
+    from tr_breakout.monte_carlo import prop_mc, sample_idx
+    from tr_breakout.prop_sim import PropRules
+
+    rng = np.random.default_rng(0)
+    idx = sample_idx(rng, 100, 5, 45, block=20)
+    assert idx.shape == (5, 45) and (np.diff(idx[:, :20], axis=1) == 1).all()
+
+    rules = PropRules()
+    win = np.array([1000.0]), np.array([0.0])
+    status, used = prop_mc(*win, rules, rng, 3, 10, 1)
+    assert (status == 1).all() and (used == 3).all()
+    lose = np.array([-700.0]), np.array([-700.0])
+    status, used = prop_mc(*lose, rules, rng, 3, 10, 1)
+    assert (status == -1).all() and (used == 3).all()
