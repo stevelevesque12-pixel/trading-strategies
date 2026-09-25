@@ -19,4 +19,10 @@ INSTRUMENTS = {
     "CL": Instrument("CL", 0.01, 1000.0),
     "MGC": Instrument("MGC", 0.1, 10.0),
     "GC": Instrument("GC", 0.1, 100.0),
+    "SIL": Instrument("SIL", 0.005, 1000.0),
+    "SI": Instrument("SI", 0.005, 5000.0),
+    "MYM": Instrument("MYM", 1.0, 0.5),
+    "YM": Instrument("YM", 1.0, 5.0),
+    "M2K": Instrument("M2K", 0.1, 5.0),
+    "RTY": Instrument("RTY", 0.1, 50.0),
 }

@@ -29,6 +29,10 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third, unrelated strategy lives in `turtle_trading/`**: Richard
+Dennis and William Eckhardt's 1983 Turtle Trading rules, a daily-bar
+trend-following system. See "Turtle Trading" below.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
@@ -224,6 +228,70 @@ not yet wire Tradovate's order-fill/user-sync WebSocket back into the risk
 manager, so the daily-loss-limit lockout won't see live fills until you add
 that callback (`LiveRunner._on_finished_bar` has a note where to hook it
 in). Don't rely on the daily loss limit unattended until that's wired up.
+
+## Turtle Trading (Richard Dennis)
+
+`turtle_trading/strategy.py` implements the original Turtle rules (per
+Curtis Faith's *The Original Turtle Trading Rules*) on **daily** bars:
+
+- **N** = 20-day Wilder ATR. **Unit** = `floor(equity * 1% / (N * point value))`,
+  so a 1N move against one unit costs 1% of equity.
+- **System 1**: enter on a 20-day breakout, *skipped* if the previous
+  20-day breakout would have been a winner (tracked as a shadow trade
+  whether or not it was taken); a 55-day breakout is the failsafe entry
+  when skipped. Exit on a 10-day opposite breakout.
+- **System 2**: enter on every 55-day breakout, exit on a 20-day opposite
+  breakout.
+- **Stop** 2N from entry. **Pyramid** one more unit every +0.5N from the
+  previous fill, max 4 units; every add moves the stop for all units to 2N
+  from the newest fill.
+
+Backtest (`turtle_trading/backtest.py`) runs any number of markets as one
+portfolio sharing a single realized-equity account. Intraday data is
+rolled up into daily bars on the CME 18:00 ET session boundary. The
+`SYMBOL=` part only picks the contract spec, so the 10-year full-size
+datasets can be traded as micros (needed for 1%-risk sizing on a small
+account):
+
+```bash
+D=sample_data/real_multi_instrument
+python -m turtle_trading.backtest \
+  --market MES=$D/real_es_15m_2016-05-29_2026-08-25.parquet \
+  --market MNQ=$D/real_nq_15m_2016-05-29_2026-08-25.parquet \
+  --market MGC=$D/real_gc_15m_2016-05-26_2026-08-25.parquet \
+  --market SIL=$D/real_si_15m_2016-05-26_2026-08-25.parquet \
+  --system both --equity 100000
+```
+
+Options: `--risk-pct` (default 1.0), `--max-units`, `--no-skip-filter`,
+`--slippage-ticks` (default 1 per fill), `--commission` (default $2.50
+round trip per contract), `--out` (trade log CSV).
+
+Results on that 4-market basket, 2016-05 to 2026-08, $100k, default costs:
+
+| Risk/unit | System | Trades | Win % | Profit factor | CAGR | Max DD (closed) |
+|---|---|---|---|---|---|---|
+| 1% | S1 (20/10) | 339 | 23.6 | 0.93 | -4.6% | 62% |
+| 1% | S2 (55/20) | 242 | 19.4 | 1.03 | +1.6% | 81% |
+| 0.5% | S1 (20/10) | 317 | 24.3 | 1.06 | +1.7% | 33% |
+| 0.5% | S2 (55/20) | 219 | 20.6 | 1.26 | +5.9% | 48% |
+
+Gold was the only consistently profitable market (S2 alone on MGC: PF
+1.72, +7.9% CAGR); silver lost the most. Turning off System 1's
+skip-after-winner filter roughly doubled its losses. Four equity-index/metal
+markets is a far narrower basket than the ~20 diversified futures (bonds,
+currencies, grains, energies) the Turtles traded, and diversification
+across uncorrelated trends is what the system depends on -- read these
+numbers as "this basket doesn't give the rules enough to work with," not
+as a verdict on the method.
+
+Daily-bar fill assumptions: stop orders fill at the level (or the open on
+a gap) plus slippage; open positions check exits before adding units; after
+an entry or add the stop/exit channel is re-checked on the same bar and
+assumed hit if the bar's range reaches it (conservative); a bar breaking
+both channels is ignored for entries. Not modeled: the Turtles'
+portfolio-wide unit caps (12 per direction, 6 per correlated group), the
+10%-drawdown equity haircut, and roll costs on continuous-contract data.
 
 ## Running the tests
 
