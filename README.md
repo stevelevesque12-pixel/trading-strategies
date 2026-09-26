@@ -68,7 +68,8 @@ too big for the stop at current NQ prices and most days get skipped.
 resamples whole trading days (20-day blocks keep streaks/regimes clustered)
 into 20k random paths: 1-year P&L/drawdown for a $100k account at fixed
 $1,000 risk, and prop-eval pass odds per $ risk level. `--haircut 0.5`
-stress-tests with half the historical edge.
+stress-tests with half the historical edge. Small personal account with a
+fixed size: `--account-size 5000 --contracts 1 --skip-prop`.
 
 **Tradeify Select Flex 50K:** `python -m tr_breakout.tradeify --data <parquet> --from 2022-01-01 --cushion 3000`
 models the evaluation (+$3k, $2k EOD trail locking at $50,100, 40%

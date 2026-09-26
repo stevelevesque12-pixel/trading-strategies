@@ -54,6 +54,7 @@ class Config:
     max_entries: int = 3
     risk_pct: float = 0.01
     start_equity: float = 100_000.0
+    fixed_contracts: Optional[int] = None  # trade exactly N contracts, ignoring risk_pct
     max_contracts: Optional[int] = None  # position cap (prop-firm limits)
     compound: bool = False          # False: always risk risk_pct of start_equity
     tick_size: float = 0.25
@@ -135,6 +136,8 @@ class _Day:
         cfg = self.cfg
         sizing_equity = self.equity if cfg.compound else cfg.start_equity
         contracts = floor(cfg.risk_pct * sizing_equity / (self.dist * cfg.point_value))
+        if cfg.fixed_contracts is not None:
+            contracts = cfg.fixed_contracts
         if cfg.max_contracts is not None:
             contracts = min(contracts, cfg.max_contracts)
         if contracts < 1:

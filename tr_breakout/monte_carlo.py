@@ -97,6 +97,9 @@ def main():
     ap.add_argument("--haircut", type=float, default=0.0,
                     help="stress test: remove this fraction of the average daily P&L from every day (0.5 = half the edge)")
     ap.add_argument("--account-risk", type=float, default=1000)
+    ap.add_argument("--account-size", type=float, default=100_000)
+    ap.add_argument("--contracts", type=int, default=None, help="fixed contracts per trade instead of --account-risk")
+    ap.add_argument("--skip-prop", action="store_true")
     ap.add_argument("--horizon", type=int, default=252, help="trading days for the account sim")
     ap.add_argument("--prop-risk", type=float, nargs="+", default=[200, 250, 300, 400])
     ap.add_argument("--target", type=float, default=3000)
@@ -112,17 +115,21 @@ def main():
     if args.haircut:
         mode += f", edge cut {100 * args.haircut:.0f}%"
 
-    cfg = Config(start_equity=100_000, risk_pct=args.account_risk / 100_000)
+    cfg = Config(start_equity=args.account_size, risk_pct=args.account_risk / args.account_size,
+                 fixed_contracts=args.contracts)
     total, _ = day_table(df, cfg, args.start)
     total = total - args.haircut * total.mean()
     final, dd = account_mc(total, rng, args.paths, args.horizon, args.block)
-    print(f"== $100k account, ${args.account_risk:,.0f} fixed risk, {args.horizon} trading days, "
+    sizing = f"{args.contracts} contract(s) fixed" if args.contracts else f"${args.account_risk:,.0f} fixed risk"
+    print(f"== ${args.account_size:,.0f} account, {sizing}, {args.horizon} trading days, "
           f"{args.paths:,} paths ({mode}, pool {len(total)} days) ==")
     print(f"  P&L      {pct(final)}")
     print(f"  max DD   {pct(dd)}")
     print(f"  P(losing year) {100 * (final < 0).mean():.1f}%   "
-          + "   ".join(f"P(DD worse than -${x // 1000:.0f}k) {100 * (dd <= -x).mean():.1f}%"
-                       for x in (20_000, 30_000, 50_000)))
+          + "   ".join(f"P(DD worse than -${x:,.0f}) {100 * (dd <= -x).mean():.1f}%"
+                       for x in (0.2 * args.account_size, 0.3 * args.account_size, 0.5 * args.account_size)))
+    if args.skip_prop:
+        return
 
     rules = PropRules(target=args.target, max_loss=args.max_loss,
                       daily_loss=args.daily_loss, max_contracts=args.max_contracts)

@@ -180,3 +180,9 @@ def test_tradeify_eval_consistency_and_funded_payout_lock():
     tot = np.array([[400.0] * 5 + [-1000.0]])
     paid, n_pay, first, bust, _ = funded_mc(tot, np.minimum(tot, 0))
     assert n_pay[0] == 1 and paid[0] == 0.9 * 1000 and first[0] == 5 and bust[0] == 6
+
+
+def test_fixed_contracts_overrides_risk_sizing():
+    df = day2(("09:30", 1000, 1011, 999, 1011), ("15:45", 1011, 1011, 1011, 1011))
+    (t,) = run_backtest(df, Config(start_equity=5_000, fixed_contracts=1))
+    assert t.contracts == 1
