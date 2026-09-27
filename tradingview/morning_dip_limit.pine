@@ -1,0 +1,172 @@
+//@version=6
+// Morning Dip Limit -- NQ/MNQ long-only scalp, ported from morning_dip/
+// (source: milkmantrades.com "Morning Dip Limit -- a promising lead"; the
+// author calls it a research lead, not armed). Fires TradersPost-format
+// webhook alerts.
+//
+// REQUIRED CHART SETUP: NQ1! or MNQ1! on a 3-minute chart (5-minute is the
+// author's other tested version). Exchange time, regular data.
+//
+// Rules (each candle = one chart bar, evaluated at bar close):
+//   1. ATR = simple mean of the last 14 true ranges. ER = |close change
+//      over 15 candles| / sum of |close-to-close changes|. Both warm up from
+//      the first candle starting at/after 08:25 CT each day (the first
+//      candle's true range is its high - low).
+//   2. A candle closing from 09:00 to 11:00 CT with ER <= 0.35 places a buy
+//      limit at close - 1.0 x ATR (rounded down to a tick). Skipped if that
+//      is under 1 tick below the close or the target is under 2 ticks away.
+//   3. The limit fills only if price trades 1 tick through it
+//      (backtest_fill_limits_assumption=1). Cancelled 9 minutes (3 candles)
+//      after the signal candle closes.
+//   4. Target = signal candle's high-low midpoint (rounded up; also needs a
+//      1-tick trade-through). Stop = limit - 1.5 x ATR (rounded up, >= 4
+//      ticks). Time stop 15 minutes. Flat at 11:00 CT. One order or
+//      position at a time.
+//   5. Stops and market exits slip 1 tick (slippage=1). $2.25 per side.
+//
+// Differences from the Python reference (1-second fill model), all from
+// TradingView only seeing whole candles:
+//   - Only the 0-second candle start time (TradingView's own bar grid) --
+//     the author's 18, 36 ... 162 s start times can't be charted.
+//   - No 1-second arm delay: the order is live from the next candle's open.
+//   - The fill candle can stop but, by default, not target (the reference
+//     can still target in the seconds after the fill; TradingView can't
+//     tell which came first). Toggle "Allow target on the fill candle".
+//   - TradingView stamps the entry at the fill candle's open, so the time
+//     stop exits at the open 15 minutes after that (up to one candle
+//     earlier than the reference, which counts from the fill second).
+//   - No feed-gap / data-health checks.
+//   Turn on "Bar magnifier" in the strategy's Properties (Premium plans) for
+//   more realistic intrabar fills.
+//
+// Live-trading caveats: the author found no bid/ask or queue modelling, so
+// live fills on hard flushes may be worse than any backtest. The time stop
+// and 11:00 flatten are sent by this script based on TradingView's own
+// simulated position, which can differ from your real one -- confirm the
+// broker-side state before trusting it unattended.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// See ../TRADINGVIEW_WEBHOOK.md. Messages sent:
+//   buy (limit, with stop-loss + take-profit)  -- a new resting order
+//   cancel                                      -- the order expired unfilled
+//   exit                                        -- time stop / 11:00 flatten
+
+strategy("Morning Dip Limit", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.25,
+     slippage=1, backtest_fill_limits_assumption=1,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+// ---- Inputs ----
+atrLen        = input.int(14, "ATR length (candles)", minval=1)
+erLen         = input.int(15, "ER length (candles)", minval=1)
+erMax         = input.float(0.35, "Max ER (choppy filter)", step=0.01)
+dipAtr        = input.float(1.0, "Dip (x ATR below close)", step=0.1)
+stopAtr       = input.float(1.5, "Stop (x ATR below limit)", step=0.1)
+minStopTicks  = input.int(4, "Min stop (ticks)", minval=1)
+cancelMin     = input.int(9, "Cancel unfilled order after (minutes)", minval=1)
+timeStopMin   = input.int(15, "Time stop (minutes)", minval=1)
+targetOnFill  = input.bool(false, "Allow target on the fill candle")
+feedStart     = input.int(825, "Warm-up start (HHMM CT)")
+signalStart   = input.int(900, "Signals from (HHMM CT)")
+flatAt        = input.int(1100, "Signals until / flat at (HHMM CT)")
+qty           = input.int(1, "Contracts", minval=1)
+
+TZ = "America/Chicago"
+tick = syminfo.mintick
+EPS = 1e-8
+
+toMin(hhmm) => math.floor(hhmm / 100) * 60 + hhmm % 100
+startMin = hour(time, TZ) * 60 + minute(time, TZ)             // this candle's start, CT minutes
+closeMin = hour(time_close, TZ) * 60 + minute(time_close, TZ) // this candle's close
+candleMin = timeframe.in_seconds() / 60.0
+
+// ---- Warm-up counter: candles since the first one starting at/after the feed start ----
+var int warm = 0
+warm := startMin < toMin(feedStart) ? 0 : warm + 1
+
+// ---- Indicators ----
+trueRange = warm == 1 ? high - low : ta.tr(true)
+atrRaw    = ta.sma(trueRange, atrLen)
+pathLen   = math.sum(math.abs(ta.change(close)), erLen)
+atrV = warm >= atrLen ? atrRaw : na
+erV  = warm >= erLen + 1 and pathLen > 0 ? math.abs(close - close[erLen]) / pathLen : na
+
+// ---- Signal ----
+inWindow = closeMin >= toMin(signalStart) and closeMin < toMin(flatAt)
+level    = na(atrV) ? na : math.floor((close - dipAtr * atrV) / tick + EPS) * tick
+reward   = na(level) ? na : math.ceil(((high + low) / 2 - level) / tick - EPS) * tick
+stopDist = na(atrV) ? na : math.max(minStopTicks * tick, math.ceil(stopAtr * atrV / tick - EPS) * tick)
+signal   = inWindow and not na(atrV) and atrV > 0 and not na(erV) and erV <= erMax and
+     close - level >= tick - EPS and reward >= 2 * tick - EPS
+
+// ---- Order / position state ----
+var int   pendingSince = na   // time_close of the signal candle while an order rests
+var int   tradesAtOrder = 0   // trade count when it was placed -- a higher count means it filled
+var float pLevel  = na
+var float pStop   = na
+var float pTarget = na
+var bool  targetArmed = false
+
+inPosition = strategy.position_size > 0
+flatTime   = closeMin >= toMin(flatAt) or closeMin < startMin  // at/after 11:00 (or the candle spans midnight)
+
+// Filled (even if it also exited inside the same candle).
+if not na(pendingSince) and strategy.opentrades + strategy.closedtrades > tradesAtOrder
+    pendingSince := na
+
+// Add the target from the candle after the fill (the fill candle can only stop).
+if inPosition and not targetArmed
+    strategy.exit("Dip exit", from_entry="Dip", stop=pStop, limit=pTarget)
+    targetArmed := true
+
+// Time stop and 11:00 flatten: exit at the next candle's open.
+if inPosition
+    entryT = strategy.opentrades.entry_time(strategy.opentrades - 1)
+    if flatTime
+        strategy.close_all(comment="session_flatten")
+        alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+    else if time_close >= entryT + timeStopMin * 60000
+        strategy.close("Dip", comment="time_stop")
+        alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// Cancel an unfilled order 9 minutes after its signal candle closed, or at 11:00.
+if not inPosition and not na(pendingSince) and (time_close >= pendingSince + cancelMin * 60000 or flatTime)
+    strategy.cancel("Dip")
+    pendingSince := na
+    alert('{"ticker":"' + syminfo.ticker + '","action":"cancel"}', alert.freq_once_per_bar_close)
+
+// New order: only when flat with nothing resting.
+if signal and not inPosition and na(pendingSince)
+    pLevel  := level
+    pStop   := level - stopDist
+    pTarget := level + reward
+    pendingSince := time_close
+    tradesAtOrder := strategy.opentrades + strategy.closedtrades
+    targetArmed := targetOnFill
+    strategy.entry("Dip", strategy.long, qty=qty, limit=pLevel)
+    if targetOnFill
+        strategy.exit("Dip exit", from_entry="Dip", stop=pStop, limit=pTarget)
+    else
+        strategy.exit("Dip exit", from_entry="Dip", stop=pStop)
+    buyMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"limit"' +
+         ',"limitPrice":' + str.tostring(pLevel) +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(pStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(pTarget) + '}}'
+    alert(buyMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+showOrder = not na(pendingSince) or inPosition
+plot(showOrder ? pLevel : na, "Limit", color=color.new(color.blue, 0), style=plot.style_linebr, linewidth=2)
+plot(showOrder ? pStop : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr)
+plot(showOrder ? pTarget : na, "Target", color=color.new(color.green, 0), style=plot.style_linebr)
+bgcolor(inWindow ? color.new(color.blue, 94) : na, title="Signal window")
+plotshape(signal and not na(pendingSince) and pendingSince == time_close, "Signal", shape.triangleup,
+     location.belowbar, color.new(color.blue, 0), size=size.tiny)
+
+var table warn = table.new(position.top_right, 1, 1)
+if barstate.islast and candleMin != 3 and candleMin != 5
+    table.cell(warn, 0, 0, "Morning Dip Limit was tested on 3- and 5-minute candles", bgcolor=color.new(color.orange, 20), text_color=color.white)

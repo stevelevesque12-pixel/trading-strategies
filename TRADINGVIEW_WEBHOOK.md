@@ -101,6 +101,29 @@ plan's alert/webhook limits.
    check with real (very small) size.
 3. Watch a handful of live signals closely before trusting it unattended.
 
+## Morning Dip Limit script (`tradingview/morning_dip_limit.pine`)
+
+Same TradersPost setup as above, with a few differences:
+
+- **Chart**: `NQ1!` or `MNQ1!` on a **3-minute** chart (5-minute was the
+  author's other tested version). Set **Contracts** in the inputs; sizing
+  is a fixed count, not risk-based.
+- **It sends a resting limit order**, not a market order:
+  `"action":"buy","orderType":"limit","limitPrice":...` with the stop-loss
+  and take-profit attached. Check that TradersPost is set to allow limit
+  orders for this strategy.
+- **It also sends `"action":"cancel"`**, when the order goes unfilled for
+  9 minutes (or at 11:00 CT), and `"action":"exit"`, for the 15-minute time
+  stop and the 11:00 CT flatten. The cancel and exit alerts are based on
+  TradingView's *simulated* fill, so if the real order filled but
+  TradingView thinks it didn't (or the other way around), a cancel or exit
+  can be missing or unnecessary. Watch these closely on the demo account
+  first.
+- **The Strategy Tester is only a rough check.** TradingView sees whole
+  3-minute candles, not the 1-second bars the author's numbers came from.
+  The limitations are listed at the top of the `.pine` file. Turning on
+  **Bar magnifier** (strategy Properties; needs a Premium plan) helps.
+
 ## Risk-based position sizing
 
 `riskPerTradeUsd` is the dollar amount you're willing to risk per trade.

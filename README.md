@@ -97,6 +97,10 @@ python -m morning_dip.backtest --data nq_1s.parquet --symbol NQ \
 python -m morning_dip.backtest --data day_files/   # per-day t,o,h,l,c files, the reference's format
 ```
 
+TradingView version: `tradingview/morning_dip_limit.pine` (3-minute
+`NQ1!`/`MNQ1!` chart, TradersPost webhook alerts). Its setup notes are in
+TRADINGVIEW_WEBHOOK.md.
+
 The source's numbers need 1-second NQ data, which this repo doesn't have.
 The simulator also runs on 1-minute bars (e.g.
 `sample_data/real_multi_instrument/real_mnq_1m_*.parquet`), but fills are
