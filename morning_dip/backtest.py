@@ -1,36 +1,46 @@
 """
-Fill simulator + CLI for the Morning Dip Limit strategy.
+Fill simulator + CLI for the Morning Dip Limit strategy, matched to the
+author's reference implementation.
 
-Walks the raw base bars (1-second bars as published; 1-minute bars work as
-a coarser approximation) one at a time, builds candles on the fly, and
-models a resting buy limit and its bracket at base-bar resolution:
+Per day: build candles from the day's base bars (08:25-15:00 CT feed), then
+walk the candles in order. Each qualifying candle's order is simulated on
+the base bars before the next candle is considered; a candle closing while
+the previous order is still resting or its position still open is skipped.
 
-  - An order can fill on a base bar that ends after its arm time (for
-    1-second bars: from the arm second on) and before it expires. It fills
-    at the limit price only if the bar's low trades `trade_through_ticks`
-    through it.
-  - On the fill bar the position can stop out but can't reach its target
-    (inside a bar the adverse move is assumed to come first).
-  - After that, on every bar, in this order: time stop (exit at that bar's
-    open), stop (exit at the stop, or the open if it gapped through), then
-    target (exit at the target, no slippage -- it's a resting limit).
-  - Stops and market exits (time stop, 11:00 flatten) slip
-    `slippage_ticks`. Commission is charged per side per contract.
-  - One order or position at a time: a signal that arrives while an order
-    is resting or a position is open is dropped.
+Order (from the first bar starting at/after the arm time, until expiry):
+  - fills at the limit if the bar's low trades `entry_through_ticks` through
+    it (even when the bar opened below -- a pessimistic resting fill);
+  - on 1-second data a feed gap over 30 s cancels it.
+
+Position, on every bar from the fill bar on (the adverse move comes first):
+  1. opened at/below the stop -> exit at the open, less slippage;
+  2. (not the fill bar) opened `target_through_ticks` above the target ->
+     exit at the target;
+  3. (not the fill bar) at/after 11:00 CT, the 15-minute time stop, or
+     after a feed gap over 30 s -> exit at the open, less slippage;
+  4. low at/below the stop -> exit at the stop, less slippage;
+  5. (not the fill bar) high `target_through_ticks` above the target ->
+     exit at the target.
+A position still open when the data ends is left unresolved (no trade) and
+blocks the rest of that day.
 
 Usage:
     python -m morning_dip.backtest --data nq_1s.parquet --symbol NQ
-    python -m morning_dip.backtest --data nq_1s.parquet --offsets 0,18,36,54,72,90,108,126,144,162
+    python -m morning_dip.backtest --data day_files/ --offsets 0,18,36,54,72,90,108,126,144,162
 
-With several offsets it prints each one's metrics plus their average,
-which is how the source reports its headline numbers.
+`--data` is a CSV/parquet file (see backtest.data.load_1m_csv) or a
+directory of per-day files with columns t (UTC epoch seconds, bar start),
+o, h, l, c -- the reference implementation's format. With several offsets
+it prints each one's metrics plus their average, which is how the source
+reports its headline numbers.
 """
 
 import argparse
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -39,28 +49,48 @@ from backtest.data import load_1m_csv
 from backtest.engine import Trade
 from backtest.metrics import compute_metrics
 from backtest.report import write_trades_csv
-from failed2s.bars import Bar
 from failed2s.instruments import INSTRUMENTS, Instrument
 
-from .strategy import LimitOrder, MorningDipConfig, MorningDipStrategy
-
-NS = 1_000_000_000
+from .strategy import EPS, LimitOrder, MorningDipConfig, build_candles, order_for
 
 
-def _seconds_of_day(t) -> int:
-    return t.hour * 3600 + t.minute * 60 + t.second
+@dataclass
+class _Bars:
+    t: np.ndarray  # bar start, UTC epoch seconds
+    o: np.ndarray
+    h: np.ndarray
+    l: np.ndarray
+    c: np.ndarray
 
 
-def infer_bar_seconds(index: pd.DatetimeIndex) -> int:
+def infer_bar_seconds(t: np.ndarray) -> int:
     """The base resolution: the most common gap between consecutive bars."""
-    if len(index) < 2:
-        return 1
-    diffs = np.diff(index.as_unit("ns").asi8[: min(len(index), 10_000)]) // NS
+    diffs = np.diff(t[:10_000])
     diffs = diffs[diffs > 0]
     if len(diffs) == 0:
         return 1
     values, counts = np.unique(diffs, return_counts=True)
     return int(values[np.argmax(counts)])
+
+
+def load_bars(path: str, tz: str = "America/Chicago") -> pd.DataFrame:
+    """A single CSV/parquet file, or a directory of per-day t/o/h/l/c files."""
+    p = Path(path)
+    if not p.is_dir():
+        return load_1m_csv(path, tz=tz)
+    frames = []
+    for f in sorted(p.iterdir()):
+        if f.suffix not in (".csv", ".parquet"):
+            continue
+        frames.append(pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f))
+    raw = pd.concat(frames).sort_values("t")
+    idx = pd.to_datetime(raw["t"].astype("int64"), unit="s", utc=True).dt.tz_convert(tz)
+    df = pd.DataFrame(
+        {"open": raw["o"].values, "high": raw["h"].values, "low": raw["l"].values, "close": raw["c"].values},
+        index=pd.DatetimeIndex(idx),
+    )
+    df["volume"] = 0.0
+    return df.astype(float)
 
 
 class MorningDipBacktest:
@@ -75,164 +105,132 @@ class MorningDipBacktest:
         self.config = config or MorningDipConfig()
         self.contracts = contracts
         self.bar_seconds = bar_seconds
-        self.strategy = MorningDipStrategy(tick_size=instrument.tick_size, config=self.config)
         self.trades: List[Trade] = []
 
     def run_file(self, path: str) -> List[Trade]:
-        return self.run(load_1m_csv(path, tz=self.config.tz))
+        return self.run(load_bars(path, tz=self.config.tz))
 
     def run(self, df: pd.DataFrame) -> List[Trade]:
-        """`df`: tz-aware OHLC(V) bars indexed by bar start time."""
+        """`df`: OHLC bars indexed by bar start time (tz-aware, or naive in config.tz)."""
         cfg = self.config
-        tick = self.instrument.tick_size
-        slip = cfg.slippage_ticks * tick
-        through = cfg.trade_through_ticks * tick
-
         self.trades = []
-        self.strategy.reset()
         if df.empty:
             return self.trades
 
         df = df.sort_index()
-        if df.index.tz is None:
-            df = df.tz_localize(cfg.tz)
-        else:
-            df = df.tz_convert(cfg.tz)
+        df = df.tz_localize(cfg.tz) if df.index.tz is None else df.tz_convert(cfg.tz)
+        idx = df.index.as_unit("s")
+        t_all = idx.asi8
+        resolution = self.bar_seconds or infer_bar_seconds(t_all)
 
-        df.index = df.index.as_unit("ns")  # the grid maths below assumes nanosecond timestamps
+        tod = idx.hour * 3600 + idx.minute * 60 + idx.second
+        in_feed = (tod >= _sod(cfg.feed_start)) & (tod < _sod(cfg.feed_end))
+        df, idx, t_all = df[in_feed], idx[in_feed], t_all[in_feed]
 
-        bar_ns = (self.bar_seconds or infer_bar_seconds(df.index)) * NS
-        step = cfg.candle_seconds * NS
-        offset = cfg.candle_offset_seconds * NS
-
-        idx = df.index
-        ts_ns = idx.asi8
-        bucket_ns = (ts_ns - offset) // step * step + offset  # UTC-grid candle starts
-        tod = (idx.hour * 3600 + idx.minute * 60 + idx.second).to_numpy()
-        day_ns = idx.normalize().asi8
-        o, h, l, c = (df[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
-        v = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else np.zeros(len(df))
-
-        feed_start = _seconds_of_day(cfg.feed_start)
-        flatten_at = _seconds_of_day(cfg.flatten_at)
-        tz = idx.tz
-
-        def stamp(ns: int) -> pd.Timestamp:
-            return pd.Timestamp(ns, unit="ns", tz="UTC").tz_convert(tz)
-
-        day = None
-        order: Optional[LimitOrder] = None
-        order_arm_ns = order_expire_ns = 0
-        pos: Optional[dict] = None
-        candle = None  # [start_ns, open, high, low, close, volume]
-        last_i = None
-        day_done = False
-
-        for i in range(len(ts_ns)):
-            if day_ns[i] != day:
-                if pos is not None:
-                    # No bar at/after the flatten time on the previous day
-                    # (a data gap) -- close on that day's last price.
-                    self._close(pos, c[last_i] - slip, stamp(ts_ns[last_i]), "session_flatten")
-                    pos = None
-                day = day_ns[i]
-                order = None
-                candle = None
-                day_done = False
-                self.strategy.reset()
-
-            if day_done or tod[i] < feed_start:
-                continue
-            last_i = i
-            t_ns = ts_ns[i]
-
-            if tod[i] >= flatten_at:
-                if pos is not None:
-                    self._close(pos, o[i] - slip, stamp(t_ns), "session_flatten")
-                    pos = None
-                order = None
-                day_done = True
-                continue
-
-            # -- candle bookkeeping: a new bucket closes the previous candle
-            if candle is not None and bucket_ns[i] != candle[0]:
-                closed = Bar(stamp(candle[0]), candle[1], candle[2], candle[3], candle[4], candle[5])
-                new_order = self.strategy.on_candle(closed, stamp(candle[0] + step))
-                if new_order is not None and order is None and pos is None:
-                    order = new_order
-                    order_arm_ns = new_order.arm_time.value
-                    order_expire_ns = new_order.expire_time.value
-                candle = None
-            if candle is None:
-                candle = [bucket_ns[i], o[i], h[i], l[i], c[i], v[i]]
-            else:
-                candle[2] = max(candle[2], h[i])
-                candle[3] = min(candle[3], l[i])
-                candle[4] = c[i]
-                candle[5] += v[i]
-
-            # -- open position: time stop, then stop, then target
-            if pos is not None:
-                if t_ns >= pos["time_stop_ns"]:
-                    self._close(pos, o[i] - slip, stamp(t_ns), "time_stop")
-                    pos = None
-                elif l[i] <= pos["stop_price"]:
-                    self._close(pos, min(pos["stop_price"], o[i]) - slip, stamp(t_ns), "stop")
-                    pos = None
-                elif h[i] >= pos["target_price"]:
-                    self._close(pos, pos["target_price"], stamp(t_ns), "target")
-                    pos = None
-                continue
-
-            # -- resting order: expiry, then fill (the fill bar can stop, not target)
-            if order is not None:
-                if t_ns >= order_expire_ns:
-                    order = None
-                elif t_ns + bar_ns > order_arm_ns and l[i] <= order.limit_price - through:
-                    pos = {
-                        "entry_time": stamp(t_ns),
-                        "entry_price": order.limit_price,
-                        "stop_price": order.stop_price,
-                        "target_price": order.target_price,
-                        "time_stop_ns": t_ns + int(cfg.time_stop.total_seconds() * NS),
-                    }
-                    order = None
-                    if l[i] <= pos["stop_price"]:
-                        self._close(pos, min(pos["stop_price"], o[i]) - slip, stamp(t_ns), "stop")
-                        pos = None
-
-        if pos is not None and last_i is not None:
-            self._close(pos, c[last_i] - slip, stamp(ts_ns[last_i]), "end_of_data")
-
+        dates = idx.date
+        for date in pd.unique(dates):
+            m = dates == date
+            day = df[m]
+            bars = _Bars(
+                t_all[m],
+                day["open"].to_numpy(float),
+                day["high"].to_numpy(float),
+                day["low"].to_numpy(float),
+                day["close"].to_numpy(float),
+            )
+            self._run_day(bars, date, resolution)
         return self.trades
 
-    def _close(self, pos: dict, exit_price: float, exit_time, reason: str) -> None:
-        entry = pos["entry_price"]
+    def _run_day(self, bars: _Bars, date, resolution: int) -> None:
+        cfg = self.config
+        tick = self.instrument.tick_size
+        flat = int(datetime.combine(date, cfg.flatten_at, ZoneInfo(cfg.tz)).timestamp())
+        free = -np.inf
+        for candle in build_candles(bars.t, bars.o, bars.h, bars.l, bars.c, cfg, resolution):
+            order = order_for(candle, cfg, tick, flat, resolution)
+            if order is None or candle.end < free:
+                continue
+            free = self._simulate(order, bars, flat, resolution)
+
+    def _simulate(self, order: LimitOrder, bars: _Bars, flat: int, resolution: int) -> float:
+        """Run one order to its end; returns when the next order may start."""
+        cfg = self.config
+        tick = self.instrument.tick_size
+        slip = cfg.slippage_ticks * tick
+        through_entry = cfg.entry_through_ticks * tick
+        through_target = cfg.target_through_ticks * tick - EPS
+        max_gap = cfg.max_gap_seconds
+        t, o, h, l = bars.t, bars.o, bars.h, bars.l
+        limit, stop, target = order.limit_price, order.stop_price, order.target_price
+
+        begin = int(np.searchsorted(t, order.arm))
+        entry = -1
+        for j in range(begin, len(t)):
+            now = t[j]
+            if now >= min(order.expire, flat):
+                break
+            if resolution == 1 and ((j > 0 and now - t[j - 1] > max_gap) or (j == begin and now - order.arm > max_gap)):
+                return min(now, order.expire)  # feed gap: cancel
+            if l[j] <= limit - through_entry:
+                entry = j
+                break
+        if entry < 0:
+            return order.expire
+
+        due = t[entry] + int(cfg.time_stop.total_seconds())
+        for j in range(entry, len(t)):
+            now, first = t[j], j == entry
+            if o[j] <= stop:
+                px, why = o[j] - slip, "stop_gap"
+            elif not first and o[j] - target >= through_target:
+                px, why = target, "target_gap"
+            elif not first and (now >= flat or now >= due or (resolution == 1 and now - t[j - 1] > max_gap)):
+                px = o[j] - slip
+                why = "session_flatten" if now >= flat else ("time_stop" if now >= due else "feed_gap_exit")
+            elif l[j] <= stop:
+                px, why = stop - slip, "stop"
+            elif not first and h[j] >= target + through_target:
+                px, why = target, "target"
+            else:
+                continue
+            self._record(order, t[entry], t[j], px, why)
+            return t[j] + resolution
+        return np.inf  # unresolved at the end of the data
+
+    def _record(self, order: LimitOrder, entry_t: int, exit_t: int, exit_price: float, reason: str) -> None:
+        entry = order.limit_price
         pnl_points = exit_price - entry
         commissions = 2 * self.config.commission_per_side * self.contracts
-        pnl_dollars = pnl_points * self.instrument.point_value * self.contracts - commissions
-        risk_points = entry - pos["stop_price"]
+        risk_points = entry - order.stop_price
         self.trades.append(
             Trade(
-                entry_time=pos["entry_time"],
-                exit_time=exit_time,
+                entry_time=_stamp(entry_t, self.config.tz),
+                exit_time=_stamp(exit_t, self.config.tz),
                 direction="long",
                 entry_price=entry,
-                stop_price=pos["stop_price"],
-                target_price=pos["target_price"],
+                stop_price=order.stop_price,
+                target_price=order.target_price,
                 exit_price=exit_price,
                 exit_reason=reason,
                 contracts=self.contracts,
                 pnl_points=pnl_points,
-                pnl_dollars=pnl_dollars,
+                pnl_dollars=pnl_points * self.instrument.point_value * self.contracts - commissions,
                 r_multiple=pnl_points / risk_points if risk_points else 0.0,
             )
         )
 
 
+def _sod(t) -> int:
+    return t.hour * 3600 + t.minute * 60 + t.second
+
+
+def _stamp(epoch: int, tz: str) -> pd.Timestamp:
+    return pd.Timestamp(int(epoch), unit="s", tz="UTC").tz_convert(tz)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backtest the Morning Dip Limit strategy")
-    parser.add_argument("--data", required=True, help="1-second (or 1-minute) OHLCV CSV/parquet")
+    parser.add_argument("--data", required=True, help="1-second (or 1-minute) OHLCV CSV/parquet, or a directory of per-day t/o/h/l/c files")
     parser.add_argument("--symbol", default="NQ", choices=list(INSTRUMENTS.keys()))
     parser.add_argument("--contracts", type=int, default=1)
     parser.add_argument("--candle-seconds", type=int, default=180)
@@ -252,8 +250,8 @@ def main() -> None:
         stop_atr=args.stop_atr,
         commission_per_side=args.commission,
     )
-    df = load_1m_csv(args.data, tz=base.tz)
-    bar_seconds = infer_bar_seconds(df.index)
+    df = load_bars(args.data, tz=base.tz)
+    bar_seconds = infer_bar_seconds(df.index.as_unit("s").asi8)
     offsets = [int(x) for x in args.offsets.split(",") if x.strip()]
     if bar_seconds > 1:
         print(f"Note: base bars are {bar_seconds}s, not 1s -- fills are approximate.")
@@ -272,12 +270,10 @@ def main() -> None:
         print(f"start {off:>3}s: " + "  ".join(f"{k}={val}" for k, val in m.items()))
 
     if len(rows) > 1:
-        traded = [r for r in rows if r.get("num_trades")]
-        if traded:
-            avg_pnl = sum(r["total_pnl"] for r in traded) / len(rows)
-            avg_n = sum(r["num_trades"] for r in traded) / len(rows)
-            positive = sum(1 for r in traded if r["total_pnl"] > 0)
-            print(f"average of {len(rows)} start times: net={avg_pnl:.2f}  trades={avg_n:.1f}  positive={positive}/{len(rows)}")
+        avg_pnl = sum(r.get("total_pnl", 0.0) for r in rows) / len(rows)
+        avg_n = sum(r["num_trades"] for r in rows) / len(rows)
+        positive = sum(1 for r in rows if r.get("total_pnl", 0.0) > 0)
+        print(f"average of {len(rows)} start times: net={avg_pnl:.2f}  trades={avg_n:.1f}  positive={positive}/{len(rows)}")
 
 
 if __name__ == "__main__":

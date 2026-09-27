@@ -72,28 +72,36 @@ flush fills it.
 1. 3-minute candles on a UTC grid (start offset 0, 18 ... 162 s), built from
    1-second bars. ATR = simple mean of the last 14 true ranges. ER =
    |close change over 15 candles| / sum of |close-to-close changes|.
-2. 09:00-11:00 CT: a candle closes with ER <= 0.35 -> arm a buy limit at
-   close - 1.0 x ATR, one second later.
-3. Fills only if price trades 1 tick through the limit. Cancel after 9 min.
-4. Target = signal candle's high-low midpoint. Stop = limit - 1.5 x ATR.
-   Time stop 15 min. Flat at 11:00 CT. One order or position at a time.
+2. 09:00-11:00 CT: a candle closes with ER <= 0.35 -> one second later,
+   rest a buy limit at close - 1.0 x ATR (rounded down to a tick).
+3. Fills only if price trades 1 tick through the limit. Cancel 9 minutes
+   after the signal candle closes.
+4. Target = signal candle's high-low midpoint (also needs a 1-tick
+   trade-through). Stop = limit - 1.5 x ATR (at least 4 ticks). Time stop
+   15 min. Flat at 11:00 CT. One order or position at a time.
 5. Stops/market exits slip 1 tick, the fill second can stop but not
    target, and inside a bar the adverse move comes first. $2.25/side.
 
-Indicators reset daily and warm up from 08:25 CT.
+Indicators warm up from 08:25 CT each day. Candles with data gaps over 30 s
+or a stale close can't signal and restart the warm-up.
+
+The implementation follows the author's reference implementation rule for
+rule. On synthetic 1-second data with feed gaps, it reproduces the
+reference's trades exactly (860 of 860, across several candle start
+times). Its stop/target maths also matches all 4,720 trades in the
+author's published trade lists.
 
 ```
 python -m morning_dip.backtest --data nq_1s.parquet --symbol NQ \
     --offsets 0,18,36,54,72,90,108,126,144,162 --out-dir results/
+python -m morning_dip.backtest --data day_files/   # per-day t,o,h,l,c files, the reference's format
 ```
 
-The source's numbers need 1-second data, which this repo doesn't have. The
-simulator also accepts 1-minute bars (e.g.
+The source's numbers need 1-second NQ data, which this repo doesn't have.
+The simulator also runs on 1-minute bars (e.g.
 `sample_data/real_multi_instrument/real_mnq_1m_*.parquet`), but fills are
-then approximate. Tick rounding isn't specified in the source (here: limit
-to nearest tick, stop down, target up), so trades may not match the
-author's published list to the tick. The author's own caveats: flat on 2025
-NQ, loses on ES, short side loses, no bid/ask or queue modelling.
+then approximate. The author's own caveats: flat on 2025 NQ, loses on ES,
+short side loses, no bid/ask or queue modelling.
 
 ## Setup
 
