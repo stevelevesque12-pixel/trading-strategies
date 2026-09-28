@@ -119,6 +119,12 @@ Same TradersPost setup as above, with a few differences:
   TradingView thinks it didn't (or the other way around), a cancel or exit
   can be missing or unnecessary. Watch these closely on the demo account
   first.
+- **Two versions.** `morning_dip_limit.pine` runs on a 3-minute chart.
+  `morning_dip_limit_1m.pine` (a port of the MorningDipLimitBT
+  NinjaTrader 8 strategy) runs on a **1-minute** chart and builds the
+  3- or 5-minute candles itself. That gives minute-by-minute fills and a
+  "Candle offset minutes" input for the other candle start times. Prefer
+  the 1-minute version when your plan's 1-minute history is long enough.
 - **The Strategy Tester is only a rough check.** TradingView sees whole
   3-minute candles, not the 1-second bars the author's numbers came from.
   The limitations are listed at the top of the `.pine` file. Turning on

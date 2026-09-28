@@ -97,8 +97,11 @@ python -m morning_dip.backtest --data nq_1s.parquet --symbol NQ \
 python -m morning_dip.backtest --data day_files/   # per-day t,o,h,l,c files, the reference's format
 ```
 
-TradingView version: `tradingview/morning_dip_limit.pine` (3-minute
-`NQ1!`/`MNQ1!` chart, TradersPost webhook alerts). Its setup notes are in
+TradingView versions: `tradingview/morning_dip_limit.pine` (3-minute
+`NQ1!`/`MNQ1!` chart) and `tradingview/morning_dip_limit_1m.pine` (1-minute
+chart, candles built in-script with an offset input; a port of the
+MorningDipLimitBT NinjaTrader 8 strategy). Both send TradersPost webhook
+alerts. Its setup notes are in
 TRADINGVIEW_WEBHOOK.md.
 
 The source's numbers need 1-second NQ data, which this repo doesn't have.

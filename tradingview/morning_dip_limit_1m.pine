@@ -1,0 +1,236 @@
+//@version=6
+// Morning Dip Limit, built from 1-minute bars -- a Pine port of the
+// MorningDipLimitBT NinjaTrader 8 strategy, which follows MrMilkTrading's
+// reference code (morning_dip_limit.py) on its resolution=60 path.
+// Fires TradersPost-format webhook alerts.
+//
+// REQUIRED CHART SETUP: NQ1! or MNQ1!, 1-MINUTE chart. The 3- or 5-minute
+// candles are built inside the script from the 1-minute bars:
+//   - candle grid = clock minutes (+ "Candle offset minutes"; the UTC grid
+//     in the author's code = the ET grid, since 3 and 5 divide the UTC
+//     offset);
+//   - each day is fed from 08:25 CT (09:25 ET): ATR / ER warm up inside the
+//     day and reset on any incomplete or non-contiguous candle;
+//   - a candle is healthy when all its minutes exist and it starts at or
+//     after 09:25 ET;
+//   - ATR = mean of the last 14 true ranges; ER = |close change over 15
+//     candles| / sum of |close changes|.
+// Signal at a healthy candle close ending 09:00-11:00 CT (10:00-12:00 ET)
+// with ER <= 0.35: buy limit at floor((close - K x ATR) / tick) ticks, live
+// for "Order life" candles (cancelled at the close of the last 1-minute
+// bar), needing a 1-tick trade-through (backtest_fill_limits_assumption=1).
+// Target = signal candle H/L midpoint (>= 2 ticks above the limit, else no
+// order); stop = limit - max(4 ticks, ceil(1.5 x ATR)). Stop and target
+// work from the bar after the fill (as NinjaTrader's historical fills do).
+// Time exit after "Time exit" candles, flat at 11:00 CT, both at the next
+// 1-minute open with 1 tick slippage. One order or position at a time.
+//
+// Commission defaults to $2.25/side (NQ); for MNQ set your broker's rate in
+// the strategy's Properties tab. TradingView's 1-minute history depth
+// depends on your plan.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// See ../TRADINGVIEW_WEBHOOK.md. Messages: buy (limit + stop-loss +
+// take-profit), cancel (unfilled order expired), exit (time exit / flat).
+// Cancel and exit follow TradingView's simulated fills, which can differ
+// from your real ones -- watch them on a demo account first.
+
+strategy("Morning Dip Limit (1m build)", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.25,
+     slippage=1, backtest_fill_limits_assumption=1,
+     calc_on_every_tick=false, process_orders_on_close=false,
+     max_lines_count=500, max_labels_count=500)
+
+// ---- Inputs ----
+P           = input.int(3, "Candle minutes (3 or 5)", minval=1, maxval=30, group="Rule")
+Off         = input.int(0, "Candle offset minutes", minval=0, maxval=29, group="Rule")
+K           = input.float(1.0, "Dip distance (x ATR)", minval=0.1, maxval=5, step=0.1, group="Rule")
+ErMax       = input.float(0.35, "ER maximum", minval=0.01, maxval=1, step=0.01, group="Rule")
+StopAtr     = input.float(1.5, "Stop (x ATR)", minval=0.1, maxval=10, step=0.1, group="Rule")
+TtlCandles  = input.int(3, "Order life (candles)", minval=1, maxval=20, group="Rule")
+HoldCandles = input.int(5, "Time exit (candles)", minval=1, maxval=40, group="Rule")
+AtrN        = input.int(14, "ATR length", minval=2, maxval=100, group="Rule")
+ErN         = input.int(15, "ER length", minval=2, maxval=100, group="Rule")
+Qty         = input.int(1, "Contracts", minval=1, maxval=50, group="Rule")
+DrawSignals = input.bool(true, "Draw signals", group="View")
+
+if not (timeframe.isminutes and timeframe.multiplier == 1)
+    runtime.error("Morning Dip Limit (1m build) needs a 1-minute chart.")
+
+TZ = "America/New_York"
+FEED_START = 9 * 60 + 25   // ET minute of the 1-min bar OPEN (08:25-15:00 CT)
+FEED_END   = 16 * 60
+WIN_START  = 10 * 60       // candle END window, ET (09:00-11:00 CT)
+WIN_END    = 12 * 60
+FLAT_MIN   = 12 * 60       // 11:00 CT
+T   = syminfo.mintick
+EPS = 1e-8
+
+om     = hour(time, TZ) * 60 + minute(time, TZ)             // this bar's open, ET minutes
+cm     = hour(time_close, TZ) * 60 + minute(time_close, TZ) // this bar's close
+dayKey = year(time, TZ) * 10000 + month(time, TZ) * 100 + dayofmonth(time, TZ)
+
+// ---- State ----
+// candle under construction
+var int   curDay   = 0   // not na: comparing against na is always false in Pine v6
+var int   cStart   = -1
+var int   cCount   = 0
+var int   cLastMin = 0
+var float cH = na
+var float cL = na
+var float cC = na
+var bool  cContig  = false
+// indicator segment
+var array<float> trs    = array.new_float()
+var array<float> closes = array.new_float()
+var int   prevEnd     = -1
+var bool  prevHealthy = false
+var float prevClose   = na
+// order / position
+var bool  hasEntry    = false
+var bool  exitsPlaced = false
+var int   expiry    = na
+var int   fillClose = na
+var int   freeAt    = 0
+var float pLevel  = na
+var float pStop   = na
+var float pTarget = na
+
+// Closes the candle under construction; returns [healthy, end minute, ATR, ER].
+finishCandle(bool complete, int cs, int cnt, bool contig, float h, float l, float c, int pEnd, bool pHealthy, float pClose) =>
+    int cEnd = cs + P
+    bool healthy = complete and contig and cnt == P and cs >= FEED_START
+    bool reset = not healthy or not pHealthy or cs != pEnd
+    if reset
+        array.clear(trs)
+        array.clear(closes)
+    float pc = reset ? na : pClose
+    float tr = na(pc) ? h - l : math.max(h - l, math.max(math.abs(h - pc), math.abs(l - pc)))
+    array.push(trs, tr)
+    array.push(closes, c)
+    int nt = array.size(trs)
+    float atr = na
+    if nt >= AtrN
+        float s = 0.0
+        for j = nt - AtrN to nt - 1
+            s += array.get(trs, j)
+        atr := s / AtrN
+    int n = array.size(closes)
+    float er = na
+    if n >= ErN + 1
+        float den = 0.0
+        for j = n - ErN to n - 1
+            den += math.abs(array.get(closes, j) - array.get(closes, j - 1))
+        if den > 0
+            er := math.abs(array.get(closes, n - 1) - array.get(closes, n - 1 - ErN)) / den
+    [healthy, cEnd, atr, er]
+
+// ---- Fills and exits seen at this bar's close ----
+if hasEntry and strategy.position_size > 0
+    // Filled on this bar: stop and target work from the next bar.
+    hasEntry  := false
+    fillClose := time_close
+    strategy.exit("MDL exit", from_entry="MDL", stop=pStop, limit=pTarget)
+    exitsPlaced := true
+
+if exitsPlaced and strategy.position_size == 0
+    // Exited on this bar: the next signal needs a candle ending at or after it.
+    exitsPlaced := false
+    freeAt := time_close
+    fillClose := na
+    strategy.cancel("MDL exit")  // don't let a stale bracket carry over to the next entry
+
+// ---- Order management: expiry, time exit, flat -- before any new signal ----
+flatTime = cm >= FLAT_MIN  // the 12:00 ET close (and any later bar that day)
+if hasEntry and (time_close >= expiry or flatTime)
+    strategy.cancel("MDL")
+    hasEntry := false
+    freeAt := expiry
+    alert('{"ticker":"' + syminfo.ticker + '","action":"cancel"}', alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0 and not na(fillClose)
+    timeUp = time_close >= fillClose + (HoldCandles * P - 1) * 60000
+    if flatTime or timeUp
+        strategy.close("MDL", comment=flatTime ? "schedule" : "time")
+        alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Candle building ----
+if dayKey != curDay
+    curDay := dayKey
+    cStart := -1
+    array.clear(trs)
+    array.clear(closes)
+    prevEnd := -1
+    prevHealthy := false
+    prevClose := na
+
+if om >= FEED_START and om < FEED_END
+    bucket = math.floor((om - Off) / P) * P + Off
+    if cStart >= 0 and bucket != cStart
+        // The bucket changed with the previous candle's last minute missing.
+        [h0, e0, a0, r0] = finishCandle(false, cStart, cCount, cContig, cH, cL, cC, prevEnd, prevHealthy, prevClose)
+        prevClose := cC
+        prevEnd := e0
+        prevHealthy := h0
+        cStart := -1
+    if cStart < 0
+        cStart := bucket
+        cCount := 1
+        cLastMin := om
+        cContig := true
+        cH := high
+        cL := low
+        cC := close
+    else
+        cContig := cContig and om == cLastMin + 1
+        cLastMin := om
+        cCount += 1
+        cH := math.max(cH, high)
+        cL := math.min(cL, low)
+        cC := close
+
+    if om == cStart + P - 1
+        // This bar closes the candle.
+        [healthy, candleEnd, atr, er] = finishCandle(true, cStart, cCount, cContig, cH, cL, cC, prevEnd, prevHealthy, prevClose)
+        sigC = cC
+        sigH = cH
+        sigL = cL
+        prevClose := cC
+        prevEnd := candleEnd
+        prevHealthy := healthy
+        cStart := -1
+
+        if healthy and not na(atr) and atr > 0 and not na(er) and er <= ErMax and candleEnd >= WIN_START and candleEnd < WIN_END
+            level  = math.floor((sigC - K * atr) / T + EPS) * T
+            reward = math.ceil(((sigH + sigL) / 2 - level) / T - EPS) * T
+            okLevels = sigC - level >= T - EPS and reward >= 2 * T - EPS
+            free = not hasEntry and strategy.position_size == 0 and time_close >= freeAt  // one order or position at a time
+            flatMs = timestamp(TZ, year(time_close, TZ), month(time_close, TZ), dayofmonth(time_close, TZ), 12, 0)
+            exp = math.min(time_close + TtlCandles * P * 60000, flatMs)
+            if okLevels and free and time_close < exp
+                stopDist = math.max(4 * T, math.ceil(StopAtr * atr / T - EPS) * T)
+                pLevel  := level
+                pStop   := level - stopDist
+                pTarget := level + reward
+                expiry  := exp
+                hasEntry := true
+                strategy.entry("MDL", strategy.long, qty=Qty, limit=pLevel)
+                buyMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"limit"' +
+                     ',"limitPrice":' + str.tostring(pLevel) +
+                     ',"quantity":' + str.tostring(Qty) +
+                     ',"signalPrice":' + str.tostring(sigC) +
+                     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(pStop) + '}' +
+                     ',"takeProfit":{"limitPrice":' + str.tostring(pTarget) + '}}'
+                alert(buyMsg, alert.freq_once_per_bar_close)
+                if DrawSignals
+                    line.new(time_close, pLevel, exp, pLevel, xloc=xloc.bar_time, color=color.new(color.blue, 0), style=line.style_dashed, width=2)
+                    label.new(time_close, sigH + 2 * T, str.format("ER {0,number,0.00} ATR {1,number,0.00}", er, atr),
+                         xloc=xloc.bar_time, style=label.style_none, textcolor=color.gray, size=size.small)
+
+// ---- Visuals ----
+inTrade = strategy.position_size > 0
+plot(inTrade ? pStop : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr)
+plot(inTrade ? pTarget : na, "Target", color=color.new(color.green, 0), style=plot.style_linebr)
+bgcolor(cm > WIN_START and cm <= WIN_END ? color.new(color.blue, 95) : na, title="Signal window")
