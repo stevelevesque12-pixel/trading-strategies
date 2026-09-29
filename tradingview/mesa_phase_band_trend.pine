@@ -33,7 +33,8 @@
 //   - Optional evaluation profit target: stop trading once it's reached.
 //   - Max trades per day, max contracts, entry session window and a hard
 //     flatten time (bars are closed out on the last bar that closes before
-//     it, so no position is ever held past it).
+//     it, so no position is ever held past it). Also flattens on the last
+//     bar of the exchange session, which covers holiday early closes.
 //   - "Trading day" = the exchange's daily session (CME: 18:00-17:00 ET), the
 //     same day boundary prop firms use for daily loss limits.
 //
@@ -55,7 +56,7 @@
 // entry alert is the initial one. Leave trailing off when running live via
 // webhook unless your bridge manages the trail.
 //
-// Not backtested in this repo's Python engine -- validate in TradingView's
+// Backtested via the Python port in ../mesa_band (see mesa_band/RESULTS.md); validate in TradingView's
 // Strategy Tester (and forward-test on sim) before using on a funded account.
 
 strategy("MESA Phase Band Trend - Prop Futures", overlay=true,
@@ -213,7 +214,9 @@ bool inEntryWindow = not na(time(timeframe.period, entrySession, TZ))
 float tfMinutes  = timeframe.in_seconds() / 60.0
 int   closeMins  = hour(time_close, TZ) * 60 + minute(time_close, TZ)
 int   flatMins   = math.floor(flattenHHMM / 100) * 60 + flattenHHMM % 100
-bool  flattenNow = timeframe.isintraday and closeMins + tfMinutes > flatMins and closeMins < 18 * 60
+// session.islastbar also catches holiday early closes, where the flatten
+// time never arrives and a position would otherwise be held through the halt.
+bool  flattenNow = timeframe.isintraday and ((closeMins + tfMinutes > flatMins and closeMins < 18 * 60) or session.islastbar)
 
 // The exchange trading day (CME: 18:00 ET -> 17:00 ET next day).
 bool newDay = timeframe.change("1D")
