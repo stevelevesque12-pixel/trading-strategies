@@ -1,0 +1,462 @@
+// NQ Scalping System - buys pullbacks in an EMA89 uptrend, sells pullbacks in an
+// EMA89 downtrend. Entries require price to retrace to the EMA8 (or EMA21 fallback)
+// by at least a minimum point distance, then a StochRSI oversold/overbought reset
+// followed by a %K/%D cross back in the trend direction. Optional volume-thrust and
+// MACD-momentum filters can further restrict entries. Trading is only allowed inside
+// a configurable session window (Chicago time, with a short warmup buffer to skip the
+// first noisy minute), with an optional force-flatten once that window ends so a
+// position can't ride overnight or through a weekend gap. Position size is either a
+// fixed contract count or sized off a fixed $ risk amount divided by the current stop
+// distance (a trade whose stop is too wide to fit the risk amount is skipped).
+//
+// Optional multi-timeframe entry gating: the whole setup (trend/pullback/StochRSI/
+// filters) can instead be evaluated on a higher timeframe (default 15m), non-repainting
+// (the HTF read is shifted one bar inside the security() call AND uses lookahead_on -
+// the standard idiom - so it reflects the last fully closed HTF bar as soon as it
+// closes, without repainting and without an extra bar of delay). A closed-bar HTF setup
+// arms a pending signal on the chart's native (lower) timeframe for a limited number of
+// bars; the actual entry then requires price to also close back beyond the high/low of
+// the HTF bar that produced the setup, so a setup that immediately reverses on the LTF
+// never fires at all.
+//
+// Exits: ATR-based or fixed-point stop/target. The initial stop distance in ATR mode is
+// sized off a rolling MEDIAN of ATR (not the live bar's ATR), specifically so a single
+// volatility-spike bar can't blow out the stop the moment a trade is entered on it - a
+// live ATR reading is itself inflated by the same spike that's about to hurt the trade,
+// where a many-bar median mostly isn't. The stop/target are placed on the SIGNAL bar
+// (from that bar's close) so the fill bar is protected, then refined to the actual fill
+// price on the fill bar. Optionally, instead of Pine's native arm-then-trail stop, a
+// continuous chandelier-style trail recalculates every bar from the highest high
+// (longs) / lowest low (shorts) since entry, ratcheting the stop tighter as the trade
+// ages. A set of optional early-exit triggers (StochRSI fade, EMA break, trend break,
+// opposite divergence) and an optional "quick scalp" mode (tightens the target, bails
+// after a max bar count if nothing has happened) round out the exits.
+// Not compile-tested against the TradingView Pine Editor - verify there first.
+//@version=6
+strategy("NQ Scalping System", overlay = true,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     initial_capital = 50000,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 1.24,
+     slippage = 1)
+
+// === POSITION SIZE ===
+riskType     = input.string("Fixed Contracts", "Position Sizing Method", options = ["Fixed Contracts", "Fixed $ Risk"], group = "Position Size")
+qtyContracts = input.int(1, "Number of Contracts (Fixed Contracts mode)", minval = 1, group = "Position Size")
+riskDollars  = input.float(500, "Risk Amount $ (Fixed $ Risk mode)", minval = 0, group = "Position Size")
+pointValue   = input.float(2, "$ Value per Point (NQ = 20, MNQ = 2)", minval = 0.01, group = "Position Size")
+// === /POSITION SIZE ===
+
+// === TREND ===
+trendEmaLen = input.int(89, "Trend EMA Length", group = "Trend")
+// === /TREND ===
+
+// === MULTI-TIMEFRAME ENTRY ===
+useHtfSetup    = input.bool(false, "Gate entries on a Higher-Timeframe setup?", group = "Multi-Timeframe")
+htfTimeframe   = input.timeframe("15", "HTF Setup Timeframe", group = "Multi-Timeframe")
+setupValidBars = input.int(6, "Setup Stays Armed For (chart bars)", minval = 1, group = "Multi-Timeframe")
+useLtfTrigger  = input.bool(true, "Require LTF close beyond the HTF signal bar's high/low?", group = "Multi-Timeframe")
+// === /MULTI-TIMEFRAME ENTRY ===
+
+// === PULLBACK ===
+fastEmaLen        = input.int(8, "Fast EMA (pullback target)", group = "Pullback")
+slowEmaLen        = input.int(21, "Slow EMA (fallback pullback target)", group = "Pullback")
+useEma21Fallback  = input.bool(true, "Fallback to Slow EMA if Fast EMA not touched", group = "Pullback")
+minPullbackPoints = input.float(15, "Min Pullback (NQ points)", minval = 0, group = "Pullback")
+pullbackLookback  = input.int(10, "Pullback Swing Lookback (bars)", minval = 1, group = "Pullback")
+// === /PULLBACK ===
+
+// === STOCHRSI ===
+rsiLen          = input.int(14, "RSI Length", group = "StochRSI")
+stochLen        = input.int(14, "Stoch Length", group = "StochRSI")
+kSmooth         = input.int(3, "%K Smoothing", group = "StochRSI")
+dSmooth         = input.int(3, "%D Smoothing", group = "StochRSI")
+oversoldLevel   = input.float(20, "Oversold Level", group = "StochRSI")
+overboughtLevel = input.float(80, "Overbought Level", group = "StochRSI")
+resetLookback   = input.int(8, "Reset Lookback (bars)", minval = 1, group = "StochRSI")
+// === /STOCHRSI ===
+
+// === FILTERS ===
+useVolumeFilter = input.bool(false, "Require Volume Thrust?", group = "Filters")
+volLen          = input.int(20, "Volume Average Length", group = "Filters")
+volMult         = input.float(1.2, "Volume Thrust Multiple", group = "Filters")
+useMacdFilter   = input.bool(false, "Require MACD Momentum Confirm?", group = "Filters")
+macdFastLen     = input.int(12, "MACD Fast", group = "Filters")
+macdSlowLen     = input.int(26, "MACD Slow", group = "Filters")
+macdSignalLen   = input.int(9, "MACD Signal", group = "Filters")
+// === /FILTERS ===
+
+// === SESSION (Chicago Time) ===
+sessionStartHour   = input.int(8, "Session Start Hour (Chicago, 24h)", minval = 0, maxval = 23, group = "Session")
+sessionStartMinute = input.int(30, "Session Start Minute", minval = 0, maxval = 59, group = "Session")
+sessionEndHour     = input.int(15, "Session End Hour (Chicago, 24h)", minval = 0, maxval = 23, group = "Session")
+sessionEndMinute   = input.int(0, "Session End Minute", minval = 0, maxval = 59, group = "Session")
+sessionWarmupMins  = input.int(1, "Skip First N Minutes of Session", minval = 0, group = "Session")
+flattenAtSessionEnd = input.bool(false, "Force-flatten open position at session end?", group = "Session")
+// === /SESSION ===
+
+// === STOP / TARGET ===
+slTpMode          = input.string("ATR", "Stop/Target Mode", options = ["ATR", "Fixed Points"], group = "Risk")
+atrLen            = input.int(14, "ATR Length", group = "Risk")
+atrStopMult       = input.float(1.5, "ATR Stop Multiple", group = "Risk")
+atrTargetMult     = input.float(2.5, "ATR Target Multiple", group = "Risk")
+fixedStopPoints   = input.float(15, "Fixed Stop (points)", group = "Risk")
+fixedTargetPoints = input.float(25, "Fixed Target (points)", group = "Risk")
+atrMedianLen      = input.int(20, "Stop ATR Median Length (bars) - dampens single-bar ATR spikes", minval = 2, group = "Risk")
+// === /STOP / TARGET ===
+
+// === TRAILING STOP ===
+useTrailingStop         = input.bool(true, "Enable Trailing Stop?", group = "Trailing")
+trailAlwaysFixedPoints  = input.bool(false, "Always use Fixed Points for Trail? (ignores Stop/Target Mode)", group = "Trailing")
+trailArmAtrMult         = input.float(1.0, "Trail Arm (x ATR, mode=ATR only)", minval = 0, group = "Trailing")
+trailOffsetAtrMult      = input.float(0.5, "Trail Offset (x ATR, mode=ATR only)", minval = 0, group = "Trailing")
+trailArmPoints          = input.float(15, "Trail Arm (points, mode=Fixed or toggle above on)", minval = 0, group = "Trailing")
+trailOffsetPoints       = input.float(8, "Trail Offset (points, mode=Fixed or toggle above on)", minval = 0, group = "Trailing")
+useChandelier           = input.bool(false, "Use continuous chandelier trail instead of arm-then-trail?", group = "Trailing")
+chandelierAtrMult       = input.float(2.0, "Chandelier Trail (x ATR median)", minval = 0.1, group = "Trailing")
+// === /TRAILING STOP ===
+
+// === EARLY EXITS ===
+useStochFadeExit  = input.bool(false, "Early Exit: StochRSI Fade?", group = "Early Exits")
+useEmaBreakExit   = input.bool(false, "Early Exit: EMA Break (Slow EMA)?", group = "Early Exits")
+useTrendBreakExit = input.bool(false, "Early Exit: Trend (EMA89) Break?", group = "Early Exits")
+useDivergenceExit = input.bool(false, "Early Exit: Opposite Divergence?", group = "Early Exits")
+divPivotLeft      = input.int(3, "Divergence Pivot Left Bars", minval = 1, group = "Early Exits")
+divPivotRight     = input.int(3, "Divergence Pivot Right Bars", minval = 1, group = "Early Exits")
+// === /EARLY EXITS ===
+
+// === QUICK SCALP ===
+useQuickScalp          = input.bool(false, "Enable Quick Scalp Mode?", group = "Quick Scalp")
+quickScalpTargetPoints = input.float(8, "Quick Scalp Target (points)", minval = 0, group = "Quick Scalp")
+quickScalpMaxBars      = input.int(6, "Quick Scalp Max Bars (bail if flat)", minval = 1, group = "Quick Scalp")
+// === /QUICK SCALP ===
+
+trendEma = ta.ema(close, trendEmaLen)
+fastEma  = ta.ema(close, fastEmaLen)
+slowEma  = ta.ema(close, slowEmaLen)
+atrVal   = ta.atr(atrLen)
+
+// Rolling median of ATR, used for the STOP distance only (targets keep the live atrVal).
+// A spike bar's live ATR reading is inflated by the same move that's about to hurt a
+// trade entered on it; a many-bar median mostly isn't, so the initial stop can't be
+// blown out by the bar it was set on the way the raw ATR could.
+atrForStop = ta.percentile_nearest_rank(atrVal, atrMedianLen, 50)
+
+uptrend   = close > trendEma
+downtrend = close < trendEma
+
+// Pullback depth measured from the swing extreme over the lookback window down to
+// the current low/high, combined with a touch of the fast (or fallback slow) EMA.
+swingHigh = ta.highest(high, pullbackLookback)
+swingLow  = ta.lowest(low, pullbackLookback)
+
+longPullbackOk  = uptrend and (swingHigh - low) >= minPullbackPoints and (low <= fastEma or (useEma21Fallback and low <= slowEma))
+shortPullbackOk = downtrend and (high - swingLow) >= minPullbackPoints and (high >= fastEma or (useEma21Fallback and high >= slowEma))
+
+// === STOCHRSI RESET & CROSS ===
+rsiVal   = ta.rsi(close, rsiLen)
+stochRaw = ta.stoch(rsiVal, rsiVal, rsiVal, stochLen)
+kLine    = ta.sma(stochRaw, kSmooth)
+dLine    = ta.sma(kLine, dSmooth)
+
+hadOversoldReset   = ta.lowest(kLine, resetLookback) <= oversoldLevel
+hadOverboughtReset = ta.highest(kLine, resetLookback) >= overboughtLevel
+
+longStochSignal  = hadOversoldReset and ta.crossover(kLine, dLine)
+shortStochSignal = hadOverboughtReset and ta.crossunder(kLine, dLine)
+// === /STOCHRSI ===
+
+// === FILTERS ===
+volAvg    = ta.sma(volume, volLen)
+volumeOk  = not useVolumeFilter or volume >= volAvg * volMult
+
+[macdLine, macdSignalLine, _] = ta.macd(close, macdFastLen, macdSlowLen, macdSignalLen)
+macdLongOk  = not useMacdFilter or macdLine > macdSignalLine
+macdShortOk = not useMacdFilter or macdLine < macdSignalLine
+// === /FILTERS ===
+
+// === HTF SETUP (optional) ===
+// Re-evaluates the exact same trend/pullback/StochRSI/filter logic above, but against
+// the higher timeframe's own OHLCV via request.security(). Every value is read one HTF
+// bar back ([1]) with lookahead_on - the documented non-repainting idiom: the value of
+// the last CLOSED HTF bar becomes visible on the first chart bar after it closes.
+// ([1] with lookahead_off, as before, delayed it by one extra full HTF bar.)
+f_htfSetup() =>
+    trendEmaH  = ta.ema(close, trendEmaLen)
+    fastEmaH   = ta.ema(close, fastEmaLen)
+    slowEmaH   = ta.ema(close, slowEmaLen)
+    swingHighH = ta.highest(high, pullbackLookback)
+    swingLowH  = ta.lowest(low, pullbackLookback)
+    uptrendH   = close > trendEmaH
+    downtrendH = close < trendEmaH
+    longPullbackH  = uptrendH and (swingHighH - low) >= minPullbackPoints and (low <= fastEmaH or (useEma21Fallback and low <= slowEmaH))
+    shortPullbackH = downtrendH and (high - swingLowH) >= minPullbackPoints and (high >= fastEmaH or (useEma21Fallback and high >= slowEmaH))
+    rsiH     = ta.rsi(close, rsiLen)
+    stochH   = ta.stoch(rsiH, rsiH, rsiH, stochLen)
+    kH       = ta.sma(stochH, kSmooth)
+    dH       = ta.sma(kH, dSmooth)
+    oversoldResetH   = ta.lowest(kH, resetLookback) <= oversoldLevel
+    overboughtResetH = ta.highest(kH, resetLookback) >= overboughtLevel
+    longStochH  = oversoldResetH and ta.crossover(kH, dH)
+    shortStochH = overboughtResetH and ta.crossunder(kH, dH)
+    volAvgH   = ta.sma(volume, volLen)
+    volumeOkH = not useVolumeFilter or volume >= volAvgH * volMult
+    [macdLineH, macdSigH, _] = ta.macd(close, macdFastLen, macdSlowLen, macdSignalLen)
+    macdLongOkH  = not useMacdFilter or macdLineH > macdSigH
+    macdShortOkH = not useMacdFilter or macdLineH < macdSigH
+    longSetupH  = longPullbackH and longStochH and volumeOkH and macdLongOkH
+    shortSetupH = shortPullbackH and shortStochH and volumeOkH and macdShortOkH
+    [longSetupH[1], shortSetupH[1], high[1], low[1]]
+
+[longSetupHtf, shortSetupHtf, htfSignalHigh, htfSignalLow] = request.security(syminfo.tickerid, htfTimeframe, f_htfSetup(), lookahead = barmerge.lookahead_on)
+
+// Arms on the bar the HTF setup first turns true, stays armed for setupValidBars chart
+// bars, and is consumed (disarmed) the moment it produces an entry. useLtfTrigger adds a
+// second condition on top of "armed": price must close back beyond the high (long) / low
+// (short) of the very HTF bar that produced the setup, so a pullback that resumes only to
+// immediately reverse never gets an entry in the first place.
+var bool  longArmed        = false
+var bool  shortArmed       = false
+var float longTriggerLevel  = na
+var float shortTriggerLevel = na
+var int   longArmedAtBar   = na
+var int   shortArmedAtBar  = na
+
+newLongSetup  = longSetupHtf  and not longSetupHtf[1]
+newShortSetup = shortSetupHtf and not shortSetupHtf[1]
+
+if newLongSetup
+    longArmed        := true
+    longTriggerLevel := htfSignalHigh
+    longArmedAtBar   := bar_index
+if newShortSetup
+    shortArmed        := true
+    shortTriggerLevel := htfSignalLow
+    shortArmedAtBar   := bar_index
+
+if longArmed and not na(longArmedAtBar) and (bar_index - longArmedAtBar) > setupValidBars
+    longArmed := false
+if shortArmed and not na(shortArmedAtBar) and (bar_index - shortArmedAtBar) > setupValidBars
+    shortArmed := false
+
+longLtfTrigger  = not useLtfTrigger or (not na(longTriggerLevel) and close > longTriggerLevel)
+shortLtfTrigger = not useLtfTrigger or (not na(shortTriggerLevel) and close < shortTriggerLevel)
+// === /HTF SETUP ===
+
+// === SESSION WINDOW ===
+chiHour   = hour(time, "America/Chicago")
+chiMinute = minute(time, "America/Chicago")
+minutesOfDay        = chiHour * 60 + chiMinute
+sessionStartMinutes = sessionStartHour * 60 + sessionStartMinute + sessionWarmupMins
+sessionEndMinutes   = sessionEndHour * 60 + sessionEndMinute
+inSession = minutesOfDay >= sessionStartMinutes and minutesOfDay < sessionEndMinutes
+// === /SESSION WINDOW ===
+
+// Stop/target/trail distances for THIS bar, used both to size the position (Fixed $
+// Risk needs the stop distance up front) and captured into the pending* vars below so
+// the actual fill uses the same distances the size was computed from, rather than
+// silently drifting to a different ATR reading one bar later at the fill.
+// The stop (not the target) uses atrForStop - the rolling ATR median - specifically so
+// a single spike bar can't set an oversized stop the moment a trade is entered on it.
+// Split into short lines on purpose - a single long ternary here is exactly what gets
+// mangled by a chat/editor copy-paste line wrap into a syntax error.
+isAtrMode = slTpMode == "ATR"
+
+thisStopDist = isAtrMode ? atrStopMult * atrForStop : fixedStopPoints
+
+targetDistBase = isAtrMode ? atrTargetMult * atrVal : fixedTargetPoints
+thisTargetDist = useQuickScalp ? quickScalpTargetPoints : targetDistBase
+
+trailArmAtrBased    = isAtrMode ? trailArmAtrMult * atrVal : trailArmPoints
+trailOffsetAtrBased = isAtrMode ? trailOffsetAtrMult * atrVal : trailOffsetPoints
+thisTrailArmDist    = trailAlwaysFixedPoints ? trailArmPoints : trailArmAtrBased
+thisTrailOffsetDist = trailAlwaysFixedPoints ? trailOffsetPoints : trailOffsetAtrBased
+
+// Fixed $ Risk sizes contracts off THIS trade's stop distance so a losing trade costs
+// at most riskDollars. If the stop is so wide that even 1 contract would exceed
+// riskDollars, riskBasedQty floors to 0 and the trade is SKIPPED (sizeOk below) rather
+// than forced up to 1 contract and silently over-risked.
+riskBasedQty = (thisStopDist > 0 and pointValue > 0) ? math.floor(riskDollars / (thisStopDist * pointValue)) : 0
+positionSize = riskType == "Fixed $ Risk" ? riskBasedQty : qtyContracts
+sizeOk       = positionSize >= 1
+
+nativeLongCond  = longPullbackOk and longStochSignal and volumeOk and macdLongOk
+nativeShortCond = shortPullbackOk and shortStochSignal and volumeOk and macdShortOk
+
+longCond  = (useHtfSetup ? longArmed  and longLtfTrigger  : nativeLongCond)  and inSession and sizeOk
+shortCond = (useHtfSetup ? shortArmed and shortLtfTrigger : nativeShortCond) and inSession and sizeOk
+
+flat = strategy.position_size == 0
+
+var float pendingStopDist        = na
+var float pendingTargetDist      = na
+var float pendingTrailArmDist    = na
+var float pendingTrailOffsetDist = na
+var float slPrice                = na
+var float tpPrice                = na
+var int   entryBarIndex          = na
+
+// Clear any stale values left over from the previous (now-closed) trade BEFORE this
+// bar's entry logic runs - this must come first, otherwise a fresh signal firing on
+// this same bar (still "flat" until the order fills next bar) would have its own
+// brand-new pending values wiped out by this same reset a few lines later.
+if flat
+    pendingStopDist        := na
+    pendingTargetDist      := na
+    pendingTrailArmDist    := na
+    pendingTrailOffsetDist := na
+    slPrice                := na
+    tpPrice                := na
+    entryBarIndex          := na
+
+// Provisional stop/target are set HERE, on the signal bar, from this bar's close (the
+// best available estimate of next bar's fill). The strategy.exit() call further down
+// runs on this same bar, so the exit is already attached when the entry fills at the
+// next bar's open - the fill bar is protected. Previously slPrice/tpPrice were still na
+// on the signal bar, so the fill bar had NO stop at all and a move through the stop
+// level on that bar was only caught a bar later, at a worse price.
+if flat and longCond
+    pendingStopDist        := thisStopDist
+    pendingTargetDist      := thisTargetDist
+    pendingTrailArmDist    := thisTrailArmDist
+    pendingTrailOffsetDist := thisTrailOffsetDist
+    slPrice                := close - thisStopDist
+    tpPrice                := close + thisTargetDist
+    strategy.entry("Long", strategy.long, qty = positionSize)
+    longArmed := false
+else if flat and shortCond
+    pendingStopDist        := thisStopDist
+    pendingTargetDist      := thisTargetDist
+    pendingTrailArmDist    := thisTrailArmDist
+    pendingTrailOffsetDist := thisTrailOffsetDist
+    slPrice                := close + thisStopDist
+    tpPrice                := close - thisTargetDist
+    strategy.entry("Short", strategy.short, qty = positionSize)
+    shortArmed := false
+
+// On the bar the position actually opens, re-anchor stop/target to the real fill price
+// using the same pending distances - not re-derived from that bar's (possibly
+// different) ATR. Takes effect from the next bar onward.
+justEnteredLong  = strategy.position_size > 0 and strategy.position_size[1] <= 0
+justEnteredShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+
+if justEnteredLong or justEnteredShort
+    entryPrice = strategy.position_avg_price
+    if justEnteredLong
+        slPrice := entryPrice - pendingStopDist
+        tpPrice := entryPrice + pendingTargetDist
+    else
+        slPrice := entryPrice + pendingStopDist
+        tpPrice := entryPrice - pendingTargetDist
+    entryBarIndex := bar_index
+
+// Continuous chandelier trail: recalculated every bar from the highest high (longs) /
+// lowest low (shorts) SINCE ENTRY, using atrForStop so it's not spike-prone either.
+// Combined into slPrice with math.max/math.min against the running value, so the stop
+// only ever ratchets tighter, never loosens back out.
+var float sinceEntryHigh = na
+var float sinceEntryLow  = na
+if justEnteredLong or justEnteredShort
+    sinceEntryHigh := high
+    sinceEntryLow  := low
+if strategy.position_size > 0
+    sinceEntryHigh := math.max(nz(sinceEntryHigh, high), high)
+if strategy.position_size < 0
+    sinceEntryLow := math.min(nz(sinceEntryLow, low), low)
+
+// Guarded off the entry bar itself - on bar 1 sinceEntryHigh/Low equal that bar's own
+// high/low, which could put the chandelier level tighter than the fixed ATR-median stop
+// and start cutting trades faster than intended on bar 1.
+if useChandelier and strategy.position_size > 0 and not na(sinceEntryHigh) and not justEnteredLong
+    slPrice := math.max(slPrice, sinceEntryHigh - chandelierAtrMult * atrForStop)
+if useChandelier and strategy.position_size < 0 and not na(sinceEntryLow) and not justEnteredShort
+    slPrice := math.min(slPrice, sinceEntryLow + chandelierAtrMult * atrForStop)
+
+// Pine's native trail_points/trail_offset (arms once price has moved the arm distance
+// in your favor, then trails by the offset distance) - both converted from points to
+// ticks since Pine's trail params are tick-denominated. Disabled entirely when
+// useChandelier is on, since slPrice above already carries the trail in that mode.
+trailPointsTicks = useTrailingStop and not useChandelier and not na(pendingTrailArmDist) ? pendingTrailArmDist / syminfo.mintick : na
+trailOffsetTicks = useTrailingStop and not useChandelier and not na(pendingTrailOffsetDist) ? pendingTrailOffsetDist / syminfo.mintick : na
+
+strategy.exit("XL", "Long", stop = slPrice, limit = tpPrice, trail_points = trailPointsTicks, trail_offset = trailOffsetTicks)
+strategy.exit("XS", "Short", stop = slPrice, limit = tpPrice, trail_points = trailPointsTicks, trail_offset = trailOffsetTicks)
+
+// === END-OF-SESSION FLATTEN ===
+// Independent of stop/target/early-exit logic - fires every bar once the session window
+// has ended, regardless of why a position might still be open. inSession only gates new
+// entries, so without this an open position sits untouched until its stop or target
+// eventually hits, including across a weekend.
+pastSessionEnd = minutesOfDay >= sessionEndMinutes
+if flattenAtSessionEnd and pastSessionEnd
+    strategy.close("Long", comment = "Session End")
+    strategy.close("Short", comment = "Session End")
+// === /END-OF-SESSION FLATTEN ===
+
+// === EARLY EXITS ===
+stochFadeExitLong  = useStochFadeExit and strategy.position_size > 0 and ta.crossunder(kLine, dLine)
+stochFadeExitShort = useStochFadeExit and strategy.position_size < 0 and ta.crossover(kLine, dLine)
+
+emaBreakExitLong  = useEmaBreakExit and strategy.position_size > 0 and ta.crossunder(close, slowEma)
+emaBreakExitShort = useEmaBreakExit and strategy.position_size < 0 and ta.crossover(close, slowEma)
+
+trendBreakExitLong  = useTrendBreakExit and strategy.position_size > 0 and ta.crossunder(close, trendEma)
+trendBreakExitShort = useTrendBreakExit and strategy.position_size < 0 and ta.crossover(close, trendEma)
+
+// Regular divergence off confirmed pivots - inherently lags by divPivotRight bars
+// (a pivot can't be confirmed until that many bars after it); expected lag, not a bug.
+pivHigh = ta.pivothigh(high, divPivotLeft, divPivotRight)
+pivLow  = ta.pivotlow(low, divPivotLeft, divPivotRight)
+
+var float lastPivHighPrice = na
+var float lastPivHighK     = na
+var float prevPivHighPrice = na
+var float prevPivHighK     = na
+if not na(pivHigh)
+    prevPivHighPrice := lastPivHighPrice
+    prevPivHighK     := lastPivHighK
+    lastPivHighPrice := high[divPivotRight]
+    lastPivHighK     := kLine[divPivotRight]
+
+var float lastPivLowPrice = na
+var float lastPivLowK     = na
+var float prevPivLowPrice = na
+var float prevPivLowK     = na
+if not na(pivLow)
+    prevPivLowPrice := lastPivLowPrice
+    prevPivLowK     := lastPivLowK
+    lastPivLowPrice := low[divPivotRight]
+    lastPivLowK     := kLine[divPivotRight]
+
+// Divergence is an EVENT, true only on the bar the new pivot confirms. Previously it was
+// a persistent state (true every bar until the next pivot), so any position opened
+// while it was stale-true got closed on its first bar.
+bearishDiv = not na(pivHigh) and not na(prevPivHighPrice) and lastPivHighPrice > prevPivHighPrice and lastPivHighK < prevPivHighK
+bullishDiv = not na(pivLow) and not na(prevPivLowPrice) and lastPivLowPrice < prevPivLowPrice and lastPivLowK > prevPivLowK
+
+divergenceExitLong  = useDivergenceExit and strategy.position_size > 0 and bearishDiv
+divergenceExitShort = useDivergenceExit and strategy.position_size < 0 and bullishDiv
+
+// Quick scalp: bail if the trade hasn't resolved within quickScalpMaxBars bars.
+quickScalpBail = useQuickScalp and not na(entryBarIndex) and (bar_index - entryBarIndex) >= quickScalpMaxBars
+
+earlyExitLong  = stochFadeExitLong or emaBreakExitLong or trendBreakExitLong or divergenceExitLong or quickScalpBail
+earlyExitShort = stochFadeExitShort or emaBreakExitShort or trendBreakExitShort or divergenceExitShort or quickScalpBail
+
+if earlyExitLong
+    strategy.close("Long", comment = "Early Exit")
+if earlyExitShort
+    strategy.close("Short", comment = "Early Exit")
+// === /EARLY EXITS ===
+
+plot(trendEma, "EMA89 (Trend)", color = color.gray, linewidth = 2)
+plot(fastEma, "EMA8 (Pullback)", color = color.lime)
+plot(slowEma, "EMA21 (Fallback)", color = color.orange)
+plot(useHtfSetup and longArmed ? longTriggerLevel : na, "Long Trigger Level (HTF bar high)", color = color.aqua, style = plot.style_circles)
+plot(useHtfSetup and shortArmed ? shortTriggerLevel : na, "Short Trigger Level (HTF bar low)", color = color.fuchsia, style = plot.style_circles)
+plot(useChandelier and strategy.position_size != 0 ? slPrice : na, "Chandelier Stop", color = color.yellow, style = plot.style_stepline)
+plotchar(longCond, "Long Signal", char = "▲", location = location.belowbar, color = color.lime)
+plotchar(shortCond, "Short Signal", char = "▼", location = location.abovebar, color = color.red)
+plotchar(useHtfSetup and longArmed, "Long Setup Armed", char = "L", location = location.belowbar, color = color.aqua)
+plotchar(useHtfSetup and shortArmed, "Short Setup Armed", char = "S", location = location.abovebar, color = color.fuchsia)
+plotchar(inSession, "In Session", char = "•", location = location.bottom)
+plotchar(strategy.position_size != 0, "In Position", char = "●", location = location.bottom)
