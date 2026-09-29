@@ -30,9 +30,25 @@
 //   Manage - optional move to breakeven at X R, optional trail on the slow
 //            average, exit when the ribbon flips against the position.
 //
-// Prop-firm numbers (drawdown, daily limit, max contracts, lock level, close
-// time) differ by firm and by account size and they change often. The
-// defaults are a generic 50K account -- set them to your firm's current rules.
+// Prop-firm presets: pick your Tradeify 50K plan under "Prop firm rules" and
+// the drawdown, lock level, daily loss limit, profit target, consistency rule,
+// minimum days and contract cap are filled in. Numbers as published by
+// Tradeify in 2026 (see the table in ../README.md) -- firms change these
+// often, so check your dashboard and use "Custom" if anything differs.
+//   Select 50K eval       $3,000 target, $2,000 EOD trailing DD (locks at
+//                         $50,100), no daily loss limit, 40% consistency,
+//                         3 trading days min, 4 minis / 40 micros.
+//   Growth 50K eval       $3,000 target, $2,000 EOD trailing DD, $1,250 daily
+//                         loss limit, no consistency rule, 4 minis / 40 micros.
+//   Select Flex 50K funded  $2,000 EOD trailing DD, no daily loss limit,
+//                         2 minis / 20 micros (starting scaling tier).
+//   Select Daily 50K funded $2,000 EOD trailing DD, $1,000 daily loss limit,
+//                         2 minis / 20 micros (starting scaling tier).
+// Tradeify requires positions flat by 16:45 New York (12:59 on early-close
+// holidays -- this script does NOT know the holiday calendar, turn it off or
+// move the flatten time on those days). The daily loss limit is a soft breach
+// there (trading pauses until 18:00), the trailing drawdown is enforced in
+// real time on open P&L even though it only trails at end of day.
 //
 // Use an intraday chart (1-15m) on a futures contract (MES1!, MNQ1!, ES1!,
 // NQ1!, MGC1!, ...). The point value is read from the symbol automatically.
@@ -90,19 +106,26 @@ trailSlow = input.bool(false, "Trail stop on slow average", group = grpX)
 exitFlip  = input.bool(true, "Exit when the ribbon flips against the trade", group = grpX)
 
 grpP = "Prop firm rules"
-trailDD      = input.float(2000.0, "Max drawdown (USD)", minval = 0, group = grpP)
-trailMode    = input.string("End of day", "Drawdown trails", options = ["End of day", "Intraday (live high)", "Static"], group = grpP)
-lockOffset   = input.float(0.0, "Floor stops trailing at start balance +", group = grpP, tooltip = "Most firms stop trailing once the drawdown floor reaches the starting balance (0) or slightly above it.")
-dailyLoss    = input.float(1000.0, "Daily loss limit (USD, 0 = none)", minval = 0, group = grpP)
+preset       = input.string("Tradeify Select 50K (eval)", "Account", options = ["Tradeify Select 50K (eval)", "Tradeify Growth 50K (eval)", "Tradeify Select Flex 50K (funded)", "Tradeify Select Daily 50K (funded)", "Custom"], group = grpP, tooltip = "A Tradeify preset overrides every setting in the 'Custom account' group. Set Properties > Initial capital to 50000.")
 guardBuf     = input.float(100.0, "Safety buffer (USD)", minval = 0, group = grpP, tooltip = "Stay this far away from each limit to absorb slippage and gaps.")
-profitTarget = input.float(3000.0, "Stop trading at profit target (USD, 0 = off)", minval = 0, group = grpP, tooltip = "Evaluation target. Once closed profit reaches it the strategy stops taking trades.")
-dayProfitCap = input.float(0.0, "Stop for the day at profit (USD, 0 = off)", minval = 0, group = grpP, tooltip = "Helps with consistency rules (no single day more than X% of total profit).")
+dayProfitCap = input.float(0.0, "Personal stop for the day at profit (USD, 0 = off)", minval = 0, group = grpP, tooltip = "On top of the consistency-rule cap the preset already applies.")
+myDailyStop  = input.float(600.0, "Personal daily loss stop (USD, 0 = off)", minval = 0, group = grpP, tooltip = "Your own daily stop, tighter than the firm's. Applied like the firm limit: sizing and the guard stop never let a trade go past it.")
 maxTrades    = input.int(4, "Max trades per day", minval = 1, group = grpP)
 maxLosses    = input.int(2, "Stop after losses in a row (0 = off)", minval = 0, group = grpP)
 
+grpC = "Custom account (used when Account = Custom)"
+cTrailDD   = input.float(2000.0, "Max drawdown (USD)", minval = 0, group = grpC)
+cTrailMode = input.string("End of day", "Drawdown trails", options = ["End of day", "Intraday (live high)", "Static"], group = grpC)
+cLockOff   = input.float(100.0, "Floor stops trailing at start balance +", group = grpC)
+cDailyLoss = input.float(0.0, "Firm daily loss limit (USD, 0 = none)", minval = 0, group = grpC)
+cTarget    = input.float(3000.0, "Profit target (USD, 0 = none)", minval = 0, group = grpC)
+cConsist   = input.float(0.0, "Consistency rule: best day max % of profit (0 = none)", minval = 0, maxval = 100, group = grpC)
+cMinDays   = input.int(0, "Min trading days", minval = 0, group = grpC)
+cMaxMinis  = input.int(4, "Max contracts (minis; micros = 10x)", minval = 1, group = grpC)
+
 grpZ = "Position sizing"
 riskUsd    = input.float(300.0, "Risk per trade (USD)", minval = 1, group = grpZ)
-maxCts     = input.int(5, "Max contracts", minval = 1, group = grpZ)
+userCts    = input.int(40, "Your own contract cap", minval = 1, group = grpZ, tooltip = "The firm cap from the account preset also applies; the smaller one wins.")
 pvOverride = input.float(0.0, "Point value override (0 = from symbol)", minval = 0, group = grpZ, tooltip = "MES 5, MNQ 2, ES 50, NQ 20, MGC 10, GC 100.")
 rtComm     = input.float(1.5, "Round-turn commission per contract (USD)", minval = 0, group = grpZ, tooltip = "Used for sizing only. Also set Properties > Commission to match your firm.")
 
@@ -118,6 +141,24 @@ color mute = #8B93A7
 
 float pv   = pvOverride > 0 ? pvOverride : syminfo.pointvalue
 float tick = syminfo.mintick
+
+// ═══════════════════════════════ Account preset ═══════════════════════════════
+[trailDD, trailMode, lockOffset, firmDaily, profitTarget, consistPct, minDays, maxMinis] = switch preset
+    "Tradeify Select 50K (eval)"          => [2000.0, "End of day", 100.0, 0.0,    3000.0, 40.0, 3, 4]
+    "Tradeify Growth 50K (eval)"          => [2000.0, "End of day", 100.0, 1250.0, 3000.0, 0.0,  1, 4]
+    "Tradeify Select Flex 50K (funded)"   => [2000.0, "End of day", 100.0, 0.0,    0.0,    0.0,  0, 2]
+    "Tradeify Select Daily 50K (funded)"  => [2000.0, "End of day", 100.0, 1000.0, 0.0,    0.0,  0, 2]
+    => [cTrailDD, cTrailMode, cLockOff, cDailyLoss, cTarget, cConsist, cMinDays, cMaxMinis]
+
+// Effective daily limit: the tighter of the firm's and your own.
+float dailyLoss = firmDaily > 0 and myDailyStop > 0 ? math.min(firmDaily, myDailyStop) : math.max(firmDaily, myDailyStop)
+// Micro contracts (MES, MNQ, MYM, M2K, MGC, MCL, ...) are allowed at 10x the mini count.
+bool isMicro = str.startswith(syminfo.root, "M")
+int  maxCts  = math.min(userCts, isMicro ? maxMinis * 10 : maxMinis)
+// Consistency rule: stop for the day once a day's profit reaches consistPct of the target, so no
+// single day can end up too large a share of the total.
+float consistCap = consistPct > 0 and profitTarget > 0 ? profitTarget * consistPct / 100.0 : 0.0
+float dayCap     = consistCap > 0 and dayProfitCap > 0 ? math.min(consistCap, dayProfitCap) : math.max(consistCap, dayProfitCap)
 
 // ═══════════════════════════════ Adaptive ribbon (from Trend Master) ═══════════════════════════════
 vEma(float src, float len) =>
@@ -203,10 +244,15 @@ var int   seenClosed  = 0
 var bool  acctHalt    = false
 var string haltWhy    = ""
 var int   breaches    = 0
+var int   tradingDays = 0
+var float bestDay     = 0.0
 
 if newDay
     if trailMode == "End of day"
         peakEq := math.max(peakEq, closedEq)
+    if tradesToday > 0
+        tradingDays += 1
+    bestDay     := math.max(bestDay, closedEq - dayStartEq)
     dayStartEq  := closedEq
     tradesToday := 0
     lossStreak  := 0
@@ -245,14 +291,20 @@ if posSize != 0 and closedEq + worstOpen <= ddFloor
     acctHalt := true
     haltWhy  := "Drawdown breached"
     strategy.close_all(comment = "DD breach", alert_message = exitMsg)
-else if posSize != 0 and dailyLoss > 0 and closedEq + worstOpen - dayStartEq <= -dailyLoss
+else if posSize != 0 and firmDaily > 0 and closedEq + worstOpen - dayStartEq <= -firmDaily
     breachedNow := true
     breaches += 1
     strategy.close_all(comment = "Daily breach", alert_message = exitMsg)
 
-if not acctHalt and profitTarget > 0 and posSize == 0 and closedEq - strategy.initial_capital >= profitTarget
+// Evaluation passed: target reached, enough trading days (today counts once it has a trade) and the
+// best day within the consistency rule. Until all three hold, keep trading under the daily cap.
+float totalProfit = closedEq - strategy.initial_capital
+float bestDayNow  = math.max(bestDay, closedEq - dayStartEq)
+int   daysNow     = tradingDays + (tradesToday > 0 ? 1 : 0)
+bool  consistOK   = consistPct <= 0 or bestDayNow <= totalProfit * consistPct / 100.0
+if not acctHalt and profitTarget > 0 and posSize == 0 and totalProfit >= profitTarget and daysNow >= minDays and consistOK
     acctHalt := true
-    haltWhy  := "Profit target reached"
+    haltWhy  := "Target reached, eval passed"
 
 // ═══════════════════════════════ Session timing ═══════════════════════════════
 bool  inWindow   = not na(time(timeframe.period, entrySess, TZ))
@@ -297,7 +349,7 @@ entryMsg(string action, int q, float px, float sl, float tp) =>
 bool longSig  = sideMode != "Short only" and ((tradeStarts and startUp and nz(effS) >= minQuality) or (tradePulls and pullUp))
 bool shortSig = sideMode != "Long only"  and ((tradeStarts and startDn and nz(effS) >= minQuality) or (tradePulls and pullDn))
 
-bool dayCapHit = dayProfitCap > 0 and dayPnl >= dayProfitCap
+bool dayCapHit = dayCap > 0 and dayPnl >= dayCap
 bool streakHit = maxLosses > 0 and lossStreak >= maxLosses
 bool canEnter  = not na(atr) and posSize == 0 and inWindow and not flattenNow and not acctHalt and not dayCapHit and not streakHit and tradesToday < maxTrades
 
@@ -356,11 +408,11 @@ plot(ddRoom, "Drawdown room (USD)", display = display.data_window)
 plot(dayPnl, "Day P&L (USD)",       display = display.data_window)
 plot(breaches, "Rule breaches",     display = display.data_window)
 
-var table pnl = table.new(position.top_right, 2, 8, bgcolor = color.new(ink, 8), border_width = 2, border_color = ink, frame_width = 1, frame_color = #2A3040)
+var table pnl = table.new(position.top_right, 2, 9, bgcolor = color.new(ink, 8), border_width = 2, border_color = ink, frame_width = 1, frame_color = #2A3040)
 if barstate.islast and showPanel
     string status = acctHalt ? haltWhy : streakHit ? "Loss streak, done for day" : dayCapHit ? "Day profit cap hit" : tradesToday >= maxTrades ? "Max trades hit" : budget < costCt ? "No risk room" : posSize > 0 ? "Long" : posSize < 0 ? "Short" : inWindow ? "Watching" : "Outside window"
     color  pTrend = dir == 1 ? colUp : colDn
-    pnl.cell(0, 0, (dir == 1 ? "▲  " : "▼  ") + "TREND MASTER PROP", text_color = ink, text_halign = text.align_left, bgcolor = pTrend)
+    pnl.cell(0, 0, (dir == 1 ? "▲  " : "▼  ") + (preset == "Custom" ? "TREND MASTER PROP" : str.replace(preset, "Tradeify ", "")), text_color = ink, text_halign = text.align_left, bgcolor = pTrend)
     pnl.merge_cells(0, 0, 1, 0)
     pnl.cell(0, 1, "Status",        text_color = mute, text_size = size.small, text_halign = text.align_left)
     pnl.cell(1, 1, status,          text_color = #E5E7EB, text_halign = text.align_right)
@@ -376,3 +428,6 @@ if barstate.islast and showPanel
     pnl.cell(1, 6, str.tostring(ddRoom, "#,##0"), text_color = ddRoom < trailDD * 0.35 ? colDn : #E5E7EB, text_halign = text.align_right)
     pnl.cell(0, 7, "Trades today",  text_color = mute, text_size = size.small, text_halign = text.align_left)
     pnl.cell(1, 7, str.tostring(tradesToday) + " / " + str.tostring(maxTrades) + (breaches > 0 ? "   breaches: " + str.tostring(breaches) : ""), text_color = breaches > 0 ? colDn : #E5E7EB, text_halign = text.align_right)
+    string evalTxt = profitTarget > 0 ? str.tostring(totalProfit, "#,##0") + " / " + str.tostring(profitTarget, "#,##0") + ", day " + str.tostring(daysNow) + "/" + str.tostring(minDays) + (consistPct > 0 and totalProfit > 0 ? ", best " + str.tostring(bestDayNow / totalProfit * 100, "#") + "%" : "") : "Funded, " + str.tostring(maxCts) + " cts max"
+    pnl.cell(0, 8, profitTarget > 0 ? "Eval" : "Account", text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 8, evalTxt, text_color = profitTarget > 0 and not consistOK ? color.orange : #E5E7EB, text_halign = text.align_right)

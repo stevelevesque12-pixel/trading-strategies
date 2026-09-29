@@ -37,8 +37,26 @@ static, with a lock level), daily loss limit from the 18:00 ET trading-day
 reset, an account-guard stop that pulls the open trade's stop in so a
 stop-out can't cross either limit, risk sizing capped by the room left,
 max contracts, max trades/day, loss-streak lockout, flat before the close,
-and optional profit-target / daily-profit-cap stops. Defaults are a generic
-50K account -- set them to your firm's current rules. Alerts use the same
+and optional profit-target / daily-profit-cap stops. It ships with Tradeify
+50K presets (pick one under "Prop firm rules" > "Account"; "Custom" for
+anything else):
+
+| Preset | Target | Max drawdown | Daily loss limit | Consistency | Min days | Max size |
+|---|---|---|---|---|---|---|
+| Select 50K eval | $3,000 | $2,000 EOD trailing, locks at $50,100 | none | best day <= 40% | 3 | 4 minis / 40 micros |
+| Growth 50K eval | $3,000 | $2,000 EOD trailing, locks at $50,100 | $1,250 (soft) | none | 1 | 4 minis / 40 micros |
+| Select Flex 50K funded | -- | $2,000 EOD trailing, locks at $50,100 | none | -- | -- | 2 minis / 20 micros (start tier) |
+| Select Daily 50K funded | -- | $2,000 EOD trailing, locks at $50,100 | $1,000 (soft) | -- | -- | 2 minis / 20 micros (start tier) |
+
+Flat by 16:45 ET (script default flattens at 15:55). Numbers come from
+Tradeify's published 2026 rules via third-party summaries; Tradeify changes
+them often (the close time moved from 16:59 to 16:45 in July 2026, and the
+Select target was $2,500 in older material), so check your dashboard. The
+Growth contract cap is an assumption. The consistency rule is handled by
+stopping for the day once profit reaches 40% of the target, and the eval
+only counts as passed once the target, min days and best-day share all
+hold. A personal daily stop ($600 default) sits on top of the firm limit.
+Alerts use the same
 TradersPost JSON format; create one alert with "Order fills only" and the
 message `{{strategy.order.alert_message}}`. Pine only, not yet validated on
 real data -- check it in the Strategy Tester and on sim first.
