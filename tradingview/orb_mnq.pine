@@ -1,0 +1,150 @@
+//@version=6
+// Opening Range Breakout (ORB) for MNQ -- one trade per day, flat by the close.
+// Fires TradersPost-format webhook alerts.
+//
+// Rules (all times America/New_York):
+//   1. Opening range = the first `orMinutes` of the regular session (default
+//      09:30-09:45).
+//   2. At the end of the range: if the range closed above its open, go long;
+//      if below, go short; if unchanged, no trade today. Fill = next bar's
+//      open (standard strategy behaviour -- no lookahead).
+//   3. Stop = the far side of the opening range (stopFrac = 1.0). stopFrac
+//      = 0.5 puts it halfway into the range instead.
+//   4. No profit target: exit at the stop or at `flattenTime` (16:00).
+//
+// Evidence (see the research notes in the conversation / commit message):
+// on 10 years of NQ 15m data (2016-2026), sized as 1 MNQ, $2 round-trip
+// commission + 1 tick slippage per side, the 15m-range version made about
+// +$18k (~$1.7k/yr), max drawdown ~$8k, Sharpe ~0.5; 30m and 60m ranges and
+// a 0.5 stop were all positive too, and both longs and shorts were
+// profitable. BUT almost all of it came in 2022-2025 (2016-2021 was flat to
+// slightly negative), and the same rules LOST on ES, gold and silver. It is a
+// small, uneven edge, not a money machine. Exiting at noon instead of 16:00
+// removed nearly all of the profit -- the all-day hold is the point.
+// Forward-test on sim before trading it with money.
+//
+// Chart setup: MNQ1! (or the front contract), any intraday timeframe that
+// divides the opening-range length evenly (1m, 3m, 5m, 15m for a 15m range).
+// The research was done on 15m bars; lower timeframes check the stop more
+// precisely and can differ slightly.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL
+// (auth is in the URL, not in the JSON). See ../TRADINGVIEW_WEBHOOK.md.
+// The stop is sent with the entry as a broker-side stop order, so it
+// protects the position even if TradingView or the webhook stalls. On
+// half-day holidays (early 13:00 ET close) the 16:00 bar never prints --
+// rely on your prop firm's auto-flatten or skip those days.
+
+strategy("ORB MNQ (non-repainting)", shorttitle="ORB MNQ", overlay=true,
+     pyramiding=0, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     slippage=1, calc_on_every_tick=false, process_orders_on_close=false)
+
+// ---- Inputs ----
+orMinutes   = input.int(15, "Opening range length (minutes)", minval=1)
+stopFrac    = input.float(1.0, "Stop: fraction of range from the breakout side (1.0 = far side)", minval=0.1, maxval=1.0, step=0.05)
+tradeType   = input.string("BOTH", "Trades to take", options=["LONG", "SHORT", "BOTH"])
+flattenHHMM = input.int(1600, "Flatten time HHMM (America/New_York)", minval=0, maxval=2359)
+skipFridays = input.bool(false, "Skip Fridays?")
+
+riskType     = input.string("Fixed Contracts", "Position sizing", options=["Fixed Contracts", "Fixed $ Risk"], group="Position sizing")
+qtyContracts = input.int(1, "Contracts (Fixed Contracts mode)", minval=1, group="Position sizing")
+riskDollars  = input.float(300, "Risk per trade $ (Fixed $ Risk mode)", minval=0, group="Position sizing")
+pointValue   = input.float(2.0, "$ per point (MNQ=2, NQ=20, MES=5)", minval=0.01, group="Position sizing")
+maxContracts = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Timeframe sanity ----
+chartMinutes = timeframe.in_seconds() / 60.0
+if not timeframe.isintraday or chartMinutes > orMinutes or orMinutes % math.max(1, math.round(chartMinutes)) != 0
+    runtime.error("Use an intraday chart whose timeframe divides the opening range length (e.g. 1, 3, 5 or 15 min for a 15-min range).")
+
+// ---- Time helpers (explicit New York time, independent of exchange/chart tz) ----
+TZ = "America/New_York"
+barOpenHm  = hour(time, TZ) * 60 + minute(time, TZ)
+barCloseHm = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+rthOpenHm  = 9 * 60 + 30
+orEndHm    = rthOpenHm + orMinutes
+flattenHm  = math.floor(flattenHHMM / 100) * 60 + flattenHHMM % 100
+isFriday   = dayofweek(time, TZ) == dayofweek.friday
+
+// ---- Opening range tracking (reset each day at 09:30) ----
+var float orOpen  = na
+var float orHigh  = na
+var float orLow   = na
+var bool  tradedToday = false
+
+if barOpenHm == rthOpenHm
+    orOpen := open
+    orHigh := high
+    orLow  := low
+    tradedToday := false
+else if barOpenHm > rthOpenHm and barOpenHm < orEndHm and not na(orOpen)
+    orHigh := math.max(orHigh, high)
+    orLow  := math.min(orLow, low)
+
+// The range is complete at the close of the bar that ends exactly at orEndHm.
+// Everything used here is from bars that have closed -- the order fills at
+// the NEXT bar's open, so nothing is known before it could be in real time.
+rangeDone = barCloseHm == orEndHm and not na(orOpen) and not tradedToday
+orRange   = orHigh - orLow
+dirUp     = close > orOpen
+dirDown   = close < orOpen
+
+longStop  = orHigh - stopFrac * orRange
+shortStop = orLow  + stopFrac * orRange
+longRisk  = close - longStop     // estimated with the signal-bar close as entry
+shortRisk = shortStop - close
+
+qtyFor(riskPts) =>
+    q = riskType == "Fixed $ Risk" and riskPts > 0 ? math.floor(riskDollars / (riskPts * pointValue)) : qtyContracts
+    math.max(1, math.min(q, maxContracts))
+
+canTrade  = rangeDone and orRange > 0 and not (skipFridays and isFriday) and strategy.position_size == 0
+goLong    = canTrade and dirUp   and tradeType != "SHORT" and longRisk  > 0
+goShort   = canTrade and dirDown and tradeType != "LONG"  and shortRisk > 0
+
+if rangeDone
+    tradedToday := true   // one decision per day, even if no trade was taken
+
+// ---- Entries + TradersPost alerts ----
+// Schema: https://docs.traderspost.io/docs/core-concepts/webhooks
+if goLong
+    q = qtyFor(longRisk)
+    strategy.entry("Long", strategy.long, qty=q)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(q) +
+         ',"signalPrice":' + str.tostring(close, format.mintick) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop, format.mintick) + '}}', alert.freq_once_per_bar_close)
+
+if goShort
+    q = qtyFor(shortRisk)
+    strategy.entry("Short", strategy.short, qty=q)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(q) +
+         ',"signalPrice":' + str.tostring(close, format.mintick) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop, format.mintick) + '}}', alert.freq_once_per_bar_close)
+
+// Stop is a fixed price (the range level), so it's the same whether set on
+// the signal bar or re-issued every bar while in the trade.
+var float activeStop = na
+if goLong
+    activeStop := longStop
+if goShort
+    activeStop := shortStop
+if strategy.position_size > 0 or goLong
+    strategy.exit("Long Stop", from_entry="Long", stop=activeStop)
+if strategy.position_size < 0 or goShort
+    strategy.exit("Short Stop", from_entry="Short", stop=activeStop)
+
+// ---- End-of-day flatten: at the close of the bar that ends at flattenTime ----
+if barCloseHm >= flattenHm and strategy.position_size != 0
+    strategy.close_all(comment="eod flatten", immediately=true)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+showRange = barOpenHm >= rthOpenHm and barOpenHm < flattenHm and not na(orOpen)
+plot(showRange ? orHigh : na, "OR High", color=color.new(color.teal, 0), style=plot.style_linebr)
+plot(showRange ? orLow  : na, "OR Low",  color=color.new(color.orange, 0), style=plot.style_linebr)
+plot(strategy.position_size != 0 ? activeStop : na, "Stop", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plotshape(goLong,  "Long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(goShort, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.small)
