@@ -1,0 +1,107 @@
+//@version=6
+// SuperTrend long-only trend follower (MNQ / MGC). Fires TradersPost-format
+// webhook alerts. Signal logic is the user's "SuperTrend STRATEGY" (Slow Cow)
+// unchanged: ATR = SMA of true range, bands around hl2, trend flips when the
+// close crosses the previous bar's band.
+//
+// Rules:
+//   1. Trend flips up   -> buy (market).
+//   2. Trend flips down -> exit. There are no shorts: shorting the same flips
+//      lost money on ES and cut the NQ result by more than half (see below).
+//   3. Optional broker-side safety stop, sent with the entry at the band
+//      level on the entry bar. The band only ratchets up after that, so the
+//      normal close-based exit almost always comes first; the stop is there
+//      for gaps, outages or a stalled webhook.
+//
+// Differences from the original script (all on purpose, for live use):
+//   - Fixed contract size instead of 100% of equity, so the tester shows $
+//     per contract, which is what matters against a prop-firm drawdown limit.
+//   - Costs are $1/contract/side + 1 tick slippage instead of 0.015% of
+//     notional.
+//   - Fills on the next bar's open (process_orders_on_close=false): the
+//     webhook can only fire after the signal bar has closed.
+//
+// Evidence: a Python replica of these rules on 15m bars (1 contract, same
+// costs as above, 2020-01 to 2026-08), which aren't the 8m/10m bars of
+// the original screenshots:
+//   NQ -> MNQ: +$25k (~$3.8k/yr), max drawdown ~$8.1k, PF 1.25, 649 trades.
+//   GC -> MGC: +$25k (~$3.8k/yr), max drawdown ~$5.6k, PF 1.46, 560 trades.
+//   Every multiplier from 3 to 12 was profitable on both, so 8.5 isn't a
+//   lucky pick. BUT buy-and-hold made more over the same period (MNQ +$41k,
+//   MGC +$31k), with bigger drawdowns ($12.5k / $16.5k). This is a trend
+//   filter that trades return for smaller drawdowns in a bull market. It
+//   isn't an edge that works regardless of market direction. Gold 2016-2019
+//   was slightly negative.
+//
+// Holds overnight and over weekends. A single contract's drawdown ($5-8k)
+// is several times a typical $50k prop account's trailing drawdown limit.
+//
+// Alerting: TradingView alert with condition "Any alert() function call",
+// webhook URL = your TradersPost strategy's webhook URL. See
+// ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("SuperTrend Long (TradersPost)", shorttitle="ST Long", overlay=true,
+     pyramiding=0, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     slippage=1, calc_on_every_tick=false, process_orders_on_close=false)
+
+// ---- Inputs ----
+Periods    = input.int(10, "ATR Period", minval=1)
+src        = input(hl2, "Source")
+Multiplier = input.float(8.5, "ATR Multiplier", step=0.1, minval=0.1)
+qty        = input.int(1, "Contracts", minval=1)
+useStop    = input.bool(true, "Send broker-side safety stop at the entry band")
+
+FromMonth = input.int(1,    "From Month", minval=1, maxval=12, group="Date window")
+FromDay   = input.int(1,    "From Day",   minval=1, maxval=31, group="Date window")
+FromYear  = input.int(2020, "From Year",  minval=999, group="Date window")
+ToMonth   = input.int(1,    "To Month",   minval=1, maxval=12, group="Date window")
+ToDay     = input.int(1,    "To Day",     minval=1, maxval=31, group="Date window")
+ToYear    = input.int(9999, "To Year",    minval=999, group="Date window")
+
+// ---- SuperTrend (identical to the original) ----
+atrVal = ta.sma(ta.tr, Periods)
+up  = src - (Multiplier * atrVal)
+up1 = nz(up[1], up)
+up := close[1] > up1 ? math.max(up, up1) : up
+dn  = src + (Multiplier * atrVal)
+dn1 = nz(dn[1], dn)
+dn := close[1] < dn1 ? math.min(dn, dn1) : dn
+
+trend = 1
+trend := nz(trend[1], trend)
+trend := trend == -1 and close > dn1 ? 1 : trend == 1 and close < up1 ? -1 : trend
+
+buySignal  = trend == 1 and trend[1] == -1
+sellSignal = trend == -1 and trend[1] == 1
+
+start  = timestamp(FromYear, FromMonth, FromDay, 00, 00)
+finish = timestamp(ToYear, ToMonth, ToDay, 23, 59)
+inWindow = time >= start and time <= finish
+
+// ---- Orders + TradersPost alerts ----
+// Schema: https://docs.traderspost.io/docs/core-concepts/webhooks
+var float safetyStop = na
+
+if buySignal and inWindow and strategy.position_size == 0
+    safetyStop := up
+    strategy.entry("BUY", strategy.long, qty=qty)
+    stopJson = useStop ? ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(safetyStop, format.mintick) + '}' : ''
+    alert('{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close, format.mintick) + stopJson + '}', alert.freq_once_per_bar_close)
+
+// Mirror the broker stop in the backtest so the tester matches live.
+if useStop and (strategy.position_size > 0 or (buySignal and inWindow))
+    strategy.exit("Safety Stop", from_entry="BUY", stop=safetyStop)
+
+if sellSignal and strategy.position_size > 0
+    strategy.close("BUY", comment="trend flip")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(trend == 1 ? up : na, "Up Trend",   style=plot.style_linebr, linewidth=2, color=color.green)
+plot(trend == 1 ? na : dn, "Down Trend", style=plot.style_linebr, linewidth=2, color=color.red)
+plot(strategy.position_size > 0 and useStop ? safetyStop : na, "Safety Stop", style=plot.style_linebr, color=color.new(color.gray, 30))
+plotshape(buySignal  ? up : na, "Buy",   text="Buy",   location=location.absolute, style=shape.labelup,   size=size.tiny, color=color.green, textcolor=color.white)
+plotshape(sellSignal ? dn : na, "Close", text="Close", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.black, textcolor=color.white)

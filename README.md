@@ -39,6 +39,17 @@ gold and silver. Treat it as a small, uneven edge and forward-test it on
 sim first. The header of the `.pine` file has the full rules and chart
 setup.
 
+**A fourth, `tradingview/supertrend_long.pine`**, is a long-only SuperTrend
+trend follower (ATR 10, hl2, multiplier 8.5) with TradersPost alerts. It
+buys when the trend flips up and exits when it flips down, holding
+overnight. `backtest/supertrend_sweep.py` checks it on 15m data. Since
+2020, one MNQ made about +$25k with an $8k max drawdown, and one MGC made
+about +$25k with a $5.6k max drawdown. Every multiplier from 3 to 12 was
+profitable. Buy-and-hold made more over the same period, so treat this as
+a lower-drawdown way to be long, not an edge that doesn't depend on market
+direction. The per-contract drawdown is far larger than a typical prop
+account's limit.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
