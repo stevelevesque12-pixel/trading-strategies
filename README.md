@@ -29,6 +29,20 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, `tradingview/trend_master_prop.pine`**, is a TradingView
+strategy built on the Trend Master [SimpleAlgo] indicator's signals (adaptive
+EMA ribbon, chop filter, confirmed trend-start and pullback signals), wrapped
+in prop-firm risk rules: trailing max drawdown (end-of-day, intraday or
+static, with a lock level), daily loss limit from the 18:00 ET trading-day
+reset, an account-guard stop that pulls the open trade's stop in so a
+stop-out can't cross either limit, risk sizing capped by the room left,
+max contracts, max trades/day, loss-streak lockout, flat before the close,
+and optional profit-target / daily-profit-cap stops. Defaults are a generic
+50K account -- set them to your firm's current rules. Alerts use the same
+TradersPost JSON format; create one alert with "Order fills only" and the
+message `{{strategy.order.alert_message}}`. Pine only, not yet validated on
+real data -- check it in the Strategy Tester and on sim first.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

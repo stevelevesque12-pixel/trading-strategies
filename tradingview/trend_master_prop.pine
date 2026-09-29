@@ -1,0 +1,378 @@
+//@version=6
+// Trend Master -> prop-firm futures strategy.
+//
+// Signals are the Trend Master [SimpleAlgo] indicator's own logic, unchanged:
+// an adaptive fast/slow EMA ribbon (lengths stretch in chop, tighten in clean
+// moves), a chop filter that counts ribbon flips, a confirmed "trend start"
+// signal and a "pullback finished" signal. This file turns those into trades
+// and wraps them in the risk rules a prop-firm evaluation/funded account
+// enforces:
+//
+//   * Trailing max drawdown (end-of-day or intraday/live-high), which stops
+//     trailing once the floor reaches a lock level (usually starting balance).
+//   * Daily loss limit, measured from the start of the CME trading day
+//     (18:00 New York), which is when most futures prop firms reset.
+//   * Account guard stop: every bar, the open trade's stop is pulled in so a
+//     stop-out can never take equity below (drawdown floor + buffer) or below
+//     (daily limit + buffer). This is what protects you when a trade runs up,
+//     the intraday trailing floor follows it, and then it reverses.
+//   * Risk-based sizing capped by the room left under BOTH limits, a max
+//     contract cap, max trades per day, and a max-losses-in-a-row lockout.
+//   * Flat before the close, no overnight positions.
+//   * Optional stop-for-the-day profit cap (helps with consistency rules) and
+//     stop-trading once the evaluation profit target is hit.
+//
+// Trades:
+//   Entry  - trend start and/or pullback signal in the chosen direction(s),
+//            inside the entry window, at the signal bar's close.
+//   Stop   - beyond the slow average (+ ATR buffer), or a plain ATR stop.
+//   Target - R multiple of the initial risk (0 = no fixed target).
+//   Manage - optional move to breakeven at X R, optional trail on the slow
+//            average, exit when the ribbon flips against the position.
+//
+// Prop-firm numbers (drawdown, daily limit, max contracts, lock level, close
+// time) differ by firm and by account size and they change often. The
+// defaults are a generic 50K account -- set them to your firm's current rules.
+//
+// Use an intraday chart (1-15m) on a futures contract (MES1!, MNQ1!, ES1!,
+// NQ1!, MGC1!, ...). The point value is read from the symbol automatically.
+//
+// Alerting (TradersPost format, same as the other scripts in this folder):
+// create ONE alert on this strategy with condition "Order fills only" and
+// message exactly:
+//     {{strategy.order.alert_message}}
+// Entries send market orders with a broker-side bracket (initial stop +
+// target) so the position is protected even if TradingView goes quiet.
+// Breakeven, trailing, account-guard, flip and end-of-day exits are managed
+// here and sent as {"action":"exit"} messages. See ../TRADINGVIEW_WEBHOOK.md.
+//
+// Not validated on real data yet. Backtest it in the Strategy Tester on your
+// symbol/timeframe and forward-test on sim before trusting it with an account.
+
+strategy("Trend Master Prop Strategy", "TM Prop", overlay = true,
+     initial_capital = 50000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, process_orders_on_close = true, calc_on_every_tick = false,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.75, slippage = 1)
+
+string TZ = "America/New_York"
+
+// ═══════════════════════════════ Inputs ═══════════════════════════════
+grpR = "Trend ribbon"
+fastLen  = input.int(21, "Fast length", minval = 2, maxval = 200, group = grpR)
+slowLen  = input.int(55, "Slow length", minval = 3, maxval = 400, group = grpR)
+adaptive = input.bool(true, "Adapt to volatility", group = grpR)
+
+grpS = "Signals"
+confirmBars = input.int(3, "Confirm trend after (bars)", minval = 1, maxval = 20, group = grpS)
+chopWin     = input.int(50, "Chop filter: window (bars)", minval = 10, maxval = 500, group = grpS)
+chopMax     = input.int(2, "Chop filter: max flips in window", minval = 1, maxval = 20, group = grpS)
+pullDepth   = input.int(40, "Pullback depth (% of ribbon)", minval = 0, maxval = 100, group = grpS)
+pullGap     = input.int(12, "Min bars between pullbacks", minval = 0, maxval = 200, group = grpS)
+minAge      = input.int(8, "Min trend age for pullbacks (bars)", minval = 1, maxval = 100, group = grpS)
+
+grpE = "Entries"
+tradeStarts = input.bool(true, "Trade trend starts", group = grpE)
+tradePulls  = input.bool(true, "Trade pullbacks", group = grpE)
+sideMode    = input.string("Both", "Direction", options = ["Both", "Long only", "Short only"], group = grpE)
+minQuality  = input.float(0.0, "Min move quality for trend starts", minval = 0.0, maxval = 1.0, step = 0.05, group = grpE, tooltip = "Efficiency of the move at the cross (0 = off). 0.2 = 'Average move' or better, 0.4 = 'Clean move' only.")
+entrySess   = input.session("0930-1530", "Entry window (New York)", group = grpE)
+flatHour    = input.int(15, "Flatten by  (hour", minval = 0, maxval = 23, inline = "fl", group = grpE)
+flatMin     = input.int(55, ":min, New York)", minval = 0, maxval = 59, inline = "fl", group = grpE, tooltip = "All positions are closed on the last bar that ends at or before this time. Set it a few minutes before your firm's cut-off.")
+
+grpX = "Stops & targets"
+stopMode  = input.string("Ribbon", "Stop placement", options = ["Ribbon", "ATR"], group = grpX, tooltip = "Ribbon: beyond the slow average (or the signal bar's extreme, whichever is further) plus an ATR buffer. ATR: a fixed ATR multiple from entry.")
+stopBuf   = input.float(0.5, "Ribbon stop buffer (ATR)", minval = 0.0, step = 0.1, group = grpX)
+atrMult   = input.float(2.0, "ATR stop multiple", minval = 0.1, step = 0.1, group = grpX)
+targetR   = input.float(2.0, "Target (R multiple, 0 = none)", minval = 0.0, step = 0.25, group = grpX)
+beR       = input.float(1.0, "Move stop to breakeven at (R, 0 = off)", minval = 0.0, step = 0.25, group = grpX)
+beTicks   = input.int(1, "Breakeven offset (ticks)", minval = 0, group = grpX)
+trailSlow = input.bool(false, "Trail stop on slow average", group = grpX)
+exitFlip  = input.bool(true, "Exit when the ribbon flips against the trade", group = grpX)
+
+grpP = "Prop firm rules"
+trailDD      = input.float(2000.0, "Max drawdown (USD)", minval = 0, group = grpP)
+trailMode    = input.string("End of day", "Drawdown trails", options = ["End of day", "Intraday (live high)", "Static"], group = grpP)
+lockOffset   = input.float(0.0, "Floor stops trailing at start balance +", group = grpP, tooltip = "Most firms stop trailing once the drawdown floor reaches the starting balance (0) or slightly above it.")
+dailyLoss    = input.float(1000.0, "Daily loss limit (USD, 0 = none)", minval = 0, group = grpP)
+guardBuf     = input.float(100.0, "Safety buffer (USD)", minval = 0, group = grpP, tooltip = "Stay this far away from each limit to absorb slippage and gaps.")
+profitTarget = input.float(3000.0, "Stop trading at profit target (USD, 0 = off)", minval = 0, group = grpP, tooltip = "Evaluation target. Once closed profit reaches it the strategy stops taking trades.")
+dayProfitCap = input.float(0.0, "Stop for the day at profit (USD, 0 = off)", minval = 0, group = grpP, tooltip = "Helps with consistency rules (no single day more than X% of total profit).")
+maxTrades    = input.int(4, "Max trades per day", minval = 1, group = grpP)
+maxLosses    = input.int(2, "Stop after losses in a row (0 = off)", minval = 0, group = grpP)
+
+grpZ = "Position sizing"
+riskUsd    = input.float(300.0, "Risk per trade (USD)", minval = 1, group = grpZ)
+maxCts     = input.int(5, "Max contracts", minval = 1, group = grpZ)
+pvOverride = input.float(0.0, "Point value override (0 = from symbol)", minval = 0, group = grpZ, tooltip = "MES 5, MNQ 2, ES 50, NQ 20, MGC 10, GC 100.")
+rtComm     = input.float(1.5, "Round-turn commission per contract (USD)", minval = 0, group = grpZ, tooltip = "Used for sizing only. Also set Properties > Commission to match your firm.")
+
+grpD = "Look"
+showRibbon  = input.bool(true, "Show ribbon", group = grpD)
+showCandles = input.bool(true, "Color candles by strength", group = grpD)
+showPanel   = input.bool(true, "Show prop panel", group = grpD)
+colUp   = input.color(#00FFA3, "Up",   inline = "c", group = grpD)
+colDn   = input.color(#FF3D71, "Down", inline = "c", group = grpD)
+colFlat = input.color(#262B38, "Flat", inline = "c", group = grpD)
+color ink  = #0F1117
+color mute = #8B93A7
+
+float pv   = pvOverride > 0 ? pvOverride : syminfo.pointvalue
+float tick = syminfo.mintick
+
+// ═══════════════════════════════ Adaptive ribbon (from Trend Master) ═══════════════════════════════
+vEma(float src, float len) =>
+    float a = 2.0 / (math.max(len, 1.0) + 1.0)
+    var float e = na
+    e := na(e) ? src : a * src + (1.0 - a) * e
+    e
+
+float chg   = math.abs(close - close[slowLen])
+float noise = math.sum(math.abs(close - close[1]), slowLen)
+float eff   = noise > 0 ? chg / noise : 0.0
+float effS  = ta.ema(eff, 5)
+
+float mult   = adaptive ? (1.6 - nz(effS)) : 1.0
+float fastMA = vEma(close, math.max(2.0, fastLen * mult))
+float slowMA = vEma(close, math.max(3.0, slowLen * mult))
+
+int   dir      = fastMA > slowMA ? 1 : -1
+bool  flipped  = dir != dir[1]
+color trendCol = dir == 1 ? colUp : colDn
+
+float flips  = math.sum(flipped ? 1.0 : 0.0, chopWin)
+bool  choppy = flips > chopMax
+
+// ═══════════════════════════════ Trend strength (from Trend Master) ═══════════════════════════════
+float atr    = ta.atr(14)
+float sep    = atr > 0 ? math.min(math.abs(fastMA - slowMA) / atr, 2.0) / 2.0 : 0.0
+float volMA  = ta.sma(volume, 20)
+bool  hasVol = not na(volume) and not na(volMA) and volMA > 0
+float dirVol = hasVol ? math.sum((close > open ? volume : -volume), 20) / (volMA * 20) : 0.0
+float volFit = hasVol ? math.min(math.max(dir == 1 ? dirVol : -dirVol, 0.0), 1.0) : 0.0
+float score  = hasVol ? (0.4 * sep + 0.35 * nz(effS) * 1.5 + 0.25 * volFit) : (0.55 * sep + 0.45 * nz(effS) * 1.5)
+score := math.min(math.max(score, 0.0), 1.0)
+float scoreS = ta.ema(score, 3)
+color strengthCol = scoreS >= 0.6 ? trendCol : scoreS >= 0.32 ? color.new(trendCol, 25) : color.new(trendCol, 50)
+
+// ═══════════════════════════════ Signals (from Trend Master) ═══════════════════════════════
+var int   trendStart   = 0
+var int   lastLabelDir = 0
+var bool  inPullback   = false
+var int   lastPull     = -100000
+bool startUp = false, bool startDn = false, bool pullUp = false, bool pullDn = false
+
+float ribTop = math.max(fastMA, slowMA)
+float ribBtm = math.min(fastMA, slowMA)
+
+if flipped
+    trendStart := bar_index
+int age = bar_index - trendStart
+
+if barstate.isconfirmed and not na(atr)
+    if flipped
+        inPullback := false
+    if age >= confirmBars and dir != lastLabelDir and (dir == 1 ? close > ribTop : close < ribBtm)
+        lastLabelDir := dir
+        if not choppy
+            startUp := dir == 1
+            startDn := dir == -1
+    if not flipped and age >= minAge and lastLabelDir == dir
+        float depthPx   = (ribTop - ribBtm) * pullDepth / 100.0
+        bool intoRibbon = dir == 1 ? low <= ribTop - depthPx : high >= ribBtm + depthPx
+        bool backOut    = dir == 1 ? close > ribTop : close < ribBtm
+        bool withTrend  = dir == 1 ? close > open : close < open
+        if intoRibbon and not backOut
+            inPullback := true
+        else if inPullback and backOut
+            inPullback := false
+            if not choppy and withTrend and bar_index - lastPull >= pullGap and scoreS >= 0.32
+                lastPull := bar_index
+                pullUp := dir == 1
+                pullDn := dir == -1
+
+// ═══════════════════════════════ Prop account state ═══════════════════════════════
+// CME futures trading day starts 18:00 New York, which is the daily bar boundary on TradingView.
+bool  newDay   = timeframe.change("D")
+float closedEq = strategy.initial_capital + strategy.netprofit
+
+var float dayStartEq  = strategy.initial_capital
+var float peakEq      = strategy.initial_capital
+var int   tradesToday = 0
+var int   lossStreak  = 0
+var int   seenClosed  = 0
+var bool  acctHalt    = false
+var string haltWhy    = ""
+var int   breaches    = 0
+
+if newDay
+    if trailMode == "End of day"
+        peakEq := math.max(peakEq, closedEq)
+    dayStartEq  := closedEq
+    tradesToday := 0
+    lossStreak  := 0
+
+if strategy.closedtrades > seenClosed
+    for i = seenClosed to strategy.closedtrades - 1
+        lossStreak := strategy.closedtrades.profit(i) < 0 ? lossStreak + 1 : 0
+    seenClosed := strategy.closedtrades
+
+float posSize   = strategy.position_size
+float avgPx     = strategy.position_avg_price
+float bestOpen  = posSize > 0 ? (high - avgPx) * posSize * pv : posSize < 0 ? (avgPx - low) * -posSize * pv : 0.0
+float worstOpen = posSize > 0 ? (low - avgPx) * posSize * pv : posSize < 0 ? (avgPx - high) * -posSize * pv : 0.0
+float curEq     = closedEq + strategy.openprofit
+
+if trailMode == "Intraday (live high)"
+    peakEq := math.max(peakEq, closedEq + bestOpen, curEq)
+
+float lockLevel = strategy.initial_capital + lockOffset
+float ddFloor   = trailMode == "Static" ? strategy.initial_capital - trailDD : math.min(peakEq - trailDD, lockLevel)
+float ddRoom    = curEq - ddFloor
+float dayPnl    = curEq - dayStartEq
+float dayRoom   = dailyLoss > 0 ? dailyLoss + dayPnl : 1e12
+
+// Lowest equity the open trade may reach before being stopped out.
+float limitEq = math.max(ddFloor + guardBuf, dailyLoss > 0 ? dayStartEq - dailyLoss + guardBuf : -1e12)
+
+exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+
+// A real rule breach (only possible through a gap or slippage past the guard stop). Counted so the
+// backtest shows it, and the strategy stops for good after a drawdown breach, as the firm would.
+bool breachedNow = false
+if posSize != 0 and closedEq + worstOpen <= ddFloor
+    breachedNow := true
+    breaches += 1
+    acctHalt := true
+    haltWhy  := "Drawdown breached"
+    strategy.close_all(comment = "DD breach", alert_message = exitMsg)
+else if posSize != 0 and dailyLoss > 0 and closedEq + worstOpen - dayStartEq <= -dailyLoss
+    breachedNow := true
+    breaches += 1
+    strategy.close_all(comment = "Daily breach", alert_message = exitMsg)
+
+if not acctHalt and profitTarget > 0 and posSize == 0 and closedEq - strategy.initial_capital >= profitTarget
+    acctHalt := true
+    haltWhy  := "Profit target reached"
+
+// ═══════════════════════════════ Session timing ═══════════════════════════════
+bool  inWindow   = not na(time(timeframe.period, entrySess, TZ))
+float barMins    = timeframe.in_seconds() / 60.0
+int   closeMins  = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+// Flatten on the bar whose close is the last one at or before the cut-off. Overnight bars also read
+// as "past cut-off", which only matters for entries, and entries are limited to the entry window anyway.
+bool  flattenNow = closeMins + barMins > flatHour * 60 + flatMin
+
+// ═══════════════════════════════ Trade management ═══════════════════════════════
+var float tStop   = na
+var float tTarget = na
+var float tRisk   = na
+var bool  beDone  = false
+float stopNow = na
+
+if posSize != 0 and not breachedNow
+    bool isLong = posSize > 0
+    if beR > 0 and not beDone and (isLong ? high >= avgPx + beR * tRisk : low <= avgPx - beR * tRisk)
+        tStop  := isLong ? math.max(tStop, avgPx + beTicks * tick) : math.min(tStop, avgPx - beTicks * tick)
+        beDone := true
+    if trailSlow
+        tStop := isLong ? math.max(tStop, slowMA - stopBuf * atr) : math.min(tStop, slowMA + stopBuf * atr)
+    // Account guard: the price at which equity would touch limitEq.
+    float guardPx = isLong ? math.ceil((avgPx + (limitEq - closedEq) / (posSize * pv)) / tick) * tick : math.floor((avgPx - (limitEq - closedEq) / (-posSize * pv)) / tick) * tick
+    stopNow := isLong ? math.max(tStop, guardPx) : math.min(tStop, guardPx)
+
+    if flattenNow
+        strategy.close_all(comment = "EOD flat", alert_message = exitMsg)
+    else if exitFlip and flipped and dir != (isLong ? 1 : -1)
+        strategy.close_all(comment = "Ribbon flip", alert_message = exitMsg)
+    else if isLong ? close <= stopNow : close >= stopNow
+        strategy.close_all(comment = "Account guard", alert_message = exitMsg)
+    else
+        strategy.exit(isLong ? "L exit" : "S exit", isLong ? "Long" : "Short", stop = stopNow, limit = tTarget, alert_message = exitMsg)
+
+// ═══════════════════════════════ Entries ═══════════════════════════════
+entryMsg(string action, int q, float px, float sl, float tp) =>
+    string s = '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market","quantity":' + str.tostring(q) + ',"signalPrice":' + str.tostring(math.round_to_mintick(px)) + ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(sl)) + '}'
+    na(tp) ? s + '}' : s + ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(tp)) + '}}'
+
+bool longSig  = sideMode != "Short only" and ((tradeStarts and startUp and nz(effS) >= minQuality) or (tradePulls and pullUp))
+bool shortSig = sideMode != "Long only"  and ((tradeStarts and startDn and nz(effS) >= minQuality) or (tradePulls and pullDn))
+
+bool dayCapHit = dayProfitCap > 0 and dayPnl >= dayProfitCap
+bool streakHit = maxLosses > 0 and lossStreak >= maxLosses
+bool canEnter  = not na(atr) and posSize == 0 and inWindow and not flattenNow and not acctHalt and not dayCapHit and not streakHit and tradesToday < maxTrades
+
+// Risk budget: the smaller of the per-trade risk and what is left under each limit.
+float budget = math.min(riskUsd, ddRoom - guardBuf, dailyLoss > 0 ? dayRoom - guardBuf : 1e12)
+float costCt = rtComm + 2 * tick * pv
+
+float stopL = math.floor((stopMode == "Ribbon" ? math.min(slowMA, low) - stopBuf * atr : close - atrMult * atr) / tick) * tick
+float stopS = math.ceil((stopMode == "Ribbon" ? math.max(slowMA, high) + stopBuf * atr : close + atrMult * atr) / tick) * tick
+float riskL = close - stopL
+float riskS = stopS - close
+int   qtyL  = riskL > 0 and budget > 0 ? int(math.min(math.floor(budget / (riskL * pv + costCt)), maxCts)) : 0
+int   qtyS  = riskS > 0 and budget > 0 ? int(math.min(math.floor(budget / (riskS * pv + costCt)), maxCts)) : 0
+
+bool skipped = false
+if canEnter and longSig
+    if qtyL >= 1
+        tStop := stopL, tRisk := riskL, beDone := false
+        tTarget := targetR > 0 ? close + targetR * riskL : na
+        tradesToday += 1
+        strategy.entry("Long", strategy.long, qty = qtyL, alert_message = entryMsg("buy", qtyL, close, stopL, tTarget))
+        strategy.exit("L exit", "Long", stop = stopL, limit = tTarget, alert_message = exitMsg)
+    else
+        skipped := true
+else if canEnter and shortSig
+    if qtyS >= 1
+        tStop := stopS, tRisk := riskS, beDone := false
+        tTarget := targetR > 0 ? close - targetR * riskS : na
+        tradesToday += 1
+        strategy.entry("Short", strategy.short, qty = qtyS, alert_message = entryMsg("sell", qtyS, close, stopS, tTarget))
+        strategy.exit("S exit", "Short", stop = stopS, limit = tTarget, alert_message = exitMsg)
+    else
+        skipped := true
+
+// ═══════════════════════════════ Visuals ═══════════════════════════════
+pFast = plot(showRibbon ? fastMA : na, "Fast", color = strengthCol, linewidth = 2)
+pSlow = plot(showRibbon ? slowMA : na, "Slow", color = color.new(strengthCol, 40), linewidth = 1)
+fill(pFast, pSlow, top_value = ribTop, bottom_value = ribBtm,
+     top_color    = showRibbon ? (dir == 1 ? color.new(strengthCol, 55) : color.new(strengthCol, 88)) : na,
+     bottom_color = showRibbon ? (dir == 1 ? color.new(strengthCol, 88) : color.new(strengthCol, 55)) : na,
+     title = "Ribbon")
+
+color barCol  = color.from_gradient(scoreS, 0.0, 0.8, colFlat, trendCol)
+color candleC = (dir == 1 ? close >= open : close <= open) ? barCol : color.from_gradient(0.35, 0.0, 1.0, barCol, colFlat)
+barcolor(showCandles ? candleC : na, title = "Strength candles")
+
+plotshape(startUp, "Trend start up",   shape.triangleup,   location.belowbar, colUp, size = size.small)
+plotshape(startDn, "Trend start down", shape.triangledown, location.abovebar, colDn, size = size.small)
+plotshape(pullUp,  "Pullback up",      shape.diamond,      location.belowbar, color.new(colUp, 20), size = size.tiny)
+plotshape(pullDn,  "Pullback down",    shape.diamond,      location.abovebar, color.new(colDn, 20), size = size.tiny)
+plotshape(skipped, "Skipped (no risk room)", shape.xcross, location.abovebar, mute, size = size.tiny)
+
+plot(posSize != 0 ? stopNow : na, "Active stop",   color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
+plot(posSize != 0 ? tTarget : na, "Active target", color = color.new(color.aqua, 0),   style = plot.style_linebr, linewidth = 1)
+plot(ddRoom, "Drawdown room (USD)", display = display.data_window)
+plot(dayPnl, "Day P&L (USD)",       display = display.data_window)
+plot(breaches, "Rule breaches",     display = display.data_window)
+
+var table pnl = table.new(position.top_right, 2, 8, bgcolor = color.new(ink, 8), border_width = 2, border_color = ink, frame_width = 1, frame_color = #2A3040)
+if barstate.islast and showPanel
+    string status = acctHalt ? haltWhy : streakHit ? "Loss streak, done for day" : dayCapHit ? "Day profit cap hit" : tradesToday >= maxTrades ? "Max trades hit" : budget < costCt ? "No risk room" : posSize > 0 ? "Long" : posSize < 0 ? "Short" : inWindow ? "Watching" : "Outside window"
+    color  pTrend = dir == 1 ? colUp : colDn
+    pnl.cell(0, 0, (dir == 1 ? "▲  " : "▼  ") + "TREND MASTER PROP", text_color = ink, text_halign = text.align_left, bgcolor = pTrend)
+    pnl.merge_cells(0, 0, 1, 0)
+    pnl.cell(0, 1, "Status",        text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 1, status,          text_color = #E5E7EB, text_halign = text.align_right)
+    pnl.cell(0, 2, "Balance",       text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 2, str.tostring(curEq, "#,##0"), text_color = #E5E7EB, text_halign = text.align_right)
+    pnl.cell(0, 3, "Day P&L",       text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 3, str.tostring(dayPnl, "#,##0"), text_color = dayPnl >= 0 ? colUp : colDn, text_halign = text.align_right)
+    pnl.cell(0, 4, "Daily room",    text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 4, dailyLoss > 0 ? str.tostring(dayRoom, "#,##0") : "n/a", text_color = #E5E7EB, text_halign = text.align_right)
+    pnl.cell(0, 5, "DD floor",      text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 5, str.tostring(ddFloor, "#,##0"), text_color = #E5E7EB, text_halign = text.align_right)
+    pnl.cell(0, 6, "DD room",       text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 6, str.tostring(ddRoom, "#,##0"), text_color = ddRoom < trailDD * 0.35 ? colDn : #E5E7EB, text_halign = text.align_right)
+    pnl.cell(0, 7, "Trades today",  text_color = mute, text_size = size.small, text_halign = text.align_left)
+    pnl.cell(1, 7, str.tostring(tradesToday) + " / " + str.tostring(maxTrades) + (breaches > 0 ? "   breaches: " + str.tostring(breaches) : ""), text_color = breaches > 0 ? colDn : #E5E7EB, text_halign = text.align_right)
