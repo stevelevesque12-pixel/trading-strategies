@@ -1,0 +1,136 @@
+//@version=6
+// Triple SuperTrend + 200 EMA + RSI + Time Segmented Volume, from DaviddTech's
+// "87% win rate SuperTrend with Volume" Medium article. Fires TradersPost-
+// format webhook alerts.
+//
+// Rules from the article:
+//   Long : close > EMA(200), at least 2 of 3 SuperTrends green
+//          (10/1, 11/2, 12/3), RSI < 20, TSV > 0.
+//   Short: the mirror (close < EMA, 2 of 3 red, RSI > 80, TSV < 0). The
+//          article only states the long side.
+//   Exit : fixed 1:2 risk/reward. The article doesn't say where the stop
+//          goes, so it's an input (default 1.5x ATR).
+//
+// READ THIS BEFORE USING IT:
+//   - As written (RSI < 20) it never trades: on 10 years of 15m NQ, gold
+//     and ES the full condition occurred 0 times. RSI only drops under 20
+//     after a sharp selloff, which turns the fast SuperTrends red and usually
+//     puts price under the 200 EMA. The article's 131 trades in 6 months
+//     can't come from that rule. The well-known version of this setup uses
+//     Stochastic RSI, so that's the default oscillator here
+//     ("Stoch RSI cross": %K crosses above %D below 20).
+//   - With Stochastic RSI and 1:2 R:R, backtest/triple_supertrend_tsv.py
+//     (1 contract, $1/side + 1 tick slippage, 2016-2026 15m) found no edge:
+//     win rate 28-37% (break-even at 1:2 is ~33%), profit factor 0.93-1.07
+//     on MNQ, 0.78-1.13 on MGC, 0.72-1.08 on MES, depending on the stop and
+//     variant. The best 10-year result was +$9k on MNQ (about $900/yr, $9.4k
+//     drawdown); most combinations lost money.
+//   - The article's own numbers don't add up: a 74% win rate at 1:2 R:R
+//     gives a profit factor near 5.7, not the 1.61 it reports, so its
+//     backtest must have used different exits (it mentions multiple take
+//     profits).
+//
+// Alerting: TradingView alert with condition "Any alert() function call",
+// webhook URL = your TradersPost strategy's webhook URL. Stop and target
+// are sent with the entry as broker-side orders. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Triple SuperTrend + TSV (TradersPost)", shorttitle="3ST TSV", overlay=true,
+     pyramiding=0, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     slippage=1, calc_on_every_tick=false, process_orders_on_close=false)
+
+// ---- Inputs ----
+st1Len  = input.int(10, "SuperTrend 1 ATR period", group="SuperTrends")
+st1Mult = input.float(1.0, "SuperTrend 1 multiplier", step=0.1, group="SuperTrends")
+st2Len  = input.int(11, "SuperTrend 2 ATR period", group="SuperTrends")
+st2Mult = input.float(2.0, "SuperTrend 2 multiplier", step=0.1, group="SuperTrends")
+st3Len  = input.int(12, "SuperTrend 3 ATR period", group="SuperTrends")
+st3Mult = input.float(3.0, "SuperTrend 3 multiplier", step=0.1, group="SuperTrends")
+
+emaLen  = input.int(200, "EMA length", group="Filters")
+oscMode = input.string("Stoch RSI cross", "Oscillator", options=["RSI (as written)", "Stoch RSI below level", "Stoch RSI cross"], group="Filters",
+     tooltip="'RSI (as written)' never fired on 10 years of NQ/GC/ES 15m data.")
+rsiLen  = input.int(14, "RSI length", group="Filters")
+stochLen = input.int(14, "Stoch RSI length", group="Filters")
+oversold   = input.float(20, "Oversold level", group="Filters")
+overbought = input.float(80, "Overbought level", group="Filters")
+tsvLen  = input.int(13, "TSV length", group="Filters")
+
+stopMode = input.string("ATR", "Stop placement", options=["ATR", "SuperTrend 1", "SuperTrend 2", "SuperTrend 3"], group="Exits")
+atrMult  = input.float(1.5, "ATR stop multiple (ATR mode)", step=0.1, minval=0.1, group="Exits")
+rr       = input.float(2.0, "Reward : risk", step=0.1, minval=0.1, group="Exits")
+tradeType = input.string("BOTH", "Trades to take", options=["LONG", "SHORT", "BOTH"], group="Exits")
+qty      = input.int(1, "Contracts", minval=1, group="Exits")
+
+// ---- Indicators ----
+[st1, d1] = ta.supertrend(st1Mult, st1Len)   // direction < 0 = up (green)
+[st2, d2] = ta.supertrend(st2Mult, st2Len)
+[st3, d3] = ta.supertrend(st3Mult, st3Len)
+greens = (d1 < 0 ? 1 : 0) + (d2 < 0 ? 1 : 0) + (d3 < 0 ? 1 : 0)
+
+ema = ta.ema(close, emaLen)
+rsi = ta.rsi(close, rsiLen)
+k   = ta.sma(ta.stoch(rsi, rsi, rsi, stochLen), 3)
+d   = ta.sma(k, 3)
+tsv = math.sum(volume * (close - close[1]), tsvLen)
+atr = ta.atr(14)
+
+oscLong  = oscMode == "RSI (as written)" ? rsi < oversold :
+           oscMode == "Stoch RSI below level" ? k < oversold : ta.crossover(k, d) and k < oversold
+oscShort = oscMode == "RSI (as written)" ? rsi > overbought :
+           oscMode == "Stoch RSI below level" ? k > overbought : ta.crossunder(k, d) and k > overbought
+
+longSig  = close > ema and greens >= 2 and oscLong  and tsv > 0 and tradeType != "SHORT"
+shortSig = close < ema and greens <= 1 and oscShort and tsv < 0 and tradeType != "LONG"
+
+// SuperTrend lines are on the protective side only when that SuperTrend
+// agrees with the trade; if it doesn't, risk comes out <= 0 and the trade is
+// skipped.
+stLine = stopMode == "SuperTrend 1" ? st1 : stopMode == "SuperTrend 2" ? st2 : st3
+longStop  = stopMode == "ATR" ? close - atrMult * atr : stLine
+shortStop = stopMode == "ATR" ? close + atrMult * atr : stLine
+longRisk  = close - longStop
+shortRisk = shortStop - close
+
+// ---- Orders + TradersPost alerts ----
+// Stop and target are fixed from the signal-bar close, so the broker-side
+// orders and the backtest use the same prices.
+var float sl = na
+var float tp = na
+flat = strategy.position_size == 0
+
+orderJson(action, stopPx, targetPx) =>
+    '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market","quantity":' + str.tostring(qty) +
+     ',"signalPrice":' + str.tostring(close, format.mintick) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopPx, format.mintick) + '}' +
+     ',"takeProfit":{"limitPrice":' + str.tostring(targetPx, format.mintick) + '}}'
+
+goLong  = flat and longSig and longRisk > 0
+goShort = flat and not goLong and shortSig and shortRisk > 0
+
+if goLong
+    sl := longStop
+    tp := close + rr * longRisk
+    strategy.entry("Long", strategy.long, qty=qty)
+    alert(orderJson("buy", sl, tp), alert.freq_once_per_bar_close)
+if goShort
+    sl := shortStop
+    tp := close - rr * shortRisk
+    strategy.entry("Short", strategy.short, qty=qty)
+    alert(orderJson("sell", sl, tp), alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0 or goLong
+    strategy.exit("Long exit", from_entry="Long", stop=sl, limit=tp)
+if strategy.position_size < 0 or goShort
+    strategy.exit("Short exit", from_entry="Short", stop=sl, limit=tp)
+
+// ---- Visuals ----
+plot(ema, "EMA", color=color.new(color.orange, 0), linewidth=2)
+plot(st1, "SuperTrend 1", color=d1 < 0 ? color.new(color.green, 60) : color.new(color.red, 60), style=plot.style_linebr)
+plot(st2, "SuperTrend 2", color=d2 < 0 ? color.new(color.green, 40) : color.new(color.red, 40), style=plot.style_linebr)
+plot(st3, "SuperTrend 3", color=d3 < 0 ? color.new(color.green, 20) : color.new(color.red, 20), style=plot.style_linebr)
+plot(strategy.position_size != 0 ? sl : na, "Stop",   color=color.red,   style=plot.style_linebr)
+plot(strategy.position_size != 0 ? tp : na, "Target", color=color.green, style=plot.style_linebr)
+plotshape(goLong,  "Long",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(goShort, "Short", shape.triangledown, location.abovebar, color.red,   size=size.small)

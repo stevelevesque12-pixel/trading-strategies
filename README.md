@@ -53,6 +53,13 @@ and re-enters at the 18:00 reopen if the trend is still up
 (`backtest/supertrend_flat_by_close.py`). That kept about 2/3 of the profit
 (MNQ +$17k, MGC +$17.5k at x8.5) but did not reduce the drawdown.
 
+**`tradingview/triple_supertrend_tsv.pine`** codes DaviddTech's "87% win
+rate" Triple SuperTrend + 200 EMA + RSI + TSV setup at 1:2 risk/reward. As
+written (RSI < 20), it never fired on 10 years of 15m NQ, gold or ES data.
+With Stochastic RSI instead, `backtest/triple_supertrend_tsv.py` found a 28-37%
+win rate and roughly break-even results. It's kept for reference, not as a
+candidate to trade.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
