@@ -48,7 +48,10 @@ about +$25k with a $5.6k max drawdown. Every multiplier from 3 to 12 was
 profitable. Buy-and-hold made more over the same period, so treat this as
 a lower-drawdown way to be long, not an edge that doesn't depend on market
 direction. The per-contract drawdown is far larger than a typical prop
-account's limit.
+account's limit. It has an optional flat-by-close mode: it exits at 16:00 ET
+and re-enters at the 18:00 reopen if the trend is still up
+(`backtest/supertrend_flat_by_close.py`). That kept about 2/3 of the profit
+(MNQ +$17k, MGC +$17.5k at x8.5) but did not reduce the drawdown.
 
 ## Strategy logic (Failed-2s)
 

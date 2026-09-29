@@ -12,6 +12,12 @@
 //      level on the entry bar. The band only ratchets up after that, so the
 //      normal close-based exit almost always comes first; the stop is there
 //      for gaps, outages or a stalled webhook.
+//   4. Optional flat-by-close mode (off by default, see "Flat by close"):
+//      exit at `flattenTime` (16:00 ET), no entries until `resumeTime`
+//      (18:00 ET, the CME reopen), then re-enter if the trend is still up.
+//      18:00 -> 16:00 next day is one CME trading day, so this never holds
+//      through a daily close or a weekend. If a safety stop fills, it waits
+//      for the next flip up instead of re-entering.
 //
 // Differences from the original script (all on purpose, for live use):
 //   - Fixed contract size instead of 100% of equity, so the tester shows $
@@ -22,19 +28,26 @@
 //     webhook can only fire after the signal bar has closed.
 //
 // Evidence: a Python replica of these rules on 15m bars (1 contract, same
-// costs as above, 2020-01 to 2026-08), which aren't the 8m/10m bars of
+// costs as above, 2020-01 to 2026-08; backtest/supertrend_sweep.py and
+// backtest/supertrend_flat_by_close.py), which aren't the 8m/10m bars of
 // the original screenshots:
-//   NQ -> MNQ: +$25k (~$3.8k/yr), max drawdown ~$8.1k, PF 1.25, 649 trades.
-//   GC -> MGC: +$25k (~$3.8k/yr), max drawdown ~$5.6k, PF 1.46, 560 trades.
-//   Every multiplier from 3 to 12 was profitable on both, so 8.5 isn't a
-//   lucky pick. BUT buy-and-hold made more over the same period (MNQ +$41k,
-//   MGC +$31k), with bigger drawdowns ($12.5k / $16.5k). This is a trend
-//   filter that trades return for smaller drawdowns in a bull market. It
-//   isn't an edge that works regardless of market direction. Gold 2016-2019
-//   was slightly negative.
+//                         hold overnight           flat by close (16:00/18:00)
+//   NQ -> MNQ  x8.5   +$25.2k  DD $8.1k  PF 1.25   +$17.2k  DD $8.2k  PF 1.11
+//   GC -> MGC  x8.5   +$25.1k  DD $5.6k  PF 1.46   +$17.5k  DD $6.7k  PF 1.17
+//   GC -> MGC  x7     +$31.6k  DD $5.4k  PF 1.50   +$22.0k  DD $7.1k  PF 1.21
+//   Every multiplier from 3 to 12 was profitable held overnight on both, so
+//   8.5 isn't a lucky pick. BUT buy-and-hold made more over the same period
+//   (MNQ +$41k, MGC +$31k), with bigger drawdowns ($12.5k / $16.5k). This is
+//   a trend filter that trades return for smaller drawdowns in a bull
+//   market. It isn't an edge that works regardless of market direction.
+//   Gold 2016-2019 was slightly negative.
+//   Flat by close keeps about 2/3 of the profit but does NOT reduce the
+//   drawdown, and it roughly doubles the trade count. Re-entering at 09:30
+//   instead of 18:00, or waiting for a fresh flip, made about $0 or lost
+//   money. On ES it was break-even to negative in every variant.
 //
-// Holds overnight and over weekends. A single contract's drawdown ($5-8k)
-// is several times a typical $50k prop account's trailing drawdown limit.
+// A single contract's drawdown ($5-8k) is several times a typical $50k prop
+// account's trailing drawdown limit, with or without flat by close.
 //
 // Alerting: TradingView alert with condition "Any alert() function call",
 // webhook URL = your TradersPost strategy's webhook URL. See
@@ -52,6 +65,14 @@ src        = input(hl2, "Source")
 Multiplier = input.float(8.5, "ATR Multiplier", step=0.1, minval=0.1)
 qty        = input.int(1, "Contracts", minval=1)
 useStop    = input.bool(true, "Send broker-side safety stop at the entry band")
+
+flatByClose = input.bool(false, "Flat by close", group="Flat by close")
+flattenHHMM = input.int(1600, "Flatten time HHMM (America/New_York)", minval=0, maxval=2359, group="Flat by close",
+     tooltip="Set this to your prop firm's cutoff or a few minutes before it, e.g. 1605 for a 16:10 ET rule. Use a chart timeframe with a bar that closes exactly at this time.")
+resumeHHMM  = input.int(1800, "Resume time HHMM (America/New_York)", minval=0, maxval=2359, group="Flat by close",
+     tooltip="No entries from the flatten time until this time. 1800 = CME reopen.")
+reEnter     = input.bool(true, "Re-enter at resume time if trend is still up", group="Flat by close",
+     tooltip="Off = after a flatten, wait for the next fresh flip up (much worse in testing).")
 
 FromMonth = input.int(1,    "From Month", minval=1, maxval=12, group="Date window")
 FromDay   = input.int(1,    "From Day",   minval=1, maxval=31, group="Date window")
@@ -80,24 +101,62 @@ start  = timestamp(FromYear, FromMonth, FromDay, 00, 00)
 finish = timestamp(ToYear, ToMonth, ToDay, 23, 59)
 inWindow = time >= start and time <= finish
 
+// ---- Flat-by-close timing (explicit New York time) ----
+TZ = "America/New_York"
+fH = math.floor(flattenHHMM / 100)
+fM = flattenHHMM % 100
+flattenHm  = fH * 60 + fM
+resumeHm   = math.floor(resumeHHMM / 100) * 60 + resumeHHMM % 100
+barCloseHm = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+// No entries while the bar closes inside [flatten, resume), wrapping midnight.
+inBlackout = flattenHm < resumeHm ? (barCloseHm >= flattenHm and barCloseHm < resumeHm) :
+                                    (barCloseHm >= flattenHm or barCloseHm < resumeHm)
+entryAllowed = inWindow and not (flatByClose and inBlackout)
+
+// First flatten time at or after a bar's close. Used as the deadline for a
+// position, so an early-close holiday (no 16:00 bar) still gets flattened on
+// the first bar after the deadline instead of being held overnight.
+nextFlatten(t) =>
+    f = timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), fH, fM)
+    t2 = t + 86400000   // rebuild tomorrow's date so a DST change can't shift the hour
+    f < t ? timestamp(TZ, year(t2, TZ), month(t2, TZ), dayofmonth(t2, TZ), fH, fM) : f
+
 // ---- Orders + TradersPost alerts ----
 // Schema: https://docs.traderspost.io/docs/core-concepts/webhooks
-var float safetyStop = na
+var float safetyStop   = na
+var bool  wantLong     = false   // an entry is due as soon as it's allowed
+var int   flatDeadline = na
 
-if buySignal and inWindow and strategy.position_size == 0
-    safetyStop := up
+if buySignal
+    wantLong := true
+if sellSignal
+    wantLong := false
+
+flattenNow = flatByClose and strategy.position_size > 0 and not na(flatDeadline) and time_close >= flatDeadline
+if flattenNow
+    strategy.close_all(comment="eod flatten", immediately=true)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+    // Pick back up at the resume time only if the trend is still up.
+    wantLong := reEnter and trend == 1
+
+exitNow = sellSignal and strategy.position_size > 0 and not flattenNow
+if exitNow
+    strategy.close("BUY", comment="trend flip")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+goLong = wantLong and trend == 1 and entryAllowed and strategy.position_size == 0 and not flattenNow
+if goLong
+    wantLong     := false        // a stop-out waits for the next flip, not an instant re-entry
+    safetyStop   := up
+    flatDeadline := nextFlatten(time_close)
     strategy.entry("BUY", strategy.long, qty=qty)
     stopJson = useStop ? ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(safetyStop, format.mintick) + '}' : ''
     alert('{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
          ',"signalPrice":' + str.tostring(close, format.mintick) + stopJson + '}', alert.freq_once_per_bar_close)
 
 // Mirror the broker stop in the backtest so the tester matches live.
-if useStop and (strategy.position_size > 0 or (buySignal and inWindow))
+if useStop and (strategy.position_size > 0 or goLong)
     strategy.exit("Safety Stop", from_entry="BUY", stop=safetyStop)
-
-if sellSignal and strategy.position_size > 0
-    strategy.close("BUY", comment="trend flip")
-    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
 
 // ---- Visuals ----
 plot(trend == 1 ? up : na, "Up Trend",   style=plot.style_linebr, linewidth=2, color=color.green)
@@ -105,3 +164,4 @@ plot(trend == 1 ? na : dn, "Down Trend", style=plot.style_linebr, linewidth=2, c
 plot(strategy.position_size > 0 and useStop ? safetyStop : na, "Safety Stop", style=plot.style_linebr, color=color.new(color.gray, 30))
 plotshape(buySignal  ? up : na, "Buy",   text="Buy",   location=location.absolute, style=shape.labelup,   size=size.tiny, color=color.green, textcolor=color.white)
 plotshape(sellSignal ? dn : na, "Close", text="Close", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.black, textcolor=color.white)
+bgcolor(flatByClose and inBlackout ? color.new(color.gray, 90) : na, title="No-entry window")
