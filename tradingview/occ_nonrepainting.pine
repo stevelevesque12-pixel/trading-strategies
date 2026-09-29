@@ -1,0 +1,203 @@
+//@version=6
+// Open Close Cross (OCC) -- non-repainting rework of "Open Close Cross
+// Strategy R5.1 revised by JustUncleL" (original by @JayRogers), with the
+// MCL risk-sizing / end-of-day-flatten additions kept, plus TradersPost
+// webhook alerts. Works on any futures symbol -- set "$ Value per Point".
+//
+// WHAT CHANGED vs R5.1 AND WHY
+//   1. Lookahead removed. R5.1 called security(..., lookahead_on) on the
+//      CURRENT higher-timeframe bar, so on historical bars every chart bar
+//      saw that HTF bar's FINAL open/close before it happened. On a 4m chart
+//      with the 3x multiplier (12m) every entry landed 4 minutes into a 12m
+//      bar, i.e. with 8 minutes of future knowledge. That is where the
+//      $532k / PF 5.4 / zero-losing-months backtest came from; replayed
+//      against real MCL prices with honest timing the same trades lose.
+//      Here the HTF series is requested as expr[1] with lookahead_on -- the
+//      standard non-repainting idiom: only the LAST CLOSED HTF bar is used,
+//      so backtest and live signals are identical. (This is what R5.1's
+//      "Delay Open/Close MA = 1" did; it is now always on, not optional.)
+//   2. Realistic costs are set in strategy(): commission per contract per
+//      side and slippage in ticks. Adjust to your broker/prop firm.
+//   3. The "Number of Bars for Back Testing" timenow hack is gone (not
+//      needed in v6, and timenow-based logic differs between history and
+//      realtime).
+//   4. Optional trend filter (only take crosses in the direction of a slow
+//      HTF EMA) and optional entry session window.
+//   5. End-of-day flatten uses an explicit America/New_York time so it
+//      behaves the same on NYMEX (MCL/CL) and CME equity (MES/MNQ) symbols,
+//      whose exchange time zones differ.
+//
+// HONEST EXPECTATION: removing the lookahead makes this tradeable in the
+// sense that what you see is what you'd get -- NOT profitable. In testing on
+// real data (see backtest/occ_research.py) the non-repainting version lost
+// money after costs on MCL, MES, ES, GC and SI across 144 parameter
+// combinations each. Forward-test on sim before risking money.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// This is a stop-and-reverse system: a "buy" arrives while short (and vice
+// versa), so the TradersPost strategy must be set to allow reversing a
+// position in one signal -- verify that setting before going live.
+// See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Open Close Cross (non-repainting)", shorttitle="OCC NR", overlay=true,
+     pyramiding=0, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     slippage=2, calc_on_every_tick=false, process_orders_on_close=false)
+
+// === INPUTS ===
+useRes      = input.bool(true, "Use Alternate Resolution?")
+intRes      = input.int(3, "Multiplier for Alternate Resolution", minval=1)
+basisType   = input.string("SMMA", "MA Type", options=["SMA", "EMA", "DEMA", "TEMA", "WMA", "VWMA", "SMMA", "HullMA", "LSMA", "ALMA", "SSMA", "TMA"])
+basisLen    = input.int(8, "MA Period", minval=1)
+offsetSigma = input.int(6, "Offset for LSMA / Sigma for ALMA", minval=0)
+offsetALMA  = input.float(0.85, "Offset for ALMA", minval=0, step=0.01)
+scolor      = input.bool(false, "Show coloured Bars to indicate Trend?")
+tradeType   = input.string("BOTH", "What trades should be taken", options=["LONG", "SHORT", "BOTH", "NONE"])
+
+trendLen    = input.int(0, "Trend filter: slow EMA length on the alt resolution (0 = off)", minval=0, group="Filters")
+useSession  = input.bool(false, "Only enter inside session window?", group="Filters")
+entrySess   = input.session("0930-1545", "Entry session (America/New_York)", group="Filters")
+
+slPoints    = input.float(0, "Initial Stop Loss Points (zero to disable)", minval=0, group="Exits")
+tpPoints    = input.float(0, "Initial Target Profit Points (zero to disable)", minval=0, group="Exits")
+
+riskType     = input.string("Fixed Contracts", "Position Sizing Method", options=["Fixed Contracts", "Fixed $ Risk"], group="Position sizing")
+qtyContracts = input.int(1, "Number of Contracts (Fixed Contracts mode)", minval=1, group="Position sizing")
+riskDollars  = input.float(500, "Risk Amount $ (Fixed $ Risk mode)", minval=0, group="Position sizing")
+pointValue   = input.float(100, "$ Value per Point (MCL=100, CL=1000, MES=5, MNQ=2, MGC=10)", minval=0.01, group="Position sizing")
+maxContracts = input.int(10, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+eodClose    = input.bool(true, "Close All Positions at End of Day?", group="End of day")
+eodSess     = input.session("1655-1805", "Flatten / no-entry window (America/New_York)", group="End of day")
+// === /INPUTS ===
+
+// Alternate resolution as a multiple of the chart timeframe (same idea as R5.1).
+stratRes = timeframe.ismonthly ? str.tostring(timeframe.multiplier * intRes) + "M" :
+     timeframe.isweekly  ? str.tostring(timeframe.multiplier * intRes) + "W" :
+     timeframe.isdaily   ? str.tostring(timeframe.multiplier * intRes) + "D" :
+     timeframe.isintraday ? str.tostring(timeframe.multiplier * intRes) : "60"
+
+// === BASE FUNCTIONS ===
+variant(type, src, len, offSig, offALMA) =>
+    v1 = ta.sma(src, len)                                               // Simple
+    v2 = ta.ema(src, len)                                               // Exponential
+    v3 = 2 * v2 - ta.ema(v2, len)                                       // Double Exponential
+    v4 = 3 * (v2 - ta.ema(v2, len)) + ta.ema(ta.ema(v2, len), len)      // Triple Exponential
+    v5 = ta.wma(src, len)                                               // Weighted
+    v6 = ta.vwma(src, len)                                              // Volume Weighted
+    v7 = ta.rma(src, len)                                               // Smoothed (SMMA)
+    v8 = ta.wma(2 * ta.wma(src, len / 2) - ta.wma(src, len), math.round(math.sqrt(len)))  // Hull
+    v9 = ta.linreg(src, len, offSig)                                    // Least Squares
+    v10 = ta.alma(src, len, offALMA, offSig)                            // Arnaud Legoux
+    v11 = ta.sma(v1, len)                                               // Triangular
+    // SuperSmoother filter (c) 2013 John F. Ehlers
+    a1 = math.exp(-1.414 * 3.14159 / len)
+    b1 = 2 * a1 * math.cos(1.414 * 3.14159 / len)
+    c2 = b1
+    c3 = -a1 * a1
+    c1 = 1 - c2 - c3
+    var float v12 = 0.0
+    v12 := c1 * (src + nz(src[1])) / 2 + c2 * nz(v12[1]) + c3 * nz(v12[2])
+    type == "EMA" ? v2 : type == "DEMA" ? v3 : type == "TEMA" ? v4 : type == "WMA" ? v5 :
+     type == "VWMA" ? v6 : type == "SMMA" ? v7 : type == "HullMA" ? v8 : type == "LSMA" ? v9 :
+     type == "ALMA" ? v10 : type == "TMA" ? v11 : type == "SSMA" ? v12 : v1
+// === /BASE FUNCTIONS ===
+
+// === SERIES SETUP ===
+closeSeries = variant(basisType, close, basisLen, offsetSigma, offsetALMA)
+openSeries  = variant(basisType, open,  basisLen, offsetSigma, offsetALMA)
+trendSeries = ta.ema(close, math.max(trendLen, 1))  // only used when trendLen > 0
+
+// Non-repainting: [1] + lookahead_on returns the last CLOSED alt-resolution
+// bar's value, fixed for the whole of the current alt bar, on history and
+// realtime alike. (R5.1 used lookahead_on WITHOUT [1] -> future leak.)
+[closeAltHtf, openAltHtf, trendHtf, closeHtf] = request.security(syminfo.tickerid, stratRes,
+     [closeSeries[1], openSeries[1], trendSeries[1], close[1]], lookahead=barmerge.lookahead_on)
+
+// Without alternate resolution, use this chart's last CLOSED bar -- the
+// strategy evaluates at bar close and fills at the next bar's open, so the
+// current bar's values are already legitimately known here.
+closeSeriesAlt = useRes ? closeAltHtf : closeSeries
+openSeriesAlt  = useRes ? openAltHtf  : openSeries
+trendRef       = useRes ? trendHtf    : trendSeries
+priceRef       = useRes ? closeHtf    : close
+// === /SERIES ===
+
+// === PLOTTING ===
+trendColour = closeSeriesAlt > openSeriesAlt ? color.green : color.red
+bcolour     = closeSeries > openSeriesAlt ? color.lime : color.red
+barcolor(scolor ? bcolour : na, title="Bar Colours")
+closeP = plot(closeSeriesAlt, "Close Series", color=color.new(trendColour, 20), linewidth=2)
+openP  = plot(openSeriesAlt,  "Open Series",  color=color.new(trendColour, 20), linewidth=2)
+fill(closeP, openP, color=color.new(trendColour, 80))
+plot(trendLen > 0 ? trendRef : na, "Trend EMA", color=color.new(color.gray, 30))
+// === /PLOTTING ===
+
+// === SIGNALS ===
+xlong  = ta.crossover(closeSeriesAlt, openSeriesAlt)
+xshort = ta.crossunder(closeSeriesAlt, openSeriesAlt)
+trendOkLong  = trendLen == 0 or priceRef > trendRef
+trendOkShort = trendLen == 0 or priceRef < trendRef
+
+inEod     = eodClose and not na(time(timeframe.period, eodSess, "America/New_York"))
+inSession = not useSession or not na(time(timeframe.period, entrySess, "America/New_York"))
+canEnter  = tradeType != "NONE" and not inEod and inSession
+
+longCond  = xlong  and trendOkLong  and tradeType != "SHORT" and canEnter
+shortCond = xshort and trendOkShort and tradeType != "LONG"  and canEnter
+// An opposite cross that fails the filters still closes the open position
+// (the original always reversed, so it was never left holding against a cross).
+closeLong  = xshort and strategy.position_size > 0 and not shortCond
+closeShort = xlong  and strategy.position_size < 0 and not longCond
+// === /SIGNALS ===
+
+// === RISK MANAGEMENT ===
+riskBasedQty = slPoints > 0 and pointValue > 0 ? math.floor(riskDollars / (slPoints * pointValue)) : qtyContracts
+positionSize = math.min(riskType == "Fixed $ Risk" ? math.max(riskBasedQty, 1) : qtyContracts, maxContracts)
+
+// Signal-bar stop/target estimates for the webhook (the fill is next bar's
+// open, so the broker-side bracket is approximate by at most one bar's move).
+longStopEst   = slPoints > 0 ? close - slPoints : na
+longTgtEst    = tpPoints > 0 ? close + tpPoints : na
+shortStopEst  = slPoints > 0 ? close + slPoints : na
+shortTgtEst   = tpPoints > 0 ? close - tpPoints : na
+// === /RISK MANAGEMENT ===
+
+bracketJson(stopPx, tgtPx) =>
+    s = na(stopPx) ? "" : ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopPx, format.mintick) + '}'
+    t = na(tgtPx)  ? "" : ',"takeProfit":{"limitPrice":' + str.tostring(tgtPx, format.mintick) + '}'
+    s + t
+
+// === STRATEGY ===
+if longCond
+    strategy.entry("long", strategy.long, qty=positionSize)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(positionSize) +
+         ',"signalPrice":' + str.tostring(close, format.mintick) + bracketJson(longStopEst, longTgtEst) + '}', alert.freq_once_per_bar_close)
+
+if shortCond
+    strategy.entry("short", strategy.short, qty=positionSize)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(positionSize) +
+         ',"signalPrice":' + str.tostring(close, format.mintick) + bracketJson(shortStopEst, shortTgtEst) + '}', alert.freq_once_per_bar_close)
+
+if closeLong or closeShort
+    strategy.close_all(comment="cross exit")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// Stops/targets as explicit prices off the actual fill (points, not ticks --
+// see R5.1 MCL notes: strategy.exit's profit=/loss= are in ticks).
+if strategy.position_size > 0
+    strategy.exit("XL", from_entry="long",
+         stop  = slPoints > 0 ? strategy.position_avg_price - slPoints : na,
+         limit = tpPoints > 0 ? strategy.position_avg_price + tpPoints : na)
+if strategy.position_size < 0
+    strategy.exit("XS", from_entry="short",
+         stop  = slPoints > 0 ? strategy.position_avg_price + slPoints : na,
+         limit = tpPoints > 0 ? strategy.position_avg_price - tpPoints : na)
+
+// Prop-firm rule: never hold through the daily halt.
+if inEod and strategy.position_size != 0
+    strategy.close_all(comment="eod flatten")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+// === /STRATEGY ===
