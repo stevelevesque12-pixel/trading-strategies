@@ -1,0 +1,421 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Signal logic © SchizoQuant ("MESA Phase-Adaptive Band Trend" indicator).
+// Strategy / prop-firm risk layer added on top of it.
+
+//@version=6
+// MESA Phase-Adaptive Band Trend -- futures strategy with prop-firm guards.
+//
+// Signal (unchanged from the original indicator):
+//   An EMA centerline with volatility bands whose width adapts to MESA /
+//   Hilbert phase activity (narrow when phase is moving fast, wide when it
+//   is quiet). A close above the upper band flips the regime long, a close
+//   below the lower band flips it short. A regime flip is the entry signal.
+//   Volatility uses stdev(returns)[1] and everything is evaluated on bar
+//   close, so signals do not repaint.
+//
+// Trade management:
+//   - Stop: ATR multiple (default), the trend line, or the opposite band.
+//   - Target: fixed R multiple, or 0 = no target (ride until the regime flips).
+//   - Optional: trail the stop on the trend line.
+//   - An opposite regime flip always exits (and reverses if entries are allowed).
+//
+// Prop-firm guards (set these to YOUR firm's account rules):
+//   - Contracts sized from a risk budget: riskUsd / (stop distance * point
+//     value + round-turn cost). The budget is also capped by what's left of
+//     the daily loss limit and by the distance to the trailing drawdown
+//     floor, so a single stop-out can't breach either. If fewer than 1
+//     contract fits, the trade is SKIPPED (never forced to 1 contract).
+//   - Daily loss limit and optional daily profit cap (consistency rules):
+//     flatten + stop trading for the rest of the trading day.
+//   - Trailing max drawdown, intraday or end-of-day, which stops trailing
+//     once the floor reaches starting balance + lock offset (Topstep: 0,
+//     Apex: 100). Breaching it flattens and halts the strategy for good.
+//   - Optional evaluation profit target: stop trading once it's reached.
+//   - Max trades per day, max contracts, entry session window and a hard
+//     flatten time (bars are closed out on the last bar that closes before
+//     it, so no position is ever held past it).
+//   - "Trading day" = the exchange's daily session (CME: 18:00-17:00 ET), the
+//     same day boundary prop firms use for daily loss limits.
+//
+// Limitations: guard checks run on bar close. The per-trade stop bounds
+// intrabar losses, but gaps and slippage can still exceed it -- keep your
+// broker/prop-side daily loss limit as the real backstop and use a buffer.
+// Intraday trailing drawdown here is tracked on bar-close equity, so it is
+// slightly more lenient than a firm that trails on tick-level open profit.
+//
+// Chart setup: an intraday chart of a futures contract (ES/MES, NQ/MNQ,
+// CL/MCL, GC/MGC, ...). Point value is read from the symbol automatically.
+// Set commission/slippage under the strategy's Properties to match your
+// firm, and keep "Round-turn cost" below roughly in sync for sizing.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// See ../TRADINGVIEW_WEBHOOK.md. Note: the trend-line trailing stop only
+// moves inside TradingView's backtest -- the stop sent to the broker in the
+// entry alert is the initial one. Leave trailing off when running live via
+// webhook unless your bridge manages the trail.
+//
+// Not backtested in this repo's Python engine -- validate in TradingView's
+// Strategy Tester (and forward-test on sim) before using on a funded account.
+
+strategy("MESA Phase Band Trend - Prop Futures", overlay=true,
+     initial_capital=50000, currency=currency.USD,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.5,
+     slippage=1, margin_long=0, margin_short=0,
+     calc_on_every_tick=false, process_orders_on_close=false, max_labels_count=500)
+
+// ============================================================
+// INPUTS
+// ============================================================
+string phaseTip = "Fast Limit sets the quickest phase response the indicator can use, while Slow Limit sets the slowest. Increase Fast Limit for stronger reactions during rapid phase movement. Lower Slow Limit for more smoothing when phase activity is weak."
+string trendTip = "Trend Length controls the EMA centerline, while Volatility Length controls how much return history is used for the adaptive bands. Increase Trend Length for a smoother centerline and increase Volatility Length for steadier band width."
+string bandTip  = "Active Multiplier controls band width when phase activity is strong, while Slow Multiplier controls band width when phase activity is weak. Lower Active Multiplier for faster regime changes during active markets, and increase Slow Multiplier to require larger moves during quieter conditions."
+string colorTip = "Bullish Color is used for bullish regimes and LONG signals, while Bearish Color is used for bearish regimes and SHORT signals."
+
+float src         = input.source(title="Source", defval=hl2, group="Phase Settings", tooltip="Choose the price source used to estimate Hilbert phase behavior and calculate the trend.")
+float fastLimit   = input.float(title="Fast Limit", defval=0.50, minval=0.01, maxval=1.0, step=0.01, group="Phase Settings", inline="P1", tooltip=phaseTip)
+float slowLimit   = input.float(title="Slow Limit", defval=0.05, minval=0.001, maxval=1.0, step=0.001, group="Phase Settings", inline="P1", tooltip=phaseTip)
+int   trendLength = input.int(title="Trend Length", defval=20, minval=2, group="Trend Settings", inline="T1", tooltip=trendTip)
+int   volLength   = input.int(title="Volatility Length", defval=20, minval=2, group="Trend Settings", inline="T1", tooltip=trendTip)
+float activeMult  = input.float(title="Active Multiplier", defval=1.5, minval=0.1, step=0.1, group="Adaptive Bands", inline="B1", tooltip=bandTip)
+float slowMult    = input.float(title="Slow Multiplier", defval=3.0, minval=0.1, step=0.1, group="Adaptive Bands", inline="B1", tooltip=bandTip)
+
+// ---- Trade management ----
+string GT = "Trade Management"
+string tradeDir     = input.string("Both", "Direction", options=["Both", "Long only", "Short only"], group=GT)
+string stopMode     = input.string("ATR", "Stop type", options=["ATR", "Trend line", "Opposite band"], group=GT)
+int    atrLength    = input.int(14, "ATR length", minval=1, group=GT, inline="ATR")
+float  atrStopMult  = input.float(2.0, "ATR stop x", minval=0.1, step=0.1, group=GT, inline="ATR")
+int    stopBufTicks = input.int(2, "Stop buffer (ticks, trend/band stops)", minval=0, group=GT)
+int    minStopTicks = input.int(8, "Min stop distance (ticks)", minval=1, group=GT, tooltip="Stops tighter than this are widened to it, so a tiny stop can't blow up the size.")
+float  targetR      = input.float(2.0, "Target (R multiple, 0 = none)", minval=0.0, step=0.25, group=GT, tooltip="0 = no profit target: hold until the opposite regime flip, the stop, or the flatten time.")
+bool   trailOnTrend = input.bool(false, "Trail stop on trend line", group=GT, tooltip="Backtest-only unless your webhook bridge manages the trail -- the live alert only sends the initial stop.")
+
+// ---- Position sizing ----
+string GS = "Position Sizing"
+float riskPerTradeUsd = input.float(250.0, "Risk per trade (USD)", minval=1.0, group=GS)
+int   maxContracts    = input.int(5, "Max contracts", minval=1, group=GS, tooltip="Set to your firm's contract limit for the account size (use micro-equivalent counts if trading micros).")
+float roundTurnCost   = input.float(4.0, "Round-turn cost per contract (USD, for sizing)", minval=0.0, group=GS, tooltip="Commission + fees + expected slippage for one contract in and out. Only used to size trades; the backtest itself uses the Properties tab commission/slippage.")
+float pointValueOvr   = input.float(0.0, "Point value override (0 = auto)", minval=0.0, group=GS, tooltip="USD per 1.0 point per contract. Leave 0 to use the symbol's point value (ES 50, MES 5, NQ 20, MNQ 2, CL 1000, GC 100...).")
+
+// ---- Prop-firm account rules ----
+string GP = "Prop Firm Rules"
+float dailyLossLimit = input.float(1000.0, "Daily loss limit (USD, 0 = off)", minval=0.0, group=GP, tooltip="Set a little BELOW your firm's limit as a buffer.")
+float dailyProfitCap = input.float(0.0, "Daily profit cap (USD, 0 = off)", minval=0.0, group=GP, tooltip="Stop for the day after this much profit -- helps with consistency rules.")
+float maxDrawdown    = input.float(2000.0, "Trailing max drawdown (USD, 0 = off)", minval=0.0, group=GP)
+string ddMode        = input.string("End of day", "Drawdown trails", options=["End of day", "Intraday"], group=GP)
+float ddLockOffset   = input.float(0.0, "Drawdown stops trailing at start balance +", minval=0.0, group=GP, tooltip="Topstep: 0. Apex: 100. The floor never rises above starting balance + this.")
+float ddBuffer       = input.float(200.0, "Drawdown safety buffer (USD)", minval=0.0, group=GP, tooltip="Sizing keeps a worst-case stop-out at least this far above the drawdown floor.")
+float profitTarget   = input.float(3000.0, "Evaluation profit target (USD, 0 = off)", minval=0.0, group=GP, tooltip="Stop trading once net profit reaches this (evaluation passed).")
+int   maxTradesDay   = input.int(4, "Max trades per day", minval=1, group=GP)
+
+// ---- Session ----
+string GN = "Session (America/New_York)"
+string entrySession = input.session("0930-1530", "Entry window", group=GN)
+int    flattenHHMM  = input.int(1555, "Flatten by (HHMM)", minval=0, maxval=2359, group=GN, tooltip="Positions are closed on the last bar that closes at or before this time. Topstep requires flat by 16:10 ET, Apex by 16:59 ET.")
+
+// ---- Visualization ----
+bool  showBands   = input.bool(title="Show Bands", defval=true, group="Visualization")
+bool  showFill    = input.bool(title="Show Fill", defval=true, group="Visualization")
+bool  showSignals = input.bool(title="Show Regime Flips", defval=true, group="Visualization")
+bool  colorBars   = input.bool(title="Color Bars", defval=true, group="Visualization")
+bool  showStops   = input.bool(title="Show Stop / Target", defval=true, group="Visualization")
+bool  showPanel   = input.bool(title="Show Prop Panel", defval=true, group="Visualization")
+color longColor   = input.color(title="Bullish Color", defval=color.rgb(57, 255, 20), group="Color Settings", inline="C1", tooltip=colorTip)
+color shortColor  = input.color(title="Bearish Color", defval=color.rgb(138, 43, 226), group="Color Settings", inline="C1", tooltip=colorTip)
+
+// ============================================================
+// INDICATOR CALCULATIONS (original logic)
+// ============================================================
+float smooth       = (4.0 * src + 3.0 * nz(src[1], src) + 2.0 * nz(src[2], src) + nz(src[3], src)) / 10.0
+var float period   = 10.0
+float periodFactor = 0.075 * nz(period[1], 10.0) + 0.54
+
+float detrender = (0.0962 * smooth + 0.5769 * nz(smooth[2]) - 0.5769 * nz(smooth[4]) - 0.0962 * nz(smooth[6])) * periodFactor
+float q1        = (0.0962 * detrender + 0.5769 * nz(detrender[2]) - 0.5769 * nz(detrender[4]) - 0.0962 * nz(detrender[6])) * periodFactor
+float i1        = nz(detrender[3])
+
+float jI = (0.0962 * i1 + 0.5769 * nz(i1[2]) - 0.5769 * nz(i1[4]) - 0.0962 * nz(i1[6])) * periodFactor
+float jQ = (0.0962 * q1 + 0.5769 * nz(q1[2]) - 0.5769 * nz(q1[4]) - 0.0962 * nz(q1[6])) * periodFactor
+
+float i2Raw = i1 - jQ
+float q2Raw = q1 + jI
+
+var float i2 = 0.0
+var float q2 = 0.0
+
+i2 := 0.2 * i2Raw + 0.8 * nz(i2[1])
+q2 := 0.2 * q2Raw + 0.8 * nz(q2[1])
+
+float reRaw = i2 * nz(i2[1]) + q2 * nz(q2[1])
+float imRaw = i2 * nz(q2[1]) - q2 * nz(i2[1])
+
+var float re = 0.0
+var float im = 0.0
+
+re := 0.2 * reRaw + 0.8 * nz(re[1])
+im := 0.2 * imRaw + 0.8 * nz(im[1])
+
+float angle          = re != 0.0 ? math.atan(im / re) * 180.0 / math.pi : 0.0
+float rawPeriod      = angle != 0.0 ? math.abs(360.0 / angle) : nz(period[1], 10.0)
+float previousPeriod = nz(period[1], 10.0)
+float limitedPeriod  = math.min(rawPeriod, 1.5 * previousPeriod)
+
+limitedPeriod := math.max(limitedPeriod, 0.67 * previousPeriod)
+limitedPeriod := math.max(6.0, math.min(50.0, limitedPeriod))
+period        := 0.2 * limitedPeriod + 0.8 * previousPeriod
+
+var float phase = 0.0
+phase := i1 != 0.0 ? math.atan(q1 / i1) * 180.0 / math.pi : nz(phase[1])
+
+float deltaPhase = nz(phase[1]) - phase
+deltaPhase := math.max(deltaPhase, 1.0)
+
+float alphaPhase = fastLimit / deltaPhase
+alphaPhase := math.max(alphaPhase, slowLimit)
+
+float phaseRange    = math.max(fastLimit - slowLimit, 0.0001)
+float phaseActivity = math.max(0.0, math.min(1.0, (alphaPhase - slowLimit) / phaseRange))
+
+float trend       = ta.ema(src, trendLength)
+float priceReturn = src[1] != 0.0 ? (src - src[1]) / src[1] : 0.0
+float volatility  = ta.stdev(priceReturn, volLength)[1]
+
+float adaptiveMult = slowMult - (slowMult - activeMult) * phaseActivity
+float upperBand    = trend + adaptiveMult * volatility * trend
+float lowerBand    = trend - adaptiveMult * volatility * trend
+
+// ---- Regime ----
+var int SQ = 0
+
+if close > upperBand
+    SQ := 1
+else if close < lowerBand
+    SQ := -1
+
+bool longFlip  = SQ == 1 and SQ[1] != 1
+bool shortFlip = SQ == -1 and SQ[1] != -1
+
+// Let the Hilbert filters, EMA and stdev warm up before trading.
+bool ready = bar_index > math.max(trendLength, volLength) + 50
+
+// ============================================================
+// SESSION / TRADING DAY
+// ============================================================
+string TZ = "America/New_York"
+
+bool inEntryWindow = not na(time(timeframe.period, entrySession, TZ))
+
+// Flatten on the last bar that closes at or before the flatten time, i.e.
+// when the NEXT bar would close after it. Only applies during the day
+// (before the 18:00 ET reopen) so overnight bars aren't affected.
+float tfMinutes  = timeframe.in_seconds() / 60.0
+int   closeMins  = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+int   flatMins   = math.floor(flattenHHMM / 100) * 60 + flattenHHMM % 100
+bool  flattenNow = timeframe.isintraday and closeMins + tfMinutes > flatMins and closeMins < 18 * 60
+
+// The exchange trading day (CME: 18:00 ET -> 17:00 ET next day).
+bool newDay = timeframe.change("1D")
+
+// ============================================================
+// PROP-FIRM ACCOUNT TRACKING
+// ============================================================
+float startBal = strategy.initial_capital
+float equity   = strategy.equity
+float prevEq   = nz(strategy.equity[1], startBal)
+
+var float dayStartEq   = startBal
+var float peakEq       = startBal
+var int   tradesToday  = 0
+var bool  haltDay      = false
+var bool  haltAccount  = false
+var string haltReason  = ""
+
+if newDay
+    dayStartEq  := prevEq
+    tradesToday := 0
+    haltDay     := false
+    if ddMode == "End of day"
+        peakEq := math.max(peakEq, prevEq)
+    if not haltAccount
+        haltReason := ""
+
+if ddMode == "Intraday"
+    peakEq := math.max(peakEq, equity)
+
+float ddFloor  = maxDrawdown > 0 ? math.min(peakEq - maxDrawdown, startBal + ddLockOffset) : na
+float dailyPnL = equity - dayStartEq
+
+bool flattenForRules = false
+
+if not haltAccount
+    if maxDrawdown > 0 and equity <= ddFloor
+        haltAccount     := true
+        haltReason      := "MAX DRAWDOWN BREACHED"
+        flattenForRules := true
+    else if profitTarget > 0 and equity - startBal >= profitTarget
+        haltAccount     := true
+        haltReason      := "PROFIT TARGET HIT"
+        flattenForRules := true
+
+if not haltAccount and not haltDay
+    if dailyLossLimit > 0 and dailyPnL <= -dailyLossLimit
+        haltDay         := true
+        haltReason      := "DAILY LOSS LIMIT"
+        flattenForRules := true
+    else if dailyProfitCap > 0 and dailyPnL >= dailyProfitCap
+        haltDay         := true
+        haltReason      := "DAILY PROFIT CAP"
+        flattenForRules := true
+
+// ============================================================
+// ALERT HELPERS (TradersPost webhook JSON)
+// ============================================================
+sendExit() =>
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+sendEntry(string action, int qty, float stopPx, float targetPx) =>
+    string msg = '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopPx) + '}'
+    if not na(targetPx)
+        msg += ',"takeProfit":{"limitPrice":' + str.tostring(targetPx) + '}'
+    alert(msg + '}', alert.freq_once_per_bar_close)
+
+// ============================================================
+// FORCED FLATTENS (rule breach / end of session)
+// ============================================================
+bool flattenedThisBar = false
+
+if strategy.position_size != 0 and (flattenForRules or flattenNow)
+    strategy.close_all(comment=flattenForRules ? haltReason : "Session flatten", immediately=true)
+    sendExit()
+    flattenedThisBar := true
+
+// ============================================================
+// ENTRY SIZING
+// ============================================================
+float pointValue = pointValueOvr > 0 ? pointValueOvr : syminfo.pointvalue
+float atr        = ta.atr(atrLength)
+float minStopPts = minStopTicks * syminfo.mintick
+float bufPts     = stopBufTicks * syminfo.mintick
+
+f_stop(bool isLong) =>
+    float raw = switch stopMode
+        "ATR"        => isLong ? close - atrStopMult * atr : close + atrStopMult * atr
+        "Trend line" => isLong ? trend - bufPts : trend + bufPts
+        => isLong ? lowerBand - bufPts : upperBand + bufPts
+    // Enforce a minimum distance, and never a stop on the wrong side of price.
+    float s = isLong ? math.min(raw, close - minStopPts) : math.max(raw, close + minStopPts)
+    math.round_to_mintick(s)
+
+f_qty(float stopPx) =>
+    float riskPts = math.abs(close - stopPx)
+    float perCtr  = riskPts * pointValue + roundTurnCost
+    float budget  = riskPerTradeUsd
+    if dailyLossLimit > 0
+        budget := math.min(budget, dailyLossLimit + dailyPnL)
+    if maxDrawdown > 0
+        budget := math.min(budget, equity - ddFloor - ddBuffer)
+    perCtr > 0 and budget > 0 ? int(math.min(math.floor(budget / perCtr), maxContracts)) : 0
+
+bool canTrade = ready and inEntryWindow and not flattenNow and not flattenedThisBar and
+     not haltDay and not haltAccount and tradesToday < maxTradesDay
+
+bool allowLong  = tradeDir != "Short only"
+bool allowShort = tradeDir != "Long only"
+
+var float activeStop   = na
+var float activeTarget = na
+
+float longStop  = f_stop(true)
+float shortStop = f_stop(false)
+int   longQty   = f_qty(longStop)
+int   shortQty  = f_qty(shortStop)
+
+bool enterLong  = longFlip  and canTrade and allowLong  and longQty  >= 1
+bool enterShort = shortFlip and canTrade and allowShort and shortQty >= 1
+
+// ============================================================
+// ORDERS
+// ============================================================
+// Opposite regime flip: exit the open position. If a new entry in the
+// other direction is allowed, strategy.entry reverses in one order;
+// otherwise just close.
+if not flattenedThisBar
+    if longFlip and strategy.position_size < 0
+        sendExit()
+        if not enterLong
+            strategy.close("Short", comment="Regime flip")
+    if shortFlip and strategy.position_size > 0
+        sendExit()
+        if not enterShort
+            strategy.close("Long", comment="Regime flip")
+
+if enterLong
+    float risk = close - longStop
+    activeStop   := longStop
+    activeTarget := targetR > 0 ? math.round_to_mintick(close + risk * targetR) : na
+    strategy.entry("Long", strategy.long, qty=longQty)
+    strategy.exit("Long Exit", from_entry="Long", stop=activeStop, limit=activeTarget)
+    sendEntry("buy", longQty, activeStop, activeTarget)
+    tradesToday += 1
+
+if enterShort
+    float risk = shortStop - close
+    activeStop   := shortStop
+    activeTarget := targetR > 0 ? math.round_to_mintick(close - risk * targetR) : na
+    strategy.entry("Short", strategy.short, qty=shortQty)
+    strategy.exit("Short Exit", from_entry="Short", stop=activeStop, limit=activeTarget)
+    sendEntry("sell", shortQty, activeStop, activeTarget)
+    tradesToday += 1
+
+// Trail the stop on the trend line (only ever tightens).
+if trailOnTrend and not enterLong and not enterShort
+    if strategy.position_size > 0
+        activeStop := math.max(activeStop, math.round_to_mintick(trend - bufPts))
+        strategy.exit("Long Exit", from_entry="Long", stop=activeStop, limit=activeTarget)
+    else if strategy.position_size < 0
+        activeStop := math.min(activeStop, math.round_to_mintick(trend + bufPts))
+        strategy.exit("Short Exit", from_entry="Short", stop=activeStop, limit=activeTarget)
+
+// ============================================================
+// PLOTS
+// ============================================================
+color col = SQ == 1 ? longColor : shortColor
+
+plot(trend, title="Trend", color=col, linewidth=2)
+upperPlot = plot(showBands ? upperBand : na, title="Upper Phase Band", color=color.new(longColor, 35), linewidth=1)
+lowerPlot = plot(showBands ? lowerBand : na, title="Lower Phase Band", color=color.new(shortColor, 35), linewidth=1)
+fill(upperPlot, lowerPlot, title="Phase Band Fill", color=showFill ? color.new(col, 90) : na)
+plotshape(showSignals and longFlip,  title="Long Regime",  style=shape.triangleup,   location=location.belowbar, color=longColor,  size=size.tiny)
+plotshape(showSignals and shortFlip, title="Short Regime", style=shape.triangledown, location=location.abovebar, color=shortColor, size=size.tiny)
+barcolor(colorBars ? col : na)
+
+bool inPos = strategy.position_size != 0 and not flattenedThisBar
+plot(showStops and inPos ? activeStop : na,   title="Stop",   color=color.red,   style=plot.style_linebr, linewidth=1)
+plot(showStops and inPos ? activeTarget : na, title="Target", color=color.green, style=plot.style_linebr, linewidth=1)
+bgcolor(haltAccount ? color.new(color.red, 85) : haltDay ? color.new(color.orange, 90) : na, title="Halted")
+
+// ---- Prop panel ----
+var table panel = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 20), border_width=1)
+
+if showPanel and barstate.islast
+    string status = haltAccount ? haltReason : haltDay ? haltReason + " (today)" : "ACTIVE"
+    color  stCol  = haltAccount or haltDay ? color.orange : color.lime
+    table.cell(panel, 0, 0, "Status",       text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 0, status,         text_color=stCol,       text_size=size.small)
+    table.cell(panel, 0, 1, "Net P&L",      text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 1, str.tostring(equity - startBal, "#,##0.00"), text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 2, "Today P&L",    text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 2, str.tostring(dailyPnL, "#,##0.00"), text_color=dailyPnL >= 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(panel, 0, 3, "Daily room",   text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 3, dailyLossLimit > 0 ? str.tostring(dailyLossLimit + dailyPnL, "#,##0.00") : "off", text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 4, "DD floor",     text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 4, maxDrawdown > 0 ? str.tostring(ddFloor, "#,##0.00") : "off", text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 5, "Room to floor", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 5, maxDrawdown > 0 ? str.tostring(equity - ddFloor, "#,##0.00") : "off", text_color=color.white, text_size=size.small)
+    table.cell(panel, 0, 6, "Trades today", text_color=color.white, text_size=size.small)
+    table.cell(panel, 1, 6, str.tostring(tradesToday) + " / " + str.tostring(maxTradesDay), text_color=color.white, text_size=size.small)
