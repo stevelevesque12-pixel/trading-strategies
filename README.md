@@ -56,6 +56,13 @@ Growth contract cap is an assumption. The consistency rule is handled by
 stopping for the day once profit reaches 40% of the target, and the eval
 only counts as passed once the target, min days and best-day share all
 hold. A personal daily stop ($600 default) sits on top of the firm limit.
+A Python port for backtesting on the repo's parquet data lives in
+`trend_master/backtest.py` (`python -m trend_master.backtest`): it prints the
+raw edge per symbol/timeframe and the outcome of a fresh Select 50K eval
+started every Monday. First run (MES/MNQ/MGC/MCL, 1m/5m/15m, default
+settings): no consistent edge -- profit factor ranged 0.54-1.93, only
+MNQ 15m, MES 15m, MCL 1m and MGC 1m were net positive, 5m lost on all four,
+and 1 of 252 eval attempts passed. Treat it as unproven.
 Alerts use the same
 TradersPost JSON format; create one alert with "Order fills only" and the
 message `{{strategy.order.alert_message}}`. Pine only, not yet validated on
