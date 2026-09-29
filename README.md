@@ -210,6 +210,37 @@ Takeaways:
 - A resting stop (`stop`) beats waiting for a close through the trail in
   most runs; the indicator's close-based exit gives back more.
 
+### Prop-firm variant (`step_range/prop.py`)
+
+Long-only, intraday-only micros (MNQ/MGC, priced off the 10-year NQ/GC
+bars): enter only on breakouts closing 09:30-15:00 ET, resting stop at a
+2x ATR trail, flat by 15:45 ET, size = floor($400 / stop $ per contract)
+capped at 20 micros (setups too wide for 1 micro are skipped), $500
+personal daily stop, max 3 trades/day, 1 tick slippage + $1/micro round
+trip. It then runs a Topstep-style 50K evaluation ($3,000 target, $2,000
+end-of-day trailing max loss that locks at the start balance, min 2 days,
+fail on intraday MAE) starting on every trading day in the data.
+
+```bash
+python -m step_range.prop --symbols MNQ,MGC --tf 15min,1h --yearly
+```
+
+| | Trades/wk | Win % | PF | Net (10y) | Max DD | Eval pass / fail / never finished | Median days to pass |
+|---|---|---|---|---|---|---|---|
+| MNQ 15m | 1.1 | 51 | 1.26 | +$13,188 | $2,232 | 44% / 34% / 22% | 245 |
+| MNQ 1h | 0.3 | 59 | 1.28 | +$2,655 | $1,411 | 63% / 0% / 37% | 1,459 |
+| MGC 15m | 0.8 | 42 | 0.91 | -$3,768 | $4,781 | 4% / 90% / 6% | 520 |
+| MGC 1h | 0.3 | 62 | 1.90 | +$4,147 | $644 | 48% / 0% / 52% | 1,395 |
+
+Verdict: not usable for passing an evaluation. It rarely blows the
+drawdown (MGC 1h never did), but at 0.3-1 trades a week it needs roughly
+1-6 years of trading days to make $3,000. MGC 1h is the only
+robust-looking piece (PF ~1.9 for every entry window tried, 9/10 years
+positive) but it's ~130 trades total. MNQ 15m, the most active one, is
+slightly negative since 2024. The 2x ATR / $400 defaults were picked
+after comparing 2x/3x and $200/$400, so they are in-sample; `--rth-bars`
+(indicator on session bars only) was worse on both symbols.
+
 ## Live trading on Tradovate
 
 Three ways to go live:
