@@ -29,6 +29,16 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, an Opening Range Breakout for MNQ**, lives only in
+Pine: `tradingview/orb_mnq.pine`. It takes one trade per day in the
+direction the 09:30-09:45 ET range closed, puts the stop at the far side
+of the range, sets no target and flattens at 16:00 ET. On 10 years of NQ
+15m data it was modestly positive (~$1.7k/yr on 1 MNQ, max drawdown ~$8k),
+but almost all of that came in 2022-2025, and the same rules lost on ES,
+gold and silver. Treat it as a small, uneven edge and forward-test it on
+sim first. The header of the `.pine` file has the full rules and chart
+setup.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
