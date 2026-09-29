@@ -164,6 +164,52 @@ up in the real SPX500 backtest (2 of 1330 trades, both on US holiday
 weekends) -- worth checking your trade log for exit_reason=session_flatten
 rows with a multi-day gap before relying on this unattended over holidays.
 
+## Step Range Breakout (BigBeluga indicator port)
+
+`step_range/` ports BigBeluga's "Step Range Breakout & Trailing Stop"
+TradingView indicator (CC BY-NC-SA 4.0) to Python and backtests it as a
+trade: flat range detected (midpoint of the 20-bar high/low unchanged vs
+5 bars ago) -> enter on a close outside it -> exit on a 3x ATR(14)
+chandelier trail. Always in one position or flat, holds overnight (no
+session filter, same as the indicator).
+
+```bash
+python -m step_range.backtest --symbols ES,NQ,GC,CL --tf 15min,1h --yearly
+```
+
+Fills: entry at the next bar's open; exit either at the next open after a
+close through the trail (`close`, what the indicator shows) or on a
+resting stop at the trail (`stop`). 1 tick slippage per side, $5 round
+trip commission, 1 full-size contract. CL uses the MCL bars (same price)
+at CL's $1000/pt, so it only covers 2025-10..2026-08; the others are
+2016-05..2026-08.
+
+Results at the default inputs (`stop` exit):
+
+| | Trades | Win % | Profit factor | Net $ | Max DD $ | Years positive |
+|---|---|---|---|---|---|---|
+| ES 15m | 2573 | 34 | 0.90 | -109,856 | 114,908 | 4/11 |
+| ES 1h | 734 | 38 | 0.92 | -53,815 | 70,261 | 3/11 |
+| NQ 15m | 2515 | 37 | 1.09 | +148,060 | 83,847 | 9/11 |
+| NQ 1h | 765 | 38 | 0.88 | -141,416 | 199,784 | 5/11 |
+| GC 15m | 2529 | 34 | 1.02 | +25,470 | 129,007 | 4/11 |
+| GC 1h | 688 | 38 | 1.10 | +69,746 | 59,001 | 6/11 |
+| CL 15m | 222 | 32 | 0.87 | -17,954 | 31,552 | 0/2 |
+| CL 1h | 65 | 31 | 0.92 | -5,284 | 24,216 | 0/2 |
+
+Takeaways:
+- No edge on ES or CL, and ES stays negative even with zero costs.
+- The NQ 15m and GC 1h profits hold across a 27-combo parameter grid
+  (length 10/20/40 x consolidation 3/5/10 x ATR mult 2/3/4; 96% / 85% of
+  combos profitable), but almost all of it comes from the long side in
+  two strong bull markets, and it trails buy-and-hold by a wide margin
+  (~$496k NQ, ~$344k GC for 1 contract) while sitting in the market ~43%
+  of the time. Treat it as a trend filter, not a proven edge.
+- The indicator's own dashboard "win rate" (~35-39%) says nothing about
+  profitability -- it counts a 1-tick win the same as a large loss.
+- A resting stop (`stop`) beats waiting for a close through the trail in
+  most runs; the indicator's close-based exit gives back more.
+
 ## Live trading on Tradovate
 
 Three ways to go live:
