@@ -9,7 +9,7 @@ Two views:
     starting fresh on its first trading day.
 
 Usage:
-  python -m prop_sim.yearly [tradelist.csv] --cost 1.5 --fee 150
+  python -m prop_sim.yearly [tradelist.csv] --cost 1.5 --fee 150 --plan 10:15:15
 """
 import argparse
 
@@ -90,21 +90,23 @@ def main():
     ap.add_argument("--runs", type=int, default=5000)
     ap.add_argument("--days", type=int, default=252)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--plan", default="5:6:3", help="eval:funded-before:funded-after-first-payout sizes (MNQ)")
     a = ap.parse_args()
+    sizes = tuple(int(x) for x in a.plan.split(":"))
 
     dated = load_dated_days(a.csv, a.cost)
     start = pd.Timestamp(a.start).date()
     pool = [(p, m) for d, p, m in dated if d >= start]
     rng = np.random.default_rng(a.seed)
 
-    res = [run_slot([pool[i] for i in rng.integers(len(pool), size=a.days)], a.fee)
+    res = [run_slot([pool[i] for i in rng.integers(len(pool), size=a.days)], a.fee, *sizes)
            for _ in range(a.runs)]
     k = np.array([len(r["payouts"]) for r in res])
     net = np.array([r["net"] for r in res])
     ev = np.array([r["evals"] for r in res])
     gross = np.array([sum(r["payouts"]) for r in res])
     q = lambda x: "  ".join(f"p{p}={np.percentile(x, p):,.0f}" for p in (10, 25, 50, 75, 90))
-    print(f"MONTE CARLO: one slot, {a.days} days sampled from {a.start}, cost ${a.cost}/RT, fee ${a.fee}, {a.runs} runs")
+    print(f"PLAN {a.plan}\nMONTE CARLO: one slot, {a.days} days sampled from {a.start}, cost ${a.cost}/RT, fee ${a.fee}, {a.runs} runs")
     print(f"  payouts/yr   mean {k.mean():.1f}   {q(k)}")
     print(f"  evals bought mean {ev.mean():.1f}   {q(ev)}")
     print(f"  gross paid   mean ${gross.mean():,.0f}")
@@ -114,7 +116,7 @@ def main():
 
     ordered = [(p, m) for _, p, m in dated]
     first = next(i for i, (d, _, _) in enumerate(dated) if d >= start)
-    win = [run_slot(ordered[i:i + a.days], a.fee) for i in range(first, len(ordered) - a.days + 1)]
+    win = [run_slot(ordered[i:i + a.days], a.fee, *sizes) for i in range(first, len(ordered) - a.days + 1)]
     wk = np.array([len(r["payouts"]) for r in win])
     wn = np.array([r["net"] for r in win])
     print(f"\nROLLING: {len(win)} real {a.days}-day windows starting from {a.start}")
@@ -128,7 +130,7 @@ def main():
     for d, p, m in dated:
         by_year.setdefault(d.year, []).append((p, m))
     for y, days in sorted(by_year.items()):
-        r = run_slot(days, a.fee)
+        r = run_slot(days, a.fee, *sizes)
         print(f"  {y}  {len(days):4d}  {r['evals']:5d}  {r['passes']:6d}  {len(r['payouts']):7d}"
               f"  {sum(r['payouts']):6,.0f}  {r['net']:6,.0f}")
 
