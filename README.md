@@ -29,6 +29,25 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy: RSI 80-20** (`rsi_8020/`, `tradingview/rsi_8020.pine`)
+-- single-timeframe RSI mean reversion using the wider 80/20 extremes.
+Long when RSI(14) crosses back *up* through 20 after an oversold excursion
+(short: back down through 80). Stop = the excursion's extreme low/high
+minus a 2-tick buffer, target = `target_r` × risk, same intraday entry
+window and 15:55 flatten as the others. RSI is Wilder's (matches
+TradingView's `ta.rsi`) and runs continuously across sessions; only the
+pending excursion resets each day. Backtest it across timeframes with:
+
+```bash
+python -m backtest.run_rsi8020 --data sample_data/real_multi_instrument/real_es_15m_2016-05-29_2026-08-25.parquet --symbol ES --timeframes 15min,30min,1h
+```
+
+Options: `--rsi-length`, `--overbought`, `--oversold`, `--stop-buffer-ticks`,
+`--target-r`, plus the usual `--contracts`/`--daily-loss-limit`/`--max-daily-trades`.
+Baseline result on that 10-year ES file (target 1R): 15m 614 trades PF 0.81,
+30m 388 trades PF 0.90, 1h 164 trades PF 0.96 -- **the plain rules have no
+edge**; it needs a filter (trend/regime, time of day, etc.) before live use.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

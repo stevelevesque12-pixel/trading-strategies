@@ -1,0 +1,126 @@
+//@version=6
+// RSI 80-20 mean-reversion strategy, ported from rsi_8020/strategy.py.
+// Fires TradersPost-format webhook alerts. Runs on whatever timeframe the
+// chart is set to (single timeframe, no higher-timeframe bias).
+//
+// Rules (long case; short is the exact mirror at the 80 level):
+//   1. RSI drops below the oversold level (default 20). Track the lowest low
+//      reached while RSI stays below it.
+//   2. Entry fires on the bar close where RSI crosses back up through 20.
+//   3. Stop = that excursion's lowest low (including the cross bar) minus
+//      a tick buffer. Target = targetR * risk.
+//   4. A pending excursion is cleared at each new New York session day, so a
+//      stop is never anchored to a prior day's extreme. RSI itself runs
+//      continuously (ta.rsi), same as the Python version.
+//
+// Backtested in Python on ~10 years of 15m ES (see README): the plain rules
+// had no edge there (profit factor < 1 on 15m/30m/1h). Treat this as a
+// starting point to add filters to, not something to run live as-is.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL
+// (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("RSI 80-20", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+rsiLength        = input.int(14, "RSI length", minval=1)
+overbought       = input.float(80.0, "Overbought level", minval=1, maxval=99)
+oversold         = input.float(20.0, "Oversold level", minval=1, maxval=99)
+stopBufferTicks  = input.int(2, "Stop buffer (ticks)", minval=0)
+targetR          = input.float(1.0, "Target R multiple")
+entrySession     = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession   = input.session("1555-1600", "Flatten window (America/New_York)")
+riskPerTradeUsd  = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd    = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
+maxContracts     = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York) ----
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+
+// ---- RSI + excursion tracking ----
+rsi     = ta.rsi(close, rsiLength)
+prevRsi = rsi[1]
+stopBuffer = stopBufferTicks * syminfo.mintick
+
+var string excDir     = na   // "long" = oversold excursion, "short" = overbought
+var float  excExtreme = na
+
+if newDay
+    excDir     := na
+    excExtreme := na
+
+longSignal  = false
+shortSignal = false
+float sigEntry  = na
+float sigStop   = na
+float sigTarget = na
+
+if not na(rsi)
+    if rsi < oversold
+        excExtreme := excDir == "long" ? math.min(excExtreme, low) : low
+        excDir     := "long"
+    else if rsi > overbought
+        excExtreme := excDir == "short" ? math.max(excExtreme, high) : high
+        excDir     := "short"
+    else
+        if excDir == "long" and prevRsi < oversold
+            sigStop := math.min(excExtreme, low) - stopBuffer
+            if close > sigStop
+                longSignal := true
+                sigEntry   := close
+                sigTarget  := close + (close - sigStop) * targetR
+        else if excDir == "short" and prevRsi > overbought
+            sigStop := math.max(excExtreme, high) + stopBuffer
+            if close < sigStop
+                shortSignal := true
+                sigEntry    := close
+                sigTarget   := close - (sigStop - close) * targetR
+        excDir     := na
+        excExtreme := na
+
+// ---- Position sizing ----
+riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
+qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
+
+finalLongSignal  = longSignal  and qty > 0 and inEntryWindow and strategy.position_size == 0
+finalShortSignal = shortSignal and qty > 0 and inEntryWindow and strategy.position_size == 0
+
+// ---- Fire entries + TradersPost webhook alerts ----
+if finalLongSignal
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
+    longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(longMsg, alert.freq_once_per_bar_close)
+
+if finalShortSignal
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
+    shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
+         ',"quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(sigEntry) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
+    alert(shortMsg, alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if inFlattenWindow and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+    alert(flattenMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+bgcolor(excDir == "long" ? color.new(color.green, 92) : excDir == "short" ? color.new(color.red, 92) : na)
+plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small)
+plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small)
