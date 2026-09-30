@@ -21,6 +21,25 @@ DD = 2_000.0
 LOCK = START + 100
 
 
+@dataclass
+class Acct:
+    """Select account size parameters. Defaults = 50K. Larger sizes: verify on Tradeify's site."""
+    start: float = 50_000.0
+    dd: float = 2_000.0
+    target: float = 3_000.0
+    win_day: float = 150.0
+    cap: float = 3_000.0
+    fee: float = 159.0
+    monthly: bool = True  # False = one-time fee per eval attempt
+    funded_dd: float = None  # funded drawdown if different from eval drawdown
+
+
+A50 = Acct()
+# 150K per third-party summaries (Sept 2026): $9k target, $4.5k DD, $250 winning day,
+# $4.5k payout cap, $221 one-time. Funded Flex DD assumed equal to eval DD.
+A150 = Acct(150_000.0, 4_500.0, 9_000.0, 250.0, 4_500.0, 221.0, False)
+
+
 def load_days(path):
     d = pd.read_csv(path, encoding="utf-8-sig")
     e = d[d.Type.str.startswith("Entry")].set_index("Trade number")
@@ -43,7 +62,8 @@ def day_result(trades, n, bal):
     return bal, low
 
 
-def run_eval(days, i, n, target, consistency=0.40):
+def run_eval(days, i, n, target, consistency=0.40, acct=A50):
+    START, DD = acct.start, acct.dd
     bal, peak, best, tdays = START, START, 0.0, 0
     for j in range(i, len(days)):
         bal2, low = day_result(days[j][1], n, bal)
@@ -66,7 +86,9 @@ def contracts_for(policy, bal, floor):
     return max(lo, min(hi, int((bal - floor) // per)))
 
 
-def run_funded(days, i, policy, min_profit_for_payout=0.0):
+def run_funded(days, i, policy, min_profit_for_payout=0.0, acct=A50):
+    START, LOCK = acct.start, acct.start + 100
+    DD = acct.funded_dd or acct.dd
     bal, peak, locked, win_days = START, START, False, 0
     payouts = []
     for j in range(i, len(days)):
@@ -75,7 +97,7 @@ def run_funded(days, i, policy, min_profit_for_payout=0.0):
         bal2, low = day_result(days[j][1], n, bal)
         if low <= floor:
             return payouts, j, "blown"
-        if bal2 - bal >= 150:
+        if bal2 - bal >= acct.win_day:
             win_days += 1
         bal = bal2
         if not locked:
@@ -84,7 +106,7 @@ def run_funded(days, i, policy, min_profit_for_payout=0.0):
                 locked = True
         prof = bal - START
         if win_days >= 5 and prof >= max(500, min_profit_for_payout):
-            amt = min(0.5 * prof, 3000.0)
+            amt = min(0.5 * prof, acct.cap)
             if amt >= 250:
                 payouts.append((days[j][0], amt))
                 bal -= amt
@@ -92,22 +114,23 @@ def run_funded(days, i, policy, min_profit_for_payout=0.0):
     return payouts, len(days) - 1, "open"
 
 
-def campaign(days, eval_n, funded_policy, target, fee=159.0, start_idx=0, min_payout_profit=0.0):
+def campaign(days, eval_n, funded_policy, target, fee=None, start_idx=0, min_payout_profit=0.0, acct=A50):
     """Sequential real-time replay: buy eval, pass/fail, trade funded until blown, repeat."""
     i, evals, months, pays, log = start_idx, 0, 0, [], []
     while i < len(days) - 1:
         evals += 1
-        res, j = run_eval(days, i, eval_n, target)
-        months += max(1, math.ceil((days[j][0] - days[i][0]).days / 30))
+        res, j = run_eval(days, i, eval_n, target, acct=acct)
+        months += max(1, math.ceil((days[j][0] - days[i][0]).days / 30)) if acct.monthly else 1
         if res != "pass":
             log.append((days[i][0].date(), "eval " + res, days[j][0].date(), 0))
             i = j + 1
             continue
-        p, k, st = run_funded(days, j + 1, funded_policy, min_payout_profit)
+        p, k, st = run_funded(days, j + 1, funded_policy, min_payout_profit, acct)
         pays += p
         log.append((days[j][0].date(), "funded " + st, days[k][0].date(), len(p)))
         i = k + 1
     gross = sum(a for _, a in pays) * 0.9
+    fee = acct.fee if fee is None else fee
     return dict(evals=evals, fees=months * fee, payouts=len(pays), trader_cash=gross,
                 net=gross - months * fee, log=log)
 
