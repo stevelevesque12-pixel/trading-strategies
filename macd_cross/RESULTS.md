@@ -218,6 +218,58 @@ Code: `macd_cross/divergence.py`.
   isn't better. Samples are too small to judge.
 - 1m–4m lose, as with the other MACD rules.
 
+## Strategy 4 across MCL, MGC, MES, MNQ
+
+Same rules and RTH window (09:30–15:55 ET) for all four; costs $0.62/side
++ 1 tick/side. `python -m macd_cross.run_timeframes --symbol MCL --rule divergence ...`
+
+### Longer history, net $ (PF)
+
+5m/10m = May 10–Aug 25 2026, 15m = Sep 30 2025–Aug 25 2026.
+
+| Rule | TF | MCL | MGC | MES | MNQ |
+|---|---|---|---|---|---|
+| raw | 5m | -40 (0.98) | +633 (1.22) | +476 (1.21) | -2,901 (0.59) |
+| raw | 10m | +563 (1.90) | -1,058 (0.54) | +315 (1.26) | +444 (1.10) |
+| raw | 15m | -669 (0.74) | +489 (1.11) | -159 (0.96) | -127 (0.98) |
+| confirmed | 5m | +143 (1.20) | +1,070 (1.84) | -32 (0.94) | -50 (0.98) |
+| confirmed | 10m | -183 (0.53) | -394 (0.38) | +143 (1.29) | -966 (0.66) |
+| confirmed | 15m | -179 (0.82) | -707 (0.73) | +1,364 (1.66) | +1,705 (1.49) |
+
+Trades per cell: raw 40–99, confirmed 13–51.
+
+### Aug 2–25 2026, 1m–10m, raw, net $ (PF)
+
+| TF | MCL | MGC | MES | MNQ |
+|---|---|---|---|---|
+| 1m | -337 (0.62) | -234 (0.90) | -718 (0.49) | -375 (0.85) |
+| 2m | -47 (0.92) | -108 (0.91) | -527 (0.34) | -416 (0.79) |
+| 3m | -107 (0.63) | -575 (0.51) | -315 (0.59) | -96 (0.91) |
+| 4m | -136 (0.55) | +2 (1.00) | -147 (0.75) | -162 (0.86) |
+| 5m | -12 (0.95) | -278 (0.55) | +112 (1.26) | -633 (0.50) |
+| 6m | -146 (0.39) | -456 (0.37) | +20 (1.05) | -675 (0.57) |
+| 7m | +48 (1.29) | -11 (0.98) | -40 (0.88) | +384 (1.52) |
+| 8m | -7 (0.91) | +141 (1.39) | -150 (0.59) | -94 (0.89) |
+| 9m | +15 (1.11) | +132 (1.41) | -82 (0.70) | +277 (1.38) |
+| 10m | +119 (2.92) | +314 (1.97) | -55 (0.77) | +642 (1.90) |
+
+(7m–10m are 6–22 trades each.)
+
+### Takeaways
+
+- No timeframe/variant is positive on all four instruments. On the longer
+  data, 6 of 12 raw cells and 5 of 12 confirmed cells are positive, which
+  is what you'd expect from chance.
+- The 5m/10m edge seen on MES doesn't carry over: MNQ 5m raw is the worst
+  result (-$2.9k), MGC 10m raw loses $1k.
+- 1m–4m lose on nearly every instrument, same as on MES alone.
+- The one possibly interesting pattern: confirmed 15m on the two equity
+  indexes, MES +$1,364 (PF 1.66) and MNQ +$1,705 (PF 1.49) over 11
+  months, ~40–50 trades each. But MES and MNQ move together, so that's
+  closer to one result than two, and the same rule loses on MCL/MGC.
+- MCL/MGC use the equity RTH window here, not their own busiest hours
+  (crude ~09:00–14:30, gold ~08:20–13:30 ET), which may hurt them.
+
 ## 15s / 30s / 45s: not tested
 
 The repo has no sub-minute MES data (the finest file is 1m), and splitting
