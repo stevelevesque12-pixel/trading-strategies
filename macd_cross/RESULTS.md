@@ -111,6 +111,50 @@ position (go flat) but don't reverse it.
 - On the common Aug 2–25 window, 5m + VWAP was +$178 (PF 1.17) but on only
   57 trades; over the full 3.5 months at 5m it's negative.
 
+# MACD Strategy 2: zero-line cross (RTH only)
+
+Two readings, both stop-and-reverse, RTH only, same fills/costs as above:
+- **zero_cross** – MACD line crosses above 0 → buy, below 0 → sell
+  (= EMA12/EMA26 crossover).
+- **zero_cross_hist** – the "MACD + zero line combination": long when
+  MACD > 0 **and** histogram > 0 (MACD above signal) first both hold,
+  short when both are < 0. Whichever condition arrives second triggers.
+
+`python -m macd_cross.run_timeframes --mode rth --rule {zero_cross,zero_cross_hist} --timeframes 1min,2min,3min,4min,5min,6min,7min,8min,9min,10min --common-window`
+
+## Same window for all (Aug 2–25 2026, 1m source)
+
+| TF | ZC trades | ZC net | ZC PF | ZC+hist trades | ZC+hist net | ZC+hist PF | Strategy 1 PF |
+|---|---|---|---|---|---|---|---|
+| 1m | 205 | -1,089 | 0.64 | 200 | -517 | 0.83 | 0.49 |
+| 2m | 100 | -233 | 0.86 | 96 | +53 | 1.03 | 0.75 |
+| 3m | 67 | -359 | 0.77 | 68 | +44 | 1.03 | 0.71 |
+| 4m | 56 | -392 | 0.74 | 56 | -406 | 0.76 | 0.77 |
+| 5m | 42 | -335 | 0.73 | 42 | +49 | 1.03 | 0.73 |
+| 6m | 33 | -10 | 0.99 | 36 | -128 | 0.90 | 0.74 |
+| 7m | 29 | -233 | 0.74 | 33 | +52 | 1.05 | 0.70 |
+| 8m | 28 | -356 | 0.65 | 32 | -32 | 0.97 | 0.52 |
+| 9m | 22 | -175 | 0.75 | 29 | -107 | 0.88 | 0.34 |
+| 10m | 23 | +110 | 1.15 | 29 | +75 | 1.08 | 0.35 |
+
+## Longer history for 5m / 10m (May 10–Aug 25 2026, 5m source)
+
+| TF | ZC trades | ZC net | ZC PF | ZC+hist trades | ZC+hist net | ZC+hist PF | Strategy 1 PF |
+|---|---|---|---|---|---|---|---|
+| 5m | 192 | -43 | 0.99 | 213 | -919 | 0.90 | 0.94 |
+| 10m | 100 | -42 | 0.99 | 126 | -756 | 0.88 | 0.95 |
+
+## Takeaways
+
+- Both Strategy 2 readings beat Strategy 1 on almost every timeframe,
+  mainly because they trade about half as often and so pay half the costs.
+- The combo rule is roughly break-even on 2m/3m/5m/7m/10m over Aug 2–25,
+  but each result is only 30–100 trades and ±$50. That's noise.
+- The one longer test contradicts it: on 3.5 months of 5m/10m data the
+  combo rule loses (PF ~0.9), while plain zero_cross is dead flat (PF 0.99).
+- Net: nothing here is a demonstrated edge. The best honest summary is that
+  zero-line crosses are break-even before being tuned, not profitable.
+
 ## 15s / 30s / 45s: not tested
 
 The repo has no sub-minute MES data (the finest file is 1m), and splitting

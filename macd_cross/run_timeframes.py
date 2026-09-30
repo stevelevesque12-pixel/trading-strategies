@@ -1,5 +1,5 @@
 """
-CLI: test MACD Strategy 1 (MACD/signal crossover) across timeframes.
+CLI: test MACD strategies (1: signal-line cross, 2: zero-line cross) across timeframes.
 
 Each timeframe is built from the finest real MES file that can produce it:
   1m, 2m, 3m, 4m   <- 1m file  (2026-08-02 .. 2026-08-25)
@@ -26,7 +26,7 @@ from backtest.data import load_1m_csv, resample_ohlc
 from failed2s.instruments import INSTRUMENTS
 
 from .backtest import CostModel, SessionRules, metrics, run_backtest
-from .strategy import MACDParams
+from .strategy import SIGNAL_RULES, MACDParams
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "sample_data" / "real_multi_instrument"
 SOURCES = {
@@ -54,6 +54,8 @@ def main() -> None:
     p.add_argument("--mode", choices=["24h", "rth"], default="24h")
     p.add_argument("--common-window", action="store_true")
     p.add_argument("--seconds-data", help="Optional sub-minute OHLCV file (CSV/parquet) for 15s/30s/45s")
+    p.add_argument("--rule", choices=list(SIGNAL_RULES), default="signal_cross",
+                   help="signal_cross = Strategy 1; zero_cross / zero_cross_hist = Strategy 2")
     p.add_argument("--fast", type=int, default=12)
     p.add_argument("--slow", type=int, default=26)
     p.add_argument("--signal", type=int, default=9)
@@ -89,7 +91,7 @@ def main() -> None:
         if key not in cache:
             cache[key] = load_1m_csv(path)
         bars = resample_ohlc(cache[key], tf_name)
-        trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema, vwap=args.vwap)
+        trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema, vwap=args.vwap, rule=args.rule)
         days = bars.index.normalize().nunique()
         row.update({"source": key, "start": bars.index[0].date(), "end": bars.index[-1].date(), "bars": len(bars)})
         row.update(metrics(trades, days))
@@ -97,11 +99,11 @@ def main() -> None:
         if args.trades_dir:
             Path(args.trades_dir).mkdir(parents=True, exist_ok=True)
             pd.DataFrame([t.__dict__ for t in trades]).to_csv(
-                Path(args.trades_dir) / f"trades_{args.mode}_{tf_name}.csv", index=False)
+                Path(args.trades_dir) / f"trades_{args.rule}_{args.mode}_{tf_name}.csv", index=False)
 
     df = pd.DataFrame(rows)
     df.to_csv(args.out, index=False)
-    print(f"{args.symbol}  MACD({params.fast},{params.slow},{params.signal})  mode={args.mode}  "
+    print(f"{args.symbol}  rule={args.rule}  MACD({params.fast},{params.slow},{params.signal})  mode={args.mode}  "
           f"trend_ema={args.trend_ema or 'off'}  vwap={args.vwap}  costs/RT=${costs.round_turn(inst):.2f}  common_window={args.common_window}\n")
     with pd.option_context("display.width", 250, "display.max_columns", 50):
         print(df.to_string(index=False))

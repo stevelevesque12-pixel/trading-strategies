@@ -32,7 +32,7 @@ import pandas as pd
 
 from failed2s.instruments import Instrument
 
-from .strategy import MACDParams, crossover_signals
+from .strategy import SIGNAL_RULES, MACDParams
 
 
 @dataclass
@@ -77,9 +77,10 @@ def run_backtest(
     contracts: int = 1,
     trend_ema: int = 0,
     vwap: bool = False,
+    rule: str = "signal_cross",
 ) -> List[Trade]:
     """`bars` must be indexed by bar *open* time in America/New_York."""
-    signals = crossover_signals(bars["close"], params).to_numpy()
+    signals = SIGNAL_RULES[rule](bars["close"], params).to_numpy()
     entry_ok = trend_filter(bars["close"], signals, trend_ema)
     if vwap:
         entry_ok &= line_filter(bars["close"].to_numpy(), signals, session_vwap(bars, rules.entry_start))

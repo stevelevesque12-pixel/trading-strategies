@@ -108,3 +108,28 @@ def test_vwap_filter_entries_on_correct_side():
         i = bars.index.get_loc(t.entry_time) - 1
         c = bars["close"].iloc[i]
         assert (c > v[i]) if t.direction == 1 else (c < v[i])
+
+
+def test_zero_cross_matches_ema_cross():
+    from macd_cross.strategy import zero_cross_signals
+
+    rng = np.random.default_rng(4)
+    close = pd.Series(100 + rng.standard_normal(3000).cumsum())
+    sig = zero_cross_signals(close)
+    diff = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+    up = (diff > 0) & (diff.shift(1) <= 0)
+    dn = (diff < 0) & (diff.shift(1) >= 0)
+    assert (sig.iloc[35:][up.iloc[35:]] == 1).all() and (sig.iloc[35:][dn.iloc[35:]] == -1).all()
+    assert (sig != 0).sum() == (up | dn).iloc[35:].sum()
+
+
+def test_zero_cross_hist_requires_both_conditions():
+    from macd_cross.strategy import zero_cross_signals
+
+    rng = np.random.default_rng(5)
+    close = pd.Series(100 + rng.standard_normal(3000).cumsum())
+    m = macd(close)
+    sig = zero_cross_signals(close, confirm_hist=True)
+    assert (sig != 0).sum() > 5
+    assert ((m["macd"] > 0) & (m["hist"] > 0))[sig == 1].all()
+    assert ((m["macd"] < 0) & (m["hist"] < 0))[sig == -1].all()
