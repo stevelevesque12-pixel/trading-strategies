@@ -13,9 +13,12 @@ Rules modeled (verify against your dashboard -- they change):
          min payout $250, 90/10 split.
 
 Usage:
-  python -m prop_sim.tradeify_flex trades.csv --cost 1.5 --start 2023-01-01
+  python -m prop_sim.tradeify_flex [tradelist.csv] --cost 1.5 --start 2023-01-01
+
+Defaults to the MNQ 5-min ORB trade list in sample_data/tradelists/.
 """
 import argparse
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -24,6 +27,8 @@ TARGET, DD, LOCK_AT, LOCK_FLOOR = 3000.0, 2000.0, 2100.0, 100.0
 CONSISTENCY, MIN_DAYS = 0.40, 3
 WIN_DAY, WIN_DAYS_PER_PAYOUT = 150.0, 5
 PAYOUT_PCT, PAYOUT_CAP, MIN_PAYOUT, SPLIT = 0.5, 3000.0, 250.0, 0.9
+DEFAULT_CSV = (Path(__file__).resolve().parent.parent / "sample_data" / "tradelists"
+               / "PropQuantX_MNQ_5min_ORB_2026-09-30.csv")
 
 
 def load_days(path, cost, start):
@@ -91,7 +96,7 @@ class Sim:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("csv")
+    ap.add_argument("csv", nargs="?", default=str(DEFAULT_CSV))
     ap.add_argument("--cost", type=float, default=1.5, help="$ per micro round trip (commission + slippage)")
     ap.add_argument("--start", default="2023-01-01", help="only sample days from this date on")
     ap.add_argument("--fee", type=float, default=150.0, help="eval fee per attempt")
