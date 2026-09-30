@@ -4,6 +4,10 @@
 // stays open until its stop or target is hit. Every setting below is
 // adjustable in the script's Settings panel.
 //
+// Display: the script's own pane shows the RSI with the 80/20 levels and
+// dots on the first/second low (high) RSI readings; the entry trigger, stop
+// line and entry arrows are drawn on the price chart (force_overlay).
+//
 // Rules (long case; short is the exact mirror: N-candle high, RSI > 80,
 // higher high with lower RSI, close below the first candle's low):
 //   1. First low: a candle makes the lowest low of the last N candles
@@ -19,7 +23,7 @@
 // Alerting (optional): create the TradingView alert with condition "Any
 // alert() function call"; the messages are in TradersPost webhook format.
 
-strategy("RSI 80-20 Divergence", overlay=true, initial_capital=50000,
+strategy("RSI 80-20 Divergence", overlay=false, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
 
 // ---- Settings ----
@@ -44,6 +48,8 @@ maxContracts     = input.int(5, "Max contracts", minval=1, group=G_SIZE)
 
 G_VIS = "Display"
 showLevels = input.bool(true, "Show entry trigger / stop lines while a setup is live", group=G_VIS)
+showDivDots = input.bool(true, "Mark first / second low (high) on the RSI", group=G_VIS)
+rsiColor   = input.color(color.purple, "RSI line color", group=G_VIS)
 
 pointValueUsd = autoPointValue ? syminfo.pointvalue : manualPointValue
 
@@ -65,6 +71,8 @@ var int    barsSince       = 0
 longSignal  = false
 shortSignal = false
 triggered   = false
+markFirst   = false   // this candle set (or replaced) the first low/high
+markSecond  = false   // this candle set/extended the divergent second low/high
 float sigEntry  = na
 float sigStop   = na
 float sigTarget = na
@@ -94,6 +102,7 @@ if not na(rsi)
                 ext = isLong ? low : high
                 if isLong ? rsi > firstRsi : rsi < firstRsi
                     secondExt := na(secondExt) ? ext : isLong ? math.min(secondExt, ext) : math.max(secondExt, ext)
+                    markSecond := true
                 else
                     // Deeper extreme without divergence -> new first low/high.
                     firstExt        := ext
@@ -103,6 +112,7 @@ if not na(rsi)
                     secondConfirmed := false
                     barsSince       := 0
                     replaced        := true
+                    markFirst       := true
             if not replaced
                 if not na(secondExt)
                     secondConfirmed := true
@@ -119,6 +129,7 @@ if not na(rsi)
             secondExt       := na
             secondConfirmed := false
             barsSince       := 0
+            markFirst       := true
         else if allowShorts and isHighestN and rsi > overbought
             setupDir        := "short"
             firstExt        := high
@@ -127,6 +138,7 @@ if not na(rsi)
             secondExt       := na
             secondConfirmed := false
             barsSince       := 0
+            markFirst       := true
 
 // ---- Position sizing ----
 riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
@@ -156,8 +168,16 @@ if finalShortSignal
          ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
     alert(shortMsg, alert.freq_once_per_bar_close)
 
-// ---- Visuals ----
-plot(showLevels and not na(setupDir) ? trigger : na, "Entry trigger (first candle high/low)", color=color.new(color.gray, 20), style=plot.style_linebr, linewidth=2)
-plot(showLevels and not na(setupDir) ? secondExt : na, "Stop level (second low/high)", color=color.new(color.red, 20), style=plot.style_linebr, linewidth=2)
-plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small)
-plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small)
+// ---- Visuals: RSI pane ----
+hline(overbought, "Overbought", color=color.new(color.red, 40),   linestyle=hline.style_dashed)
+hline(50,         "Midline",    color=color.new(color.gray, 60),  linestyle=hline.style_dotted)
+hline(oversold,   "Oversold",   color=color.new(color.green, 40), linestyle=hline.style_dashed)
+plot(rsi, "RSI", color=rsiColor, linewidth=2)
+plotshape(showDivDots and markFirst  ? rsi : na, "First low/high (RSI)",  style=shape.circle, location=location.absolute, color=color.orange, size=size.tiny)
+plotshape(showDivDots and markSecond ? rsi : na, "Second low/high (RSI)", style=shape.circle, location=location.absolute, color=color.aqua,   size=size.tiny)
+
+// ---- Visuals: price chart ----
+plot(showLevels and not na(setupDir) ? trigger : na, "Entry trigger (first candle high/low)", color=color.new(color.gray, 20), style=plot.style_linebr, linewidth=2, force_overlay=true)
+plot(showLevels and not na(setupDir) ? secondExt : na, "Stop level (second low/high)", color=color.new(color.red, 20), style=plot.style_linebr, linewidth=2, force_overlay=true)
+plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small, force_overlay=true)
+plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small, force_overlay=true)
