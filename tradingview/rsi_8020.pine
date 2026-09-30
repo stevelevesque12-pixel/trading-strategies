@@ -16,12 +16,15 @@
 //      a HIGHER RSI than the first low had (bullish divergence). A lower low
 //      without a higher RSI just replaces the first low.
 //   3. Entry: a later candle closes above the first low candle's high.
-//   4. Stop: below the lowest low made after the first low, minus a buffer.
-//   5. Target: risk x the Risk:Reward setting (default 1:3).
+//   4. Stop: see the "Stop loss" settings (default: below the second low).
+//   5. Target: initial risk x the Risk:Reward setting (default 1:3).
 // A setup with no entry within "Setup expires after" candles is dropped.
 //
 // Alerting (optional): create the TradingView alert with condition "Any
 // alert() function call"; the messages are in TradersPost webhook format.
+// Only the INITIAL stop is sent in the entry alert -- breakeven and trailing
+// stop moves are simulated in TradingView's backtest but are not sent to the
+// broker.
 
 strategy("RSI 80-20 Divergence", overlay=false, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
@@ -36,9 +39,42 @@ maxSetupBars  = input.int(50, "Setup expires after (candles)", minval=1, group=G
 allowLongs    = input.bool(true, "Take longs", group=G_SETUP)
 allowShorts   = input.bool(true, "Take shorts", group=G_SETUP)
 
-G_EXIT = "Stop / Target"
-targetR          = input.float(3.0, "Risk : Reward  (1 : X)", minval=0.5, step=0.5, group=G_EXIT)
-stopBufferTicks  = input.int(2, "Stop buffer (ticks beyond the second low/high)", minval=0, group=G_EXIT)
+G_SL = "Stop loss"
+SL_SECOND = "Second low/high (divergence extreme)"
+SL_FIRST  = "First low/high (the 50-candle extreme)"
+SL_SWING  = "Lowest low / highest high of last N candles"
+SL_ATR    = "ATR multiple from entry"
+SL_TICKS  = "Fixed ticks from entry"
+SL_PCT    = "Percent from entry"
+stopMode        = input.string(SL_SECOND, "Stop placement", options=[SL_SECOND, SL_FIRST, SL_SWING, SL_ATR, SL_TICKS, SL_PCT], group=G_SL)
+swingStopLen    = input.int(10, "  N candles (for last-N-candles stop)", minval=1, group=G_SL)
+stopAtrMult     = input.float(1.5, "  ATR multiple (for ATR stop)", minval=0.1, step=0.1, group=G_SL)
+fixedStopTicks  = input.int(20, "  Ticks (for fixed-ticks stop)", minval=1, group=G_SL)
+stopPct         = input.float(0.5, "  Percent (for percent stop)", minval=0.01, step=0.05, group=G_SL)
+bufferType      = input.string("Ticks", "Buffer beyond the level", options=["Ticks", "ATR"], group=G_SL,
+     tooltip="Extra room added beyond the low/high for the three structure-based stops. Ignored by the ATR/ticks/percent stops.")
+stopBufferTicks = input.int(2, "  Buffer ticks", minval=0, group=G_SL)
+bufferAtrMult   = input.float(0.25, "  Buffer ATR multiple", minval=0.0, step=0.05, group=G_SL)
+atrLength       = input.int(14, "ATR length", minval=1, group=G_SL)
+minStopTicks    = input.int(0, "Min stop size (ticks, 0 = off)", minval=0, group=G_SL,
+     tooltip="Stops tighter than this are widened to this size.")
+maxStopTicks    = input.int(0, "Max stop size (ticks, 0 = off)", minval=0, group=G_SL)
+wideStopAction  = input.string("Skip trade", "  If stop is wider than max", options=["Skip trade", "Cap stop at max"], group=G_SL)
+
+G_MGMT = "Stop management"
+useBreakeven    = input.bool(false, "Move stop to breakeven", group=G_MGMT)
+beTriggerR      = input.float(1.0, "  ...once price reaches (R)", minval=0.1, step=0.1, group=G_MGMT)
+beOffsetTicks   = input.int(1, "  Breakeven offset (ticks in profit)", minval=0, group=G_MGMT)
+TR_OFF   = "Off"
+TR_ATR   = "ATR trail"
+TR_SWING = "Last N candles low/high"
+trailMode       = input.string(TR_OFF, "Trailing stop", options=[TR_OFF, TR_ATR, TR_SWING], group=G_MGMT)
+trailStartR     = input.float(1.0, "  Start trailing once price reaches (R)", minval=0.0, step=0.1, group=G_MGMT)
+trailAtrMult    = input.float(2.0, "  ATR multiple (ATR trail)", minval=0.1, step=0.1, group=G_MGMT)
+trailLen        = input.int(5, "  N candles (low/high trail)", minval=1, group=G_MGMT)
+
+G_EXIT = "Target"
+targetR = input.float(3.0, "Risk : Reward  (1 : X)", minval=0.5, step=0.5, group=G_EXIT)
 
 G_SIZE = "Position sizing"
 riskPerTradeUsd  = input.float(100.0, "Risk per trade ($)", minval=0.0, step=10, group=G_SIZE)
@@ -47,17 +83,24 @@ manualPointValue = input.float(5.0, "Manual point value ($ per point) -- MES=5, 
 maxContracts     = input.int(5, "Max contracts", minval=1, group=G_SIZE)
 
 G_VIS = "Display"
-showLevels = input.bool(true, "Show entry trigger / stop lines while a setup is live", group=G_VIS)
+showLevels  = input.bool(true, "Show entry trigger / stop lines while a setup is live", group=G_VIS)
+showTradeSL = input.bool(true, "Show active stop / target while in a trade", group=G_VIS)
 showDivDots = input.bool(true, "Mark first / second low (high) on the RSI", group=G_VIS)
-rsiColor   = input.color(color.purple, "RSI line color", group=G_VIS)
+rsiColor    = input.color(color.purple, "RSI line color", group=G_VIS)
 
 pointValueUsd = autoPointValue ? syminfo.pointvalue : manualPointValue
+tick          = syminfo.mintick
 
-// ---- Core series ----
+// ---- Core series (computed every candle) ----
 rsi        = ta.rsi(close, rsiLength)
+atr        = ta.atr(atrLength)
 isLowestN  = low  <= ta.lowest(low, lookback)    // includes the current candle
 isHighestN = high >= ta.highest(high, lookback)
-stopBuffer = stopBufferTicks * syminfo.mintick
+swingLow   = ta.lowest(low, swingStopLen)
+swingHigh  = ta.highest(high, swingStopLen)
+trailLow   = ta.lowest(low, trailLen)
+trailHigh  = ta.highest(high, trailLen)
+bufferPts  = bufferType == "Ticks" ? stopBufferTicks * tick : atr * bufferAtrMult
 
 // ---- Setup state ----
 var string setupDir        = na     // "long" / "short"
@@ -68,14 +111,13 @@ var float  secondExt       = na     // lowest divergent low / highest divergent 
 var bool   secondConfirmed = false
 var int    barsSince       = 0
 
-longSignal  = false
-shortSignal = false
+rawLong     = false
+rawShort    = false
 triggered   = false
 markFirst   = false   // this candle set (or replaced) the first low/high
 markSecond  = false   // this candle set/extended the divergent second low/high
-float sigEntry  = na
-float sigStop   = na
-float sigTarget = na
+float trigFirst  = na  // first/second extremes captured at the trigger candle
+float trigSecond = na
 
 if not na(rsi)
     if not na(setupDir)
@@ -85,17 +127,12 @@ if not na(rsi)
         // Entry uses only state from earlier candles: the second low must
         // have already closed before a later candle can trigger.
         if secondConfirmed and (isLong ? close > trigger : close < trigger)
-            triggered := true
-            sigEntry  := close
-            if isLong
-                sigStop    := math.min(secondExt, low) - stopBuffer
-                sigTarget  := close + (close - sigStop) * targetR
-                longSignal := close > sigStop
-            else
-                sigStop     := math.max(secondExt, high) + stopBuffer
-                sigTarget   := close - (sigStop - close) * targetR
-                shortSignal := close < sigStop
-            setupDir := na
+            triggered  := true
+            rawLong    := isLong
+            rawShort   := not isLong
+            trigFirst  := firstExt
+            trigSecond := secondExt
+            setupDir   := na
         else
             replaced = false
             if isLong ? low < firstExt : high > firstExt
@@ -140,6 +177,41 @@ if not na(rsi)
             barsSince       := 0
             markFirst       := true
 
+// ---- Initial stop ----
+initialStop(bool isLong) =>
+    float s = switch stopMode
+        SL_SECOND => isLong ? math.min(trigSecond, low) - bufferPts : math.max(trigSecond, high) + bufferPts
+        SL_FIRST  => isLong ? trigFirst - bufferPts : trigFirst + bufferPts
+        SL_SWING  => isLong ? swingLow - bufferPts : swingHigh + bufferPts
+        SL_ATR    => isLong ? close - atr * stopAtrMult : close + atr * stopAtrMult
+        SL_TICKS  => isLong ? close - fixedStopTicks * tick : close + fixedStopTicks * tick
+        => isLong ? close * (1 - stopPct / 100) : close * (1 + stopPct / 100)
+    s
+
+float sigEntry  = na
+float sigStop   = na
+float sigTarget = na
+stopOk = false
+
+if rawLong or rawShort
+    isLong   = rawLong
+    sigEntry := close
+    sigStop  := initialStop(isLong)
+    dist     = isLong ? close - sigStop : sigStop - close
+    stopOk   := dist > 0
+    if stopOk and minStopTicks > 0 and dist < minStopTicks * tick
+        dist := minStopTicks * tick
+    if stopOk and maxStopTicks > 0 and dist > maxStopTicks * tick
+        if wideStopAction == "Skip trade"
+            stopOk := false
+        else
+            dist := maxStopTicks * tick
+    sigStop   := isLong ? close - dist : close + dist
+    sigTarget := isLong ? close + dist * targetR : close - dist * targetR
+
+longSignal  = rawLong  and stopOk
+shortSignal = rawShort and stopOk
+
 // ---- Position sizing ----
 riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
 qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
@@ -147,8 +219,39 @@ qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(m
 finalLongSignal  = longSignal  and qty > 0 and strategy.position_size == 0
 finalShortSignal = shortSignal and qty > 0 and strategy.position_size == 0
 
+// ---- Open-trade stop management (breakeven / trailing) ----
+var string posDir    = na
+var float  posStop   = na
+var float  posTarget = na
+var float  posRisk   = na
+
+if strategy.position_size == 0 and not na(posDir)
+    posDir := na
+
+if not na(posDir) and strategy.position_size != 0
+    isLong  = posDir == "long"
+    entryPx = strategy.position_avg_price
+    bestR   = isLong ? (high - entryPx) / posRisk : (entryPx - low) / posRisk
+    newStop = posStop
+
+    if useBreakeven and bestR >= beTriggerR
+        be = isLong ? entryPx + beOffsetTicks * tick : entryPx - beOffsetTicks * tick
+        newStop := isLong ? math.max(newStop, be) : math.min(newStop, be)
+
+    if trailMode != TR_OFF and bestR >= trailStartR
+        cand = trailMode == TR_ATR ? (isLong ? close - atr * trailAtrMult : close + atr * trailAtrMult) : (isLong ? trailLow - bufferPts : trailHigh + bufferPts)
+        newStop := isLong ? math.max(newStop, cand) : math.min(newStop, cand)
+
+    if newStop != posStop
+        posStop := newStop
+        strategy.exit(isLong ? "Long Exit" : "Short Exit", from_entry=isLong ? "Long" : "Short", stop=posStop, limit=posTarget)
+
 // ---- Entries + webhook alerts ----
 if finalLongSignal
+    posDir    := "long"
+    posStop   := sigStop
+    posTarget := sigTarget
+    posRisk   := sigEntry - sigStop
     strategy.entry("Long", strategy.long, qty=qty)
     strategy.exit("Long Exit", from_entry="Long", stop=sigStop, limit=sigTarget)
     longMsg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"' +
@@ -159,6 +262,10 @@ if finalLongSignal
     alert(longMsg, alert.freq_once_per_bar_close)
 
 if finalShortSignal
+    posDir    := "short"
+    posStop   := sigStop
+    posTarget := sigTarget
+    posRisk   := sigStop - sigEntry
     strategy.entry("Short", strategy.short, qty=qty)
     strategy.exit("Short Exit", from_entry="Short", stop=sigStop, limit=sigTarget)
     shortMsg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"' +
@@ -178,6 +285,8 @@ plotshape(showDivDots and markSecond ? rsi : na, "Second low/high (RSI)", style=
 
 // ---- Visuals: price chart ----
 plot(showLevels and not na(setupDir) ? trigger : na, "Entry trigger (first candle high/low)", color=color.new(color.gray, 20), style=plot.style_linebr, linewidth=2, force_overlay=true)
-plot(showLevels and not na(setupDir) ? secondExt : na, "Stop level (second low/high)", color=color.new(color.red, 20), style=plot.style_linebr, linewidth=2, force_overlay=true)
+plot(showLevels and not na(setupDir) ? secondExt : na, "Second low/high", color=color.new(color.orange, 20), style=plot.style_linebr, linewidth=2, force_overlay=true)
+plot(showTradeSL and not na(posDir) ? posStop : na, "Active stop", color=color.red, style=plot.style_linebr, linewidth=2, force_overlay=true)
+plot(showTradeSL and not na(posDir) ? posTarget : na, "Target", color=color.green, style=plot.style_linebr, linewidth=2, force_overlay=true)
 plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small, force_overlay=true)
 plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small, force_overlay=true)
