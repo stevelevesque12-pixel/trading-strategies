@@ -29,24 +29,36 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
-**A third strategy: RSI 80-20** (`rsi_8020/`, `tradingview/rsi_8020.pine`)
--- single-timeframe RSI mean reversion using the wider 80/20 extremes.
-Long when RSI(14) crosses back *up* through 20 after an oversold excursion
-(short: back down through 80). Stop = the excursion's extreme low/high
-minus a 2-tick buffer, target = `target_r` × risk, same intraday entry
-window and 15:55 flatten as the others. RSI is Wilder's (matches
-TradingView's `ta.rsi`) and runs continuously across sessions; only the
-pending excursion resets each day. Backtest it across timeframes with:
+**A third strategy: RSI 80-20 divergence** (`rsi_8020/`,
+`tradingview/rsi_8020.pine`) -- single timeframe. Long case (short mirrors
+it at 80 / 50-candle highs):
+
+1. First low: a candle makes the lowest low of the last 50 candles while
+   RSI(14) is below 20.
+2. Second low: a later candle undercuts that low but with a *higher* RSI
+   (bullish divergence). A lower low without divergence just becomes the
+   new first low.
+3. Entry: a later candle closes above the first low candle's high.
+4. Stop: below the lowest low made after the first low (2-tick buffer).
+5. Target: 3R by default. Setups expire 50 candles after the first low.
+
+RSI is Wilder's (matches TradingView's `ta.rsi`). A standalone indicator
+that only marks 50-candle lows/highs is in
+`tradingview/fifty_candle_high_low.pine`. Backtest across timeframes with:
 
 ```bash
 python -m backtest.run_rsi8020 --data sample_data/real_multi_instrument/real_es_15m_2016-05-29_2026-08-25.parquet --symbol ES --timeframes 15min,30min,1h
 ```
 
-Options: `--rsi-length`, `--overbought`, `--oversold`, `--stop-buffer-ticks`,
-`--target-r`, plus the usual `--contracts`/`--daily-loss-limit`/`--max-daily-trades`.
-Baseline result on that 10-year ES file (target 1R): 15m 614 trades PF 0.81,
-30m 388 trades PF 0.90, 1h 164 trades PF 0.96 -- **the plain rules have no
-edge**; it needs a filter (trend/regime, time of day, etc.) before live use.
+Options: `--lookback`, `--max-setup-bars`, `--rsi-length`, `--overbought`,
+`--oversold`, `--stop-buffer-ticks`, `--target-r`, plus the usual
+`--contracts`/`--daily-loss-limit`/`--max-daily-trades`.
+Result on that 10-year ES file at 3R: 15m 259 trades PF 1.11 (+$10.8k),
+30m 164 trades PF 0.92, 1h 72 trades PF 0.50. Caveat: the engine is
+intraday-only, and on 15m ~65% of trades are closed by the 15:55 flatten
+(only 9 of 259 reached 3R) -- so this measures "divergence entry held to
+end of day" more than the multi-day 3R swing the rules were written for.
+The Pine script has an "Intraday only" toggle to run it as a swing trade.
 
 ## Strategy logic (Failed-2s)
 

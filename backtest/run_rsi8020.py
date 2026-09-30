@@ -25,11 +25,13 @@ def main() -> None:
     parser.add_argument("--rsi-length", type=int, default=14)
     parser.add_argument("--overbought", type=float, default=80.0)
     parser.add_argument("--oversold", type=float, default=20.0)
+    parser.add_argument("--lookback", type=int, default=50, help="Candles for the first low/high (default 50)")
+    parser.add_argument("--max-setup-bars", type=int, default=50, help="Drop a setup this many candles after its first low/high")
     parser.add_argument("--stop-buffer-ticks", type=int, default=2)
     parser.add_argument("--contracts", type=int, default=1)
     parser.add_argument("--daily-loss-limit", type=float, default=1000.0)
     parser.add_argument("--max-daily-trades", type=int, default=3)
-    parser.add_argument("--target-r", type=float, default=1.0)
+    parser.add_argument("--target-r", type=float, default=3.0)
     parser.add_argument("--out-prefix", default="trades_rsi8020", help="Per-timeframe trade logs go to <prefix>_<tf>.csv")
     parser.add_argument("--summary-out", default="rsi8020_comparison.csv")
     args = parser.parse_args()
@@ -43,6 +45,8 @@ def main() -> None:
             rsi_length=args.rsi_length,
             overbought=args.overbought,
             oversold=args.oversold,
+            lookback=args.lookback,
+            max_setup_bars=args.max_setup_bars,
             stop_buffer_ticks=args.stop_buffer_ticks,
             target_r=args.target_r,
         )

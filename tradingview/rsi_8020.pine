@@ -1,35 +1,37 @@
 //@version=6
-// RSI 80-20 mean-reversion strategy, ported from rsi_8020/strategy.py.
-// Fires TradersPost-format webhook alerts. Runs on whatever timeframe the
-// chart is set to (single timeframe, no higher-timeframe bias).
+// RSI 80-20 divergence strategy, ported from rsi_8020/strategy.py.
+// Fires TradersPost-format webhook alerts. Runs on the chart's timeframe.
 //
-// Rules (long case; short is the exact mirror at the 80 level):
-//   1. RSI drops below the oversold level (default 20). Track the lowest low
-//      reached while RSI stays below it.
-//   2. Entry fires on the bar close where RSI crosses back up through 20.
-//   3. Stop = that excursion's lowest low (including the cross bar) minus
-//      a tick buffer. Target = targetR * risk.
-//   4. A pending excursion is cleared at each new New York session day, so a
-//      stop is never anchored to a prior day's extreme. RSI itself runs
-//      continuously (ta.rsi), same as the Python version.
-//
-// Backtested in Python on ~10 years of 15m ES (see README): the plain rules
-// had no edge there (profit factor < 1 on 15m/30m/1h). Treat this as a
-// starting point to add filters to, not something to run live as-is.
+// Rules (long case; short is the exact mirror: 50-candle high, RSI > 80,
+// higher high with lower RSI, close below the first candle's low):
+//   1. First low: a candle makes the lowest low of the last 50 candles while
+//      RSI is below 20. Remember its low, its high and its RSI.
+//   2. Second low: a later candle makes a low BELOW the first low, but with
+//      a HIGHER RSI than the first low had (bullish divergence). A lower low
+//      without a higher RSI just replaces the first low. Further lower lows
+//      that keep the divergence extend the second low.
+//   3. Entry: a later candle closes above the first low candle's high.
+//   4. Stop: below the lowest low made after the first low (the second low),
+//      minus a tick buffer.
+//   5. Target: targetR * risk (default 3R).
+// A setup with no entry within "Max setup candles" of its first low is dropped.
 //
 // Alerting: create the TradingView alert with condition "Any alert()
 // function call", webhook URL = your TradersPost strategy's webhook URL
 // (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
 
-strategy("RSI 80-20", overlay=true, initial_capital=50000,
+strategy("RSI 80-20 Divergence", overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
 
 // ---- Inputs ----
 rsiLength        = input.int(14, "RSI length", minval=1)
 overbought       = input.float(80.0, "Overbought level", minval=1, maxval=99)
 oversold         = input.float(20.0, "Oversold level", minval=1, maxval=99)
+lookback         = input.int(50, "Lookback candles (first low/high)", minval=2)
+maxSetupBars     = input.int(50, "Max setup candles", minval=1)
 stopBufferTicks  = input.int(2, "Stop buffer (ticks)", minval=0)
-targetR          = input.float(1.0, "Target R multiple")
+targetR          = input.float(3.0, "Target R multiple")
+intradayOnly     = input.bool(true, "Intraday only (entry window + flatten)")
 entrySession     = input.session("0930-1545", "Entry window (America/New_York)")
 flattenSession   = input.session("1555-1600", "Flatten window (America/New_York)")
 riskPerTradeUsd  = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
@@ -37,54 +39,89 @@ pointValueUsd    = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", m
 maxContracts     = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
 
 // ---- Session gating (explicit America/New_York) ----
-inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
-inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+inEntryWindow   = not intradayOnly or not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = intradayOnly and not na(time(timeframe.period, flattenSession, "America/New_York"))
 
-nyYear  = year(time, "America/New_York")
-nyMonth = month(time, "America/New_York")
-nyDay   = dayofmonth(time, "America/New_York")
-newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
-
-// ---- RSI + excursion tracking ----
-rsi     = ta.rsi(close, rsiLength)
-prevRsi = rsi[1]
+// ---- Core series ----
+rsi        = ta.rsi(close, rsiLength)
+is50Low    = low  <= ta.lowest(low, lookback)    // includes the current candle
+is50High   = high >= ta.highest(high, lookback)
 stopBuffer = stopBufferTicks * syminfo.mintick
 
-var string excDir     = na   // "long" = oversold excursion, "short" = overbought
-var float  excExtreme = na
-
-if newDay
-    excDir     := na
-    excExtreme := na
+// ---- Setup state ----
+var string setupDir        = na     // "long" / "short"
+var float  firstExt        = na     // first low (long) / first high (short)
+var float  firstRsi        = na
+var float  trigger         = na     // first candle's high (long) / low (short)
+var float  secondExt       = na     // lowest divergent low / highest divergent high
+var bool   secondConfirmed = false
+var int    barsSince       = 0
 
 longSignal  = false
 shortSignal = false
+triggered   = false
 float sigEntry  = na
 float sigStop   = na
 float sigTarget = na
 
 if not na(rsi)
-    if rsi < oversold
-        excExtreme := excDir == "long" ? math.min(excExtreme, low) : low
-        excDir     := "long"
-    else if rsi > overbought
-        excExtreme := excDir == "short" ? math.max(excExtreme, high) : high
-        excDir     := "short"
-    else
-        if excDir == "long" and prevRsi < oversold
-            sigStop := math.min(excExtreme, low) - stopBuffer
-            if close > sigStop
-                longSignal := true
-                sigEntry   := close
+    if not na(setupDir)
+        barsSince += 1
+        isLong = setupDir == "long"
+
+        // Entry uses only state from earlier candles: the second low must
+        // have already closed before a later candle can trigger.
+        if secondConfirmed and (isLong ? close > trigger : close < trigger)
+            triggered := true
+            sigEntry  := close
+            if isLong
+                sigStop    := math.min(secondExt, low) - stopBuffer
                 sigTarget  := close + (close - sigStop) * targetR
-        else if excDir == "short" and prevRsi > overbought
-            sigStop := math.max(excExtreme, high) + stopBuffer
-            if close < sigStop
-                shortSignal := true
-                sigEntry    := close
+                longSignal := close > sigStop
+            else
+                sigStop     := math.max(secondExt, high) + stopBuffer
                 sigTarget   := close - (sigStop - close) * targetR
-        excDir     := na
-        excExtreme := na
+                shortSignal := close < sigStop
+            setupDir := na
+        else
+            replaced = false
+            if isLong ? low < firstExt : high > firstExt
+                ext = isLong ? low : high
+                if isLong ? rsi > firstRsi : rsi < firstRsi
+                    secondExt := na(secondExt) ? ext : isLong ? math.min(secondExt, ext) : math.max(secondExt, ext)
+                else
+                    // Deeper extreme without divergence -> new first low/high.
+                    firstExt        := ext
+                    firstRsi        := rsi
+                    trigger         := isLong ? high : low
+                    secondExt       := na
+                    secondConfirmed := false
+                    barsSince       := 0
+                    replaced        := true
+            if not replaced
+                if not na(secondExt)
+                    secondConfirmed := true
+                if barsSince >= maxSetupBars
+                    setupDir := na
+
+    // No setup in progress (or it just expired): look for a fresh first low/high.
+    if na(setupDir) and not triggered
+        if is50Low and rsi < oversold
+            setupDir        := "long"
+            firstExt        := low
+            firstRsi        := rsi
+            trigger         := high
+            secondExt       := na
+            secondConfirmed := false
+            barsSince       := 0
+        else if is50High and rsi > overbought
+            setupDir        := "short"
+            firstExt        := high
+            firstRsi        := rsi
+            trigger         := low
+            secondExt       := na
+            secondConfirmed := false
+            barsSince       := 0
 
 // ---- Position sizing ----
 riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
@@ -121,6 +158,7 @@ if inFlattenWindow and strategy.position_size != 0
     alert(flattenMsg, alert.freq_once_per_bar_close)
 
 // ---- Visuals ----
-bgcolor(excDir == "long" ? color.new(color.green, 92) : excDir == "short" ? color.new(color.red, 92) : na)
+plot(not na(setupDir) ? trigger : na, "Entry trigger (first candle high/low)", color=color.new(color.gray, 20), style=plot.style_linebr, linewidth=2)
+plot(not na(setupDir) ? secondExt : na, "Stop level (second low/high)", color=color.new(color.red, 20), style=plot.style_linebr, linewidth=2)
 plotshape(finalLongSignal,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.small)
 plotshape(finalShortSignal, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.small)

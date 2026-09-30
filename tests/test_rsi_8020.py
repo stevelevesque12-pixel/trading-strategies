@@ -11,14 +11,8 @@ from rsi_8020.strategy import RSI8020Strategy, WilderRSI
 
 from backtest.engine import BacktestEngine
 
-T0 = datetime(2026, 1, 5, 9, 30)  # within default session window
-
-
-def bar(i, c, h=None, l=None, o=None, day_offset=0):
-    o = c if o is None else o
-    h = max(o, c) + 0.25 if h is None else h
-    l = min(o, c) - 0.25 if l is None else l
-    return Bar(T0 + timedelta(days=day_offset, minutes=5 * i), o, h, l, c, 1.0)
+T0 = datetime(2026, 1, 5, 10, 0)  # within default session window
+LOOKBACK = 5
 
 
 def _reference_rsi(closes, n):
@@ -62,87 +56,142 @@ def test_wilder_rsi_extremes():
     assert v == 0.0
 
 
-def _feed(strat, bars):
-    return [s for s in (strat.on_entry_bar(b) for b in bars) if s is not None]
+class _ScriptedRSI:
+    """Replays a fixed RSI series so each test controls divergence exactly."""
+
+    def __init__(self, values):
+        self._values = iter(values)
+        self.value = None
+
+    def update(self, close):
+        self.value = next(self._values)
+        return self.value
 
 
-def _selloff_then_bounce():
-    # Flat-ish warmup, hard selloff (RSI < 20), then a bounce that takes RSI back over 20.
-    closes = [100, 100.5, 100, 100.5, 100, 100.5]  # warmup (length=3)
-    closes += [99, 97, 95, 93]  # selloff
-    closes += [96]  # bounce: cross back above 20
-    bars = [bar(i, c) for i, c in enumerate(closes)]
-    bars[8] = bar(8, 95, l=94.0)  # wick sets the excursion low
-    return bars
+def _run(rows, **kwargs):
+    """rows: (high, low, close, rsi) per candle. Returns [(index, signal)]."""
+    strat = RSI8020Strategy(tick_size=0.25, lookback=LOOKBACK, stop_buffer_ticks=2, target_r=3.0, **kwargs)
+    strat.rsi = _ScriptedRSI([r[3] for r in rows])
+    out = []
+    for i, (h, l, c, _) in enumerate(rows):
+        s = strat.on_entry_bar(Bar(T0 + timedelta(minutes=5 * i), c, h, l, c, 1.0))
+        if s is not None:
+            out.append((i, s))
+    return out
 
 
-def test_long_signal_on_cross_back_above_oversold():
-    strat = RSI8020Strategy(tick_size=0.25, rsi_length=3, stop_buffer_ticks=2, target_r=2.0)
-    bars = _selloff_then_bounce()
-    signals = _feed(strat, bars)
+WARMUP = [(102, 100, 101, 50)] * (LOOKBACK - 1)
 
-    assert len(signals) == 1
-    s = signals[0]
+# Long textbook case.
+LONG_SETUP = WARMUP + [
+    (100, 95, 96, 15),     # 4: 5-candle low + RSI < 20 -> first low (high=100)
+    (98, 96, 97, 25),      # 5: bounce
+    (97, 93, 94, 30),      # 6: lower low (93 < 95), higher RSI -> divergent second low
+    (99, 94, 98, 40),      # 7: closes 98, not above first candle's high (100) yet
+    (102, 97, 101, 55),    # 8: closes above 100 -> ENTRY
+]
+
+
+def test_long_divergence_entry():
+    signals = _run(LONG_SETUP)
+    assert [i for i, _ in signals] == [8]
+    s = signals[0][1]
     assert s.direction == "long"
-    assert s.timestamp == bars[-1].timestamp
-    assert s.entry_price == 96
-    # lowest low during the excursion (bar 9, 92.75) minus 2 ticks
-    assert s.stop_price == pytest.approx(92.75 - 0.5)
-    risk = s.entry_price - s.stop_price
-    assert s.target_price == pytest.approx(s.entry_price + 2 * risk)
+    assert s.entry_price == 101
+    assert s.stop_price == pytest.approx(93 - 0.5)  # below the second low, 2-tick buffer
+    assert s.target_price == pytest.approx(101 + 3 * (101 - 92.5))
 
 
-def test_no_signal_while_still_oversold():
-    strat = RSI8020Strategy(tick_size=0.25, rsi_length=3)
-    assert _feed(strat, _selloff_then_bounce()[:-1]) == []
-    assert strat.rsi.value < 20
+def test_no_entry_without_divergence():
+    rows = list(LONG_SETUP)
+    rows[6] = (97, 93, 94, 10)  # lower low but *lower* RSI -> becomes the new first low (high 97)
+    rows[8] = (99, 96, 98.5, 55)  # closes above the new first candle's high (97)...
+    # ...but there has been no divergent second low since, so still no trade.
+    assert _run(rows) == []
 
 
-def test_short_signal_is_mirror():
-    closes = [100, 99.5, 100, 99.5, 100, 99.5, 101, 103, 105, 107, 104]
-    bars = [bar(i, c) for i, c in enumerate(closes)]
-    strat = RSI8020Strategy(tick_size=0.25, rsi_length=3, stop_buffer_ticks=2)
-    signals = _feed(strat, bars)
+def test_no_entry_without_second_low():
+    rows = WARMUP + [
+        (100, 95, 96, 15),   # first low
+        (99, 96, 98, 30),
+        (103, 97, 102, 60),  # closes above first high, but price never undercut 95
+    ]
+    assert _run(rows) == []
 
+
+def test_first_low_requires_rsi_below_20():
+    rows = list(LONG_SETUP)
+    rows[4] = (100, 95, 96, 25)  # 50-candle low but RSI not oversold
+    assert _run(rows) == []
+
+
+def test_first_low_requires_lookback_low():
+    rows = list(LONG_SETUP)
+    rows[0] = (102, 94, 101, 50)  # an earlier candle already went lower than candle 4
+    assert _run(rows) == []
+
+
+def test_second_low_and_entry_cannot_be_same_candle():
+    rows = WARMUP + [
+        (100, 95, 96, 15),
+        (98, 96, 97, 25),
+        (103, 93, 102, 40),  # undercuts 95 with higher RSI AND closes above 100 in one candle
+        (104, 101, 103, 60),  # next candle also closes above 100 -> this is the entry
+    ]
+    assert [i for i, _ in _run(rows)] == [7]
+
+
+def test_stop_uses_lowest_divergent_low():
+    rows = list(LONG_SETUP)
+    rows.insert(7, (95, 91, 92, 35))  # an even lower low, still divergent vs first (15)
+    signals = _run(rows)
     assert len(signals) == 1
-    s = signals[0]
+    assert signals[0][1].stop_price == pytest.approx(91 - 0.5)
+
+
+def test_setup_expires():
+    rows = LONG_SETUP[:7] + [(99, 94, 98, 40)] * 10 + [(102, 97, 101, 55)]
+    assert _run(rows, max_setup_bars=5) == []
+    assert len(_run(rows, max_setup_bars=50)) == 1
+
+
+def test_short_is_mirror():
+    warm = [(100, 98, 99, 50)] * (LOOKBACK - 1)
+    rows = warm + [
+        (105, 100, 104, 85),  # 5-candle high + RSI > 80 -> first high (low=100)
+        (104, 102, 103, 75),
+        (107, 103, 106, 70),  # higher high, lower RSI -> divergence
+        (106, 101, 102, 60),  # 102 not below 100
+        (103, 98, 99, 45),    # closes below 100 -> ENTRY
+    ]
+    signals = _run(rows)
+    assert [i for i, _ in signals] == [8]
+    s = signals[0][1]
     assert s.direction == "short"
-    assert s.entry_price == 104
-    assert s.stop_price == pytest.approx(max(b.high for b in bars[6:]) + 0.5)
-    assert s.target_price == pytest.approx(104 - (s.stop_price - 104))
+    assert s.stop_price == pytest.approx(107 + 0.5)
+    assert s.target_price == pytest.approx(99 - 3 * (107.5 - 99))
 
 
 def test_no_signal_outside_entry_window():
-    # Same price path, but every bar after no_entry_after.
-    bars = [Bar(datetime(2026, 1, 5, 15, 46) + timedelta(seconds=10 * i), b.open, b.high, b.low, b.close, b.volume)
-            for i, b in enumerate(_selloff_then_bounce())]
-    strat = RSI8020Strategy(tick_size=0.25, rsi_length=3)
-    assert _feed(strat, bars) == []
+    strat = RSI8020Strategy(tick_size=0.25, lookback=LOOKBACK)
+    strat.rsi = _ScriptedRSI([r[3] for r in LONG_SETUP])
+    late = datetime(2026, 1, 5, 15, 46)
+    for i, (h, l, c, _) in enumerate(LONG_SETUP):
+        assert strat.on_entry_bar(Bar(late + timedelta(seconds=10 * i), c, h, l, c, 1.0)) is None
 
 
-def test_excursion_cleared_on_new_session_day():
-    strat = RSI8020Strategy(tick_size=0.25, rsi_length=3)
-    bars = _selloff_then_bounce()
-    _feed(strat, bars[:-1])
-    assert strat._excursion is not None
-
-    # Next day's first bar clears the pending setup even though RSI is continuous.
-    # RSI is still oversold, so a fresh excursion starts from this bar alone.
-    strat.on_entry_bar(bar(0, 93, l=92.9, day_offset=1))
-    assert strat.rsi.value < 20
-    assert strat._excursion.extreme == 92.9
-
-
-def test_invalid_levels_rejected():
+def test_invalid_params_rejected():
     with pytest.raises(ValueError):
         RSI8020Strategy(overbought=20, oversold=80)
+    with pytest.raises(ValueError):
+        RSI8020Strategy(lookback=1)
 
 
 def test_runs_in_backtest_engine(tmp_path):
     rng = random.Random(11)
     rows = ["timestamp,open,high,low,close,volume"]
     price = 5000.0
-    for d in range(5):
+    for d in range(10):
         t = datetime(2026, 1, 5 + d, 9, 30)
         for m in range(390):
             o = price
@@ -154,7 +203,7 @@ def test_runs_in_backtest_engine(tmp_path):
 
     instrument = INSTRUMENTS["MES"]
     engine = BacktestEngine(
-        pair=TimeframePair("rsi-5min", "5min", "5min"),
+        pair=TimeframePair("rsi-1min", "1min", "1min"),
         instrument=instrument,
         strategy=RSI8020Strategy(tick_size=instrument.tick_size),
         risk=RiskManager(daily_loss_limit=1e9, max_daily_trades=100),

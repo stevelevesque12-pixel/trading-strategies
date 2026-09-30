@@ -1,0 +1,28 @@
+//@version=6
+// 50-candle high/low indicator.
+//
+// Plots the highest high and lowest low of the last N candles (default 50,
+// current candle included) and marks each candle that sets a new N-candle
+// low or high -- step 1 of the RSI 80-20 strategy
+// (tradingview/rsi_8020.pine), usable on its own on any chart/timeframe.
+
+indicator("50-Candle High/Low", overlay=true)
+
+lookback  = input.int(50, "Lookback candles", minval=2)
+showLines = input.bool(true, "Show high/low lines")
+showMarks = input.bool(true, "Mark new 50-candle lows/highs")
+
+hh = ta.highest(high, lookback)
+ll = ta.lowest(low, lookback)
+
+isNewLow  = low  <= ll
+isNewHigh = high >= hh
+
+plot(showLines ? hh : na, "50-candle high", color=color.new(color.red, 30),   linewidth=2)
+plot(showLines ? ll : na, "50-candle low",  color=color.new(color.green, 30), linewidth=2)
+
+plotshape(showMarks and isNewLow,  "New 50-candle low",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(showMarks and isNewHigh, "New 50-candle high", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.tiny)
+
+alertcondition(isNewLow,  "New 50-candle low",  "{{ticker}} made a new 50-candle low at {{low}}")
+alertcondition(isNewHigh, "New 50-candle high", "{{ticker}} made a new 50-candle high at {{high}}")
