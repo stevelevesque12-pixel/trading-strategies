@@ -57,6 +57,32 @@ Reproduce: `python -m macd_cross.run_timeframes --mode {24h,rth} [--common-windo
 - Samples are short (3.5 weeks for 1m–4m) and cover one market regime.
   Treat this as a screen, not a verdict.
 
+## + Confluence: 200-EMA trend filter
+
+Buy crosses count only when the signal bar closes above EMA(200), sell
+crosses only when it closes below. A cross against the trend closes the
+open position but doesn't reverse it (you go flat).
+`python -m macd_cross.run_timeframes --mode rth --trend-ema 200`
+
+Same data windows as the first table.
+
+| TF | 24h trades | 24h net | 24h PF | RTH trades | RTH net | RTH PF | RTH max DD | Base RTH PF |
+|---|---|---|---|---|---|---|---|---|
+| 1m | 970 | -4,510 | 0.45 | 275 | -1,586 | 0.50 | 1,809 | 0.49 |
+| 2m | 537 | -2,376 | 0.58 | 134 | -197 | 0.88 | 538 | 0.75 |
+| 3m | 343 | -1,458 | 0.67 | 85 | -140 | 0.89 | 388 | 0.71 |
+| 4m | 244 | -768 | 0.77 | 56 | -14 | 0.98 | 255 | 0.77 |
+| 5m | 878 | -4,485 | 0.76 | 217 | **+213** | **1.03** | 1,291 | 0.94 |
+| 10m | 411 | -1,248 | 0.89 | 116 | **+260** | **1.06** | 911 | 0.95 |
+| 15m | 855 | -5,613 | 0.83 | 253 | -799 | 0.93 | 2,985 | 0.92 |
+
+- In RTH the filter roughly halves the number of trades and improves PF on
+  every timeframe from 2m up. 5m and 10m turn slightly positive after costs.
+- The edge is thin (about $1–2 per trade, PF 1.03–1.06) and comes from ~3.5
+  months of data. That's well within noise; don't read it as a real edge
+  without a longer test.
+- 24h is still negative everywhere.
+
 ## 15s / 30s / 45s: not tested
 
 The repo has no sub-minute MES data (the finest file is 1m), and splitting

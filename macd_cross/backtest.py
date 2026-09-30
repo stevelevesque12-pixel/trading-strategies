@@ -14,6 +14,11 @@ Session modes
 - "rth": intraday only. Entries only on signals from bars that close in
   [09:30, 15:45) ET; any open position is flattened at the open of the
   first bar at/after 15:55 ET (or the last bar of the day if none).
+
+Confluence (optional, `trend_ema` > 0): a cross only opens a position in
+the direction of the trend, i.e. buy crosses need close > EMA(trend_ema)
+and sell crosses need close < EMA(trend_ema) on the signal bar. A cross
+against the trend still exits an open position, it just doesn't reverse.
 """
 
 from dataclasses import dataclass
@@ -67,9 +72,11 @@ def run_backtest(
     costs: CostModel = CostModel(),
     rules: SessionRules = SessionRules(),
     contracts: int = 1,
+    trend_ema: int = 0,
 ) -> List[Trade]:
     """`bars` must be indexed by bar *open* time in America/New_York."""
     signals = crossover_signals(bars["close"], params).to_numpy()
+    entry_ok = trend_filter(bars["close"], signals, trend_ema)
     opens = bars["open"].to_numpy()
     closes = bars["close"].to_numpy()
     idx = bars.index
@@ -106,14 +113,16 @@ def run_backtest(
         s = signals[i - 1]
         if s == 0 or s == pos:
             continue
+        blocked = not entry_ok[i - 1]
         if rth:
             ct = close_times[i - 1].time()
-            if not (rules.entry_start < ct <= rules.entry_end) or t.time() >= rules.flatten_at \
-                    or t.date() != idx[i - 1].date():
-                # Outside the entry window: still honour an exit signal.
-                if pos != 0 and s == -pos:
-                    close_pos(opens[i], t, "signal_exit")
-                continue
+            blocked = blocked or not (rules.entry_start < ct <= rules.entry_end) \
+                or t.time() >= rules.flatten_at or t.date() != idx[i - 1].date()
+        if blocked:
+            # Entry not allowed (outside window / against trend): still honour the exit.
+            if pos != 0 and s == -pos:
+                close_pos(opens[i], t, "signal_exit")
+            continue
         if pos != 0:
             close_pos(opens[i], t, "reverse")
         pos, entry_px, entry_t = s, opens[i], t
@@ -121,6 +130,19 @@ def run_backtest(
     if pos != 0:
         close_pos(closes[-1], idx[-1] + bar_len, "end_of_data")
     return trades
+
+
+def trend_filter(close: pd.Series, signals, trend_ema: int):
+    """True where a signal may open a position; all True when the filter is off."""
+    import numpy as np
+
+    if trend_ema <= 0:
+        return np.ones(len(close), dtype=bool)
+    ema = close.ewm(span=trend_ema, adjust=False).mean().to_numpy()
+    c = close.to_numpy()
+    ok = ((signals == 1) & (c > ema)) | ((signals == -1) & (c < ema))
+    ok[:trend_ema] = False  # EMA still warming up
+    return ok
 
 
 def metrics(trades: List[Trade], days: int) -> dict:

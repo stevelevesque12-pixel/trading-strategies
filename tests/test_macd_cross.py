@@ -65,3 +65,17 @@ def test_rth_mode_flattens_same_day():
         assert t.entry_time.date() == t.exit_time.date()
         assert pd.Timestamp("09:30").time() <= t.entry_time.time() < pd.Timestamp("15:55").time()
         assert t.exit_time.time() <= pd.Timestamp("15:55").time()
+
+
+def test_trend_filter_blocks_countertrend_entries():
+    rng = np.random.default_rng(2)
+    bars = _bars(5000 + rng.standard_normal(3000).cumsum(), start="2026-08-03 00:00")
+    inst = INSTRUMENTS["MES"]
+    ema = bars["close"].ewm(span=200, adjust=False).mean()
+    base = run_backtest(bars, pd.Timedelta("1min"), inst)
+    filt = run_backtest(bars, pd.Timedelta("1min"), inst, trend_ema=200)
+    assert 0 < len(filt) < len(base)
+    for t in filt:
+        sig_bar = bars.index.get_loc(t.entry_time) - 1
+        c, e = bars["close"].iloc[sig_bar], ema.iloc[sig_bar]
+        assert (c > e) if t.direction == 1 else (c < e)
