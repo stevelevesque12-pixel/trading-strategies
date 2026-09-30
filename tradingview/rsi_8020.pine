@@ -1,6 +1,8 @@
 //@version=6
 // RSI 80-20 divergence strategy, ported from rsi_8020/strategy.py.
-// Fires TradersPost-format webhook alerts. Runs on the chart's timeframe.
+// Fires TradersPost-format webhook alerts. No session filter or forced
+// flatten -- it trades around the clock on whatever timeframe the chart is
+// set to, and a trade stays open until its stop or target is hit.
 //
 // Rules (long case; short is the exact mirror: 50-candle high, RSI > 80,
 // higher high with lower RSI, close below the first candle's low):
@@ -31,16 +33,9 @@ lookback         = input.int(50, "Lookback candles (first low/high)", minval=2)
 maxSetupBars     = input.int(50, "Max setup candles", minval=1)
 stopBufferTicks  = input.int(2, "Stop buffer (ticks)", minval=0)
 targetR          = input.float(3.0, "Target R multiple")
-intradayOnly     = input.bool(true, "Intraday only (entry window + flatten)")
-entrySession     = input.session("0930-1545", "Entry window (America/New_York)")
-flattenSession   = input.session("1555-1600", "Flatten window (America/New_York)")
 riskPerTradeUsd  = input.float(100.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
 pointValueUsd    = input.float(5.0, "Point value (USD/point) -- MES=5, MNQ=2", minval=0.01, group="Position sizing")
 maxContracts     = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
-
-// ---- Session gating (explicit America/New_York) ----
-inEntryWindow   = not intradayOnly or not na(time(timeframe.period, entrySession, "America/New_York"))
-inFlattenWindow = intradayOnly and not na(time(timeframe.period, flattenSession, "America/New_York"))
 
 // ---- Core series ----
 rsi        = ta.rsi(close, rsiLength)
@@ -127,8 +122,8 @@ if not na(rsi)
 riskPerContract = longSignal ? (sigEntry - sigStop) * pointValueUsd : shortSignal ? (sigStop - sigEntry) * pointValueUsd : na
 qty = (not na(riskPerContract) and riskPerContract > 0) ? math.max(1, math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts)) : 0
 
-finalLongSignal  = longSignal  and qty > 0 and inEntryWindow and strategy.position_size == 0
-finalShortSignal = shortSignal and qty > 0 and inEntryWindow and strategy.position_size == 0
+finalLongSignal  = longSignal  and qty > 0 and strategy.position_size == 0
+finalShortSignal = shortSignal and qty > 0 and strategy.position_size == 0
 
 // ---- Fire entries + TradersPost webhook alerts ----
 if finalLongSignal
@@ -150,12 +145,6 @@ if finalShortSignal
          ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sigStop) + '}' +
          ',"takeProfit":{"limitPrice":' + str.tostring(sigTarget) + '}}'
     alert(shortMsg, alert.freq_once_per_bar_close)
-
-// ---- Session flatten ----
-if inFlattenWindow and strategy.position_size != 0
-    strategy.close_all(comment="session_flatten")
-    flattenMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
-    alert(flattenMsg, alert.freq_once_per_bar_close)
 
 // ---- Visuals ----
 plot(not na(setupDir) ? trigger : na, "Entry trigger (first candle high/low)", color=color.new(color.gray, 20), style=plot.style_linebr, linewidth=2)

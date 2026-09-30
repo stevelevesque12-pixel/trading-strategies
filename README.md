@@ -58,7 +58,8 @@ Result on that 10-year ES file at 3R: 15m 259 trades PF 1.11 (+$10.8k),
 intraday-only, and on 15m ~65% of trades are closed by the 15:55 flatten
 (only 9 of 259 reached 3R) -- so this measures "divergence entry held to
 end of day" more than the multi-day 3R swing the rules were written for.
-The Pine script has an "Intraday only" toggle to run it as a swing trade.
+The Pine script has no session filter or flatten: it runs on whatever
+timeframe the chart is set to and holds each trade to its stop or target.
 
 ## Strategy logic (Failed-2s)
 
