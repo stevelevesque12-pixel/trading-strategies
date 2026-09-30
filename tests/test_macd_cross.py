@@ -79,3 +79,32 @@ def test_trend_filter_blocks_countertrend_entries():
         sig_bar = bars.index.get_loc(t.entry_time) - 1
         c, e = bars["close"].iloc[sig_bar], ema.iloc[sig_bar]
         assert (c > e) if t.direction == 1 else (c < e)
+
+
+def test_session_vwap_resets_daily_and_matches_manual():
+    from macd_cross.backtest import session_vwap
+
+    bars = _bars(np.arange(2 * 1440, dtype=float) % 50 + 100, start="2026-08-03 00:00")
+    bars["volume"] = np.arange(len(bars)) % 7 + 1.0
+    v = session_vwap(bars)
+    day1 = bars[(bars.index.date == bars.index[0].date()) & (bars.index.time >= pd.Timestamp("09:30").time())]
+    tp = (day1.high + day1.low + day1.close) / 3
+    manual = (tp * day1.volume).cumsum() / day1.volume.cumsum()
+    assert np.allclose(v[bars.index.get_indexer(day1.index)], manual)
+    assert np.isnan(v[bars.index.get_loc(pd.Timestamp("2026-08-04 09:29", tz="America/New_York"))])
+    first_day2 = bars.index.get_loc(pd.Timestamp("2026-08-04 09:30", tz="America/New_York"))
+    assert np.isclose(v[first_day2], (bars.high + bars.low + bars.close).iloc[first_day2] / 3)
+
+
+def test_vwap_filter_entries_on_correct_side():
+    from macd_cross.backtest import session_vwap
+
+    rng = np.random.default_rng(3)
+    bars = _bars(5000 + rng.standard_normal(3 * 1440).cumsum(), start="2026-08-03 00:00")
+    v = session_vwap(bars)
+    trades = run_backtest(bars, pd.Timedelta("1min"), INSTRUMENTS["MES"], rules=SessionRules(mode="rth"), vwap=True)
+    assert trades
+    for t in trades:
+        i = bars.index.get_loc(t.entry_time) - 1
+        c = bars["close"].iloc[i]
+        assert (c > v[i]) if t.direction == 1 else (c < v[i])

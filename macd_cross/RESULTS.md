@@ -83,6 +83,34 @@ Same data windows as the first table.
   without a longer test.
 - 24h is still negative everywhere.
 
+## + Confluence: session VWAP (RTH only)
+
+Buy crosses count only when the signal bar closes above session VWAP
+(anchored at 09:30 ET, reset daily, hlc3 × volume); sell crosses only
+when it closes below. Crosses on the wrong side of VWAP close the open
+position (go flat) but don't reverse it.
+`python -m macd_cross.run_timeframes --mode rth --vwap`
+
+| TF | Trades | Win % | Net | PF | Max DD | Base PF | EMA200 PF |
+|---|---|---|---|---|---|---|---|
+| 1m | 288 | 27.1 | -1,842 | 0.48 | 2,065 | 0.49 | 0.50 |
+| 2m | 146 | 32.2 | -396 | 0.80 | 736 | 0.75 | 0.88 |
+| 3m | 97 | 30.9 | -335 | 0.81 | 664 | 0.71 | 0.89 |
+| 4m | 64 | 35.9 | -214 | 0.83 | 570 | 0.77 | 0.98 |
+| 5m | 258 | 37.2 | -620 | 0.93 | 1,997 | 0.94 | 1.03 |
+| 10m | 157 | 37.6 | -693 | 0.89 | 1,763 | 0.95 | 1.06 |
+| 15m | 372 | 36.3 | -2,129 | 0.88 | 3,613 | 0.92 | 0.93 |
+
+- VWAP is negative after costs on every timeframe.
+- It helps a bit on 2m–4m (PF +0.05 to +0.10 vs base) but does nothing
+  for 5m–15m, where it's slightly worse than base.
+- The 200-EMA filter beats VWAP on every timeframe.
+- Why, probably: early in the session VWAP sits right on top of price, so
+  it doesn't separate trend from chop in the first hour, which is when
+  most of the crosses happen.
+- On the common Aug 2–25 window, 5m + VWAP was +$178 (PF 1.17) but on only
+  57 trades; over the full 3.5 months at 5m it's negative.
+
 ## 15s / 30s / 45s: not tested
 
 The repo has no sub-minute MES data (the finest file is 1m), and splitting

@@ -59,6 +59,8 @@ def main() -> None:
     p.add_argument("--signal", type=int, default=9)
     p.add_argument("--trend-ema", type=int, default=0,
                    help="Confluence: only enter with the trend of this EMA (e.g. 200); 0 = base strategy")
+    p.add_argument("--vwap", action="store_true",
+                   help="Confluence: only enter on the matching side of session VWAP (use with --mode rth)")
     p.add_argument("--commission", type=float, default=0.62, help="$ per contract per side")
     p.add_argument("--slippage-ticks", type=float, default=1.0, help="ticks per side")
     p.add_argument("--out", default="macd_timeframes.csv")
@@ -87,7 +89,7 @@ def main() -> None:
         if key not in cache:
             cache[key] = load_1m_csv(path)
         bars = resample_ohlc(cache[key], tf_name)
-        trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema)
+        trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema, vwap=args.vwap)
         days = bars.index.normalize().nunique()
         row.update({"source": key, "start": bars.index[0].date(), "end": bars.index[-1].date(), "bars": len(bars)})
         row.update(metrics(trades, days))
@@ -100,7 +102,7 @@ def main() -> None:
     df = pd.DataFrame(rows)
     df.to_csv(args.out, index=False)
     print(f"{args.symbol}  MACD({params.fast},{params.slow},{params.signal})  mode={args.mode}  "
-          f"trend_ema={args.trend_ema or 'off'}  costs/RT=${costs.round_turn(inst):.2f}  common_window={args.common_window}\n")
+          f"trend_ema={args.trend_ema or 'off'}  vwap={args.vwap}  costs/RT=${costs.round_turn(inst):.2f}  common_window={args.common_window}\n")
     with pd.option_context("display.width", 250, "display.max_columns", 50):
         print(df.to_string(index=False))
 

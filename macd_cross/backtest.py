@@ -19,6 +19,9 @@ Confluence (optional, `trend_ema` > 0): a cross only opens a position in
 the direction of the trend, i.e. buy crosses need close > EMA(trend_ema)
 and sell crosses need close < EMA(trend_ema) on the signal bar. A cross
 against the trend still exits an open position, it just doesn't reverse.
+`vwap=True` applies the same rule against the session VWAP (anchored at
+the 09:30 ET open, reset daily, hlc3 x volume) instead of / as well as
+the EMA.
 """
 
 from dataclasses import dataclass
@@ -73,10 +76,13 @@ def run_backtest(
     rules: SessionRules = SessionRules(),
     contracts: int = 1,
     trend_ema: int = 0,
+    vwap: bool = False,
 ) -> List[Trade]:
     """`bars` must be indexed by bar *open* time in America/New_York."""
     signals = crossover_signals(bars["close"], params).to_numpy()
     entry_ok = trend_filter(bars["close"], signals, trend_ema)
+    if vwap:
+        entry_ok &= line_filter(bars["close"].to_numpy(), signals, session_vwap(bars, rules.entry_start))
     opens = bars["open"].to_numpy()
     closes = bars["close"].to_numpy()
     idx = bars.index
@@ -139,10 +145,33 @@ def trend_filter(close: pd.Series, signals, trend_ema: int):
     if trend_ema <= 0:
         return np.ones(len(close), dtype=bool)
     ema = close.ewm(span=trend_ema, adjust=False).mean().to_numpy()
-    c = close.to_numpy()
-    ok = ((signals == 1) & (c > ema)) | ((signals == -1) & (c < ema))
+    ok = line_filter(close.to_numpy(), signals, ema)
     ok[:trend_ema] = False  # EMA still warming up
     return ok
+
+
+def line_filter(close, signals, line):
+    """Buy signals need close above `line`, sell signals close below (NaN line blocks)."""
+    return ((signals == 1) & (close > line)) | ((signals == -1) & (close < line))
+
+
+def session_vwap(bars: pd.DataFrame, anchor: time = time(9, 30)):
+    """
+    VWAP anchored at `anchor` each calendar day, using each bar's hlc3 and
+    volume. Includes the current bar (known at its close). NaN before the
+    anchor or while no volume has traded.
+    """
+    import numpy as np
+
+    in_session = bars.index.time >= anchor
+    tp = (bars["high"] + bars["low"] + bars["close"]) / 3
+    vol = bars["volume"].where(in_session, 0.0)
+    day = bars.index.date
+    cum_pv = (tp * vol).groupby(day).cumsum()
+    cum_v = vol.groupby(day).cumsum()
+    out = (cum_pv / cum_v.replace(0.0, np.nan)).to_numpy(copy=True)
+    out[~in_session] = np.nan
+    return out
 
 
 def metrics(trades: List[Trade], days: int) -> dict:
