@@ -155,6 +155,69 @@ Two readings, both stop-and-reverse, RTH only, same fills/costs as above:
 - Net: nothing here is a demonstrated edge. The best honest summary is that
   zero-line crosses are break-even before being tuned, not profitable.
 
+# MACD Strategy 4: price / MACD divergence (RTH only)
+
+Code: `macd_cross/divergence.py`.
+- Swing low = lowest low of the 3 bars either side (so it's only known 3
+  bars later, and that's when it's used). Swing highs mirror it.
+- Bullish divergence: swing low below the previous swing low while the
+  MACD line at the new swing is higher. Bearish mirrors it. This is the
+  pattern in the ES weekly example (price higher highs, MACD lower highs).
+- **divergence** (raw): enter at the next open once the divergence is known.
+- **divergence_confirmed**: treat it as a warning; enter only on the next
+  MACD/signal cross in that direction within 10 bars.
+- Exits: stop 1 tick beyond the divergence swing, opposite MACD/signal
+  cross, or 15:55 flatten. One position at a time.
+
+`python -m macd_cross.run_timeframes --rule {divergence,divergence_confirmed} --common-window --timeframes 1min,...,10min`
+
+## Same window for all (Aug 2–25 2026)
+
+| TF | Raw trades | Raw net | Raw PF | Confirmed trades | Confirmed net | Confirmed PF |
+|---|---|---|---|---|---|---|
+| 1m | 118 | -718 | 0.49 | 52 | -413 | 0.40 |
+| 2m | 53 | -527 | 0.34 | 22 | -109 | 0.57 |
+| 3m | 42 | -315 | 0.59 | 15 | -22 | 0.91 |
+| 4m | 37 | -147 | 0.75 | 14 | -111 | 0.50 |
+| 5m | 27 | +112 | 1.26 | 6 | -32 | 0.63 |
+| 6m | 20 | +20 | 1.05 | 4 | +34 | 1.75 |
+| 7m | 16 | -40 | 0.88 | 3 | +63 | inf |
+| 8m | 16 | -150 | 0.59 | 5 | -87 | 0.19 |
+| 9m | 13 | -82 | 0.70 | 7 | -89 | 0.18 |
+| 10m | 11 | -55 | 0.77 | 5 | -169 | 0.07 |
+
+## Longer history
+
+| TF (window) | Raw trades | Raw net | Raw PF | Raw max DD | Confirmed trades | Confirmed net | Confirmed PF |
+|---|---|---|---|---|---|---|---|
+| 5m (May–Aug 2026) | 94 | +476 | 1.21 | 580 | 23 | -32 | 0.94 |
+| 10m (May–Aug 2026) | 46 | +315 | 1.26 | 287 | 16 | +143 | 1.29 |
+| 15m (Oct 2025–Aug 2026) | 99 | -159 | 0.96 | 810 | – | – | – |
+
+## Robustness check (raw, net PF by swing width k)
+
+| TF | k=2 | k=3 (default) | k=4 | k=5 |
+|---|---|---|---|---|
+| 5m | 0.85 | 1.21 | 1.37 | 1.19 |
+| 10m | 1.06 | 1.26 | 1.04 | 0.66 |
+| 15m | 1.15 | 0.96 | 0.95 | 0.86 |
+
+(max_gap 30/60/120 made no difference; swings are always closer than 30 bars.)
+
+15m by month (k=3): -25, -180, -384, +155, +321, +248, +184, +143, -449, -62, -110
+(Oct 2025 → Aug 2026). It made money Jan–May and lost the rest.
+
+## Takeaways
+
+- Raw divergence on 5m/10m is the only MACD rule so far that is positive
+  over 3.5 months after costs (PF 1.21 / 1.26), with small drawdowns.
+- It isn't robust yet: the same rule on 11 months of 15m is slightly
+  negative, results swing with the swing width k, and the profitable
+  stretch is concentrated in Jan–May 2026.
+- Waiting for a signal-line cross ("confirmed") cuts trades by ~75% and
+  isn't better. Samples are too small to judge.
+- 1m–4m lose, as with the other MACD rules.
+
 ## 15s / 30s / 45s: not tested
 
 The repo has no sub-minute MES data (the finest file is 1m), and splitting

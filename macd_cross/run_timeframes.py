@@ -25,6 +25,7 @@ import pandas as pd
 from backtest.data import load_1m_csv, resample_ohlc
 from failed2s.instruments import INSTRUMENTS
 
+from .divergence import DivergenceParams, run_divergence_backtest
 from .backtest import CostModel, SessionRules, metrics, run_backtest
 from .strategy import SIGNAL_RULES, MACDParams
 
@@ -54,8 +55,10 @@ def main() -> None:
     p.add_argument("--mode", choices=["24h", "rth"], default="24h")
     p.add_argument("--common-window", action="store_true")
     p.add_argument("--seconds-data", help="Optional sub-minute OHLCV file (CSV/parquet) for 15s/30s/45s")
-    p.add_argument("--rule", choices=list(SIGNAL_RULES), default="signal_cross",
-                   help="signal_cross = Strategy 1; zero_cross / zero_cross_hist = Strategy 2")
+    p.add_argument("--rule", choices=list(SIGNAL_RULES) + ["divergence", "divergence_confirmed"],
+                   default="signal_cross",
+                   help="signal_cross = Strategy 1; zero_cross / zero_cross_hist = Strategy 2; "
+                        "divergence / divergence_confirmed = Strategy 4 (RTH only)")
     p.add_argument("--fast", type=int, default=12)
     p.add_argument("--slow", type=int, default=26)
     p.add_argument("--signal", type=int, default=9)
@@ -69,6 +72,8 @@ def main() -> None:
     p.add_argument("--trades-dir", default=None, help="If set, write per-timeframe trade logs here")
     args = p.parse_args()
 
+    if args.rule.startswith("divergence"):
+        args.mode = "rth"  # Strategy 4 is RTH-only
     inst = INSTRUMENTS[args.symbol]
     params = MACDParams(args.fast, args.slow, args.signal)
     costs = CostModel(args.commission, args.slippage_ticks)
@@ -91,7 +96,12 @@ def main() -> None:
         if key not in cache:
             cache[key] = load_1m_csv(path)
         bars = resample_ohlc(cache[key], tf_name)
-        trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema, vwap=args.vwap, rule=args.rule)
+        if args.rule.startswith("divergence"):
+            div = DivergenceParams(confirm=args.rule == "divergence_confirmed")
+            trades = run_divergence_backtest(bars, tf, inst, params, div, costs, SessionRules(mode="rth"))
+        else:
+            trades = run_backtest(bars, tf, inst, params, costs, rules, trend_ema=args.trend_ema,
+                                  vwap=args.vwap, rule=args.rule)
         days = bars.index.normalize().nunique()
         row.update({"source": key, "start": bars.index[0].date(), "end": bars.index[-1].date(), "bars": len(bars)})
         row.update(metrics(trades, days))

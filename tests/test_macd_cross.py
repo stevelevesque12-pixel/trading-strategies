@@ -133,3 +133,48 @@ def test_zero_cross_hist_requires_both_conditions():
     assert (sig != 0).sum() > 5
     assert ((m["macd"] > 0) & (m["hist"] > 0))[sig == 1].all()
     assert ((m["macd"] < 0) & (m["hist"] < 0))[sig == -1].all()
+
+
+def _div_setup(seed=6, n=4000):
+    rng = np.random.default_rng(seed)
+    close = 5000 + rng.standard_normal(n).cumsum()
+    bars = _bars(close, start="2026-08-03 00:00")
+    bars["high"] = np.maximum(bars["open"], bars["close"]) + 0.5
+    bars["low"] = np.minimum(bars["open"], bars["close"]) - 0.5
+    return bars
+
+
+def test_divergence_definition_and_no_lookahead():
+    from macd_cross.divergence import DivergenceParams, find_divergences
+
+    bars = _div_setup()
+    div = DivergenceParams()
+    sig, stop = find_divergences(bars, div=div)
+    assert (sig == 1).sum() > 3 and (sig == -1).sum() > 3
+    m = macd(bars["close"])["macd"].to_numpy()
+    low, high = bars["low"].to_numpy(), bars["high"].to_numpy()
+    for c in np.flatnonzero(sig):
+        j = c - div.pivot_k  # swing bar
+        window = slice(j - div.pivot_k, j + div.pivot_k + 1)
+        if sig[c] == 1:
+            assert low[j] == low[window].min() and stop[c] == low[j]
+        else:
+            assert high[j] == high[window].max() and stop[c] == high[j]
+    # Truncating the future must not change past signals.
+    cut = 3000
+    sig_cut, _ = find_divergences(bars.iloc[:cut], div=div)
+    assert (sig_cut[: cut - div.pivot_k] == sig[: cut - div.pivot_k]).all()
+
+
+def test_divergence_backtest_respects_stops_and_session():
+    from macd_cross.divergence import DivergenceParams, run_divergence_backtest
+
+    bars = _div_setup(seed=7, n=5 * 1440)
+    for confirm in (False, True):
+        trades = run_divergence_backtest(bars, pd.Timedelta("1min"), INSTRUMENTS["MES"],
+                                         div=DivergenceParams(confirm=confirm))
+        assert trades
+        for t in trades:
+            assert t.entry_time.date() == t.exit_time.date()
+            assert pd.Timestamp("09:30").time() <= t.entry_time.time() < pd.Timestamp("15:55").time()
+            assert t.exit_reason in {"stop", "signal_exit", "session_flatten", "end_of_data"}
