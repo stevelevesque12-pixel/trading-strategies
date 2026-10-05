@@ -69,13 +69,15 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 pos = pending
                 qty = pend_qty
                 entry_px = o[i] + pos * slip
-                stop = entry_px - pos * sl_k * pend_atr
+                # stop / trail distances are whole ticks (truncated), like real stop orders and
+                # TradingView's trail_offset; a fractional-tick stop would dodge touches it shouldn't
+                stop = entry_px - pos * np.floor(sl_k * pend_atr / tick + 1e-9) * tick
                 target = entry_px + pos * tp_k * pend_atr
                 entry_i = i
                 mae = 0.0
                 risk_amt = sl_k * pend_atr * pv * qty
                 reg = pend_reg
-                pos_atr = pend_atr
+                pos_atr = np.floor(trail_k * pend_atr / tick + 1e-9) * tick if trail_k > 0 else 0.0
                 extreme = pos * entry_px  # best price since entry, in favourable coordinates
             pending = 0
 
@@ -102,7 +104,7 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 else:
                     if trail_k > 0 and xf > extreme:
                         extreme = xf
-                        xs = max(xs, extreme - trail_k * pos_atr)
+                        xs = max(xs, extreme - pos_atr)
                     if xa <= xs:
                         reason, xexit = 0, xs
                         worst = xs
@@ -115,7 +117,7 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 else:
                     if trail_k > 0 and xf > extreme:
                         extreme = xf
-                        xs = max(xs, extreme - trail_k * pos_atr)
+                        xs = max(xs, extreme - pos_atr)
                     if xc <= xs:
                         reason, xexit = 0, xs
             stop = xs / pos

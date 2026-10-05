@@ -18,11 +18,13 @@
 //   Sizing          : contracts = risk$ x regime mult x cushion factor / (stop distance x $5 + costs)
 //                     cushion factor = (eval balance - trailing MLL) / $2,000, in quarters, floor 25%
 //
-// Backtest of this exact variant on 10y of ES-as-MES 15m data, fees $2.50 RT + 1 tick slippage:
-// (engine v5: intrabar path model matching TradingView's emulator, trailing stop moves intrabar)
-//   2016-2022 (in-sample):     PF 1.31, win 41%, 750 trades
-//   2023-2026 (out-of-sample): PF 1.32, win 41%, 441 trades
-//   real MES 2025-09..2026-08: PF 1.31, win 39%, 127 trades
+// Backtest of this exact variant on 10y of ES-as-MES 15m data, fees $2.50 RT + 1 tick slippage
+// (engine v6: TradingView's intrabar path rule, intrabar trailing, whole-tick stop distances;
+//  matched this script trade-for-trade on MES1! Oct 2025-Aug 2026: 123 of 126 trades identical)
+//   2016-2022 (in-sample):     PF 1.26, win 40%, 753 trades
+//   2023-2026 (out-of-sample): PF 1.24, win 41%, 442 trades
+//   real MES 2025-09..2026-08: PF 1.17, win 38%, 127 trades (TradingView: PF 1.06 Oct 6-Aug 24,
+//   incl. two holiday trades it held over a weekend - fixed below)
 // If TradingView's tester is far off these on the same dates, check the Properties tab:
 // margin must be 0% and "Recalculate after order is filled" off.
 // It is a thin edge. Validate on TradingView's strategy tester and on a Lucid sim/eval before
@@ -136,12 +138,13 @@ qty = perCt > 0 ? math.min(maxQty, math.floor(riskUsd * mult * cushionF / perCt)
 // ---- Entries ----
 flat = strategy.position_size == 0
 canEnter = flat and inEntry and not inFlat and not dayLocked and qty >= 1
-trailPts = stopK * atr
+// whole ticks, truncated - TradingView's trail_offset is in ticks and the Python engine matches
+trailPts = math.floor(stopK * atr / syminfo.mintick) * syminfo.mintick
 tpPts = tpK * atr
 
 if canEnter and longSig
     strategy.entry("L", strategy.long, qty=qty)
-    strategy.exit("L x", from_entry="L", limit=close + tpPts, trail_points=0, trail_offset=trailPts / syminfo.mintick)
+    strategy.exit("L x", from_entry="L", limit=close + tpPts, trail_points=0, trail_offset=math.round(trailPts / syminfo.mintick))
     msg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
          ',"signalPrice":' + str.tostring(close) +
          (brokerStop == "trailing" ? ',"stopLoss":{"type":"trailing_stop","trailAmount":' + str.tostring(math.round_to_mintick(trailPts)) + '}'
@@ -151,7 +154,7 @@ if canEnter and longSig
 
 if canEnter and shortSig
     strategy.entry("S", strategy.short, qty=qty)
-    strategy.exit("S x", from_entry="S", limit=close - tpPts, trail_points=0, trail_offset=trailPts / syminfo.mintick)
+    strategy.exit("S x", from_entry="S", limit=close - tpPts, trail_points=0, trail_offset=math.round(trailPts / syminfo.mintick))
     msg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(qty) +
          ',"signalPrice":' + str.tostring(close) +
          (brokerStop == "trailing" ? ',"stopLoss":{"type":"trailing_stop","trailAmount":' + str.tostring(math.round_to_mintick(trailPts)) + '}'
@@ -167,7 +170,9 @@ if strategy.position_size > 0 and exitFlip and trend == -1
 if strategy.position_size < 0 and exitFlip and trend == 1
     strategy.close("S", comment="trend_flip")
     alert(exitMsg, alert.freq_once_per_bar_close)
-if inFlat and strategy.position_size != 0
+// Flatten at the cutoff, on the session's last bar (holiday early closes have no 15:55 bar),
+// and as a last resort at the first bar of a new session if anything is still open.
+if (inFlat or session.islastbar or newSession) and strategy.position_size != 0
     strategy.close_all(comment="session_flatten")
     alert(exitMsg, alert.freq_once_per_bar_close)
 

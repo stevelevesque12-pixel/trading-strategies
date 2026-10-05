@@ -94,6 +94,8 @@ def main():
     tv = tv[(tv.entry_time >= pd.Timestamp(a.start, tz="America/New_York")) & (tv.entry_time < pd.Timestamp(a.end, tz="America/New_York"))]
     pf_tv = tv.pnl[tv.pnl > 0].sum() / -tv.pnl[tv.pnl <= 0].sum()
     print(f"\nTradingView same range: {len(tv)} trades, win {np.mean(tv.pnl > 0):.1%}, PF {pf_tv:.2f}, net ${tv.pnl.sum():,.0f}")
+    py = py.assign(entry_time=py.entry_time.astype("datetime64[ns, America/New_York]"))
+    tv = tv.assign(entry_time=tv.entry_time.astype("datetime64[ns, America/New_York]"))
     m = pd.merge_asof(py.sort_values("entry_time"), tv.sort_values("entry_time"), on="entry_time",
                       tolerance=pd.Timedelta("16min"), direction="nearest", suffixes=("_py", "_tv"))
     matched = m.dropna(subset=["pnl_tv"])
