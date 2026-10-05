@@ -77,3 +77,14 @@ def test_trailing_stop_ratchets():
     t = _run(o, h, l, c, [1, 0, 0, 0], tp_k=10.0, trail=1.0)[0]
     assert engine.REASONS[int(t[engine.T_REASON])] == "stop"
     assert t[engine.T_EXIT_I] == 3 and t[engine.T_EXIT_PX] == 106.0 - 0.25
+
+
+def test_trailing_stop_can_hit_same_bar_after_rally():
+    # fill 100.25, atr 4, trail 1.0: bar 2 opens 101, rallies to 110 first (nearer), trail -> 106,
+    # then falls to 104 -> stopped on the same bar at 106 - slip (a real broker trail would do this)
+    o = [100, 100, 101, 104]
+    h = [100, 101, 110, 105]
+    l = [99, 99.5, 104, 103]
+    c = [100, 100, 104.5, 104]
+    t = _run(o, h, l, c, [1, 0, 0, 0], tp_k=10.0, trail=1.0)[0]
+    assert t[engine.T_EXIT_I] == 2 and t[engine.T_EXIT_PX] == 106.0 - 0.25

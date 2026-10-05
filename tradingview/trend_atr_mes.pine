@@ -19,8 +19,12 @@
 //                     cushion factor = (eval balance - trailing MLL) / $2,000, in quarters, floor 25%
 //
 // Backtest of this exact variant on 10y of ES-as-MES 15m data, fees $2.50 RT + 1 tick slippage:
-//   2016-2022 (in-sample):     PF 1.26, win 41%
-//   2023-2026 (out-of-sample): PF 1.33-1.41, win 42%
+// (engine v5: intrabar path model matching TradingView's emulator, trailing stop moves intrabar)
+//   2016-2022 (in-sample):     PF 1.31, win 41%, 750 trades
+//   2023-2026 (out-of-sample): PF 1.32, win 41%, 441 trades
+//   real MES 2025-09..2026-08: PF 1.31, win 39%, 127 trades
+// If TradingView's tester is far off these on the same dates, check the Properties tab:
+// margin must be 0% and "Recalculate after order is filled" off.
 // It is a thin edge. Validate on TradingView's strategy tester and on a Lucid sim/eval before
 // sizing up. TradingView's EMA/RMA seeding and fill model differ slightly from the Python engine.
 //
@@ -33,7 +37,11 @@
 
 strategy("ATR Trend (EMA+DMI+ROC | ER) - MES 15m", overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
-     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1)
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1,
+     pyramiding=0, margin_long=0, margin_short=0)
+// margin_long/short = 0: Pine v6 defaults to 100% margin (full contract notional, ~$39k per MES),
+// which silently shrinks or skips multi-contract orders on a $50k account. Futures margin is
+// tiny by comparison and the prop firm caps size at 40 micros anyway (see Max contracts).
 
 // ---- Inputs ----
 gS = "Signal"
@@ -52,8 +60,9 @@ tpK     = input.float(8.0, "Take-profit (x ATR)", step=0.25, group=gX)
 brokerStop = input.string("trailing", "Broker stop type", options=["trailing", "fixed"], group=gX)
 
 gT = "Session (America/New_York)"
-entryWin = input.session("0945-1200", "Signal-bar close window", group=gT)
-flatWin  = input.session("1555-1700", "Flatten from", group=gT)
+entryFrom = input.int(945, "Signal bar CLOSES at/after (HHMM)", group=gT)
+entryTo   = input.int(1200, "Signal bar CLOSES at/before (HHMM)", group=gT)
+flatAt    = input.int(1555, "Flatten on the bar closing at/after (HHMM)", group=gT)
 
 gR = "Risk (Lucid 50K)"
 riskUsd    = input.float(800, "Risk per trade at full size ($)", group=gR)
@@ -89,8 +98,11 @@ longSig  = longAligned and not longAligned[1]
 shortSig = shortAligned and not shortAligned[1]
 
 // ---- Session ----
-inEntry = not na(time_close(timeframe.period, entryWin, "America/New_York"))
-inFlat  = not na(time_close(timeframe.period, flatWin, "America/New_York"))
+// Windows are tested on the bar's CLOSE time (like the Python engine). input.session / time()
+// match on the bar's OPEN time, which would silently drop the 09:30-09:45 bar.
+closeHHMM = hour(time_close, "America/New_York") * 100 + minute(time_close, "America/New_York")
+inEntry = closeHHMM >= entryFrom and closeHHMM <= entryTo
+inFlat  = closeHHMM >= flatAt and closeHHMM < 1800
 // trading day rolls at 18:00 ET (CME session)
 tday = dayofmonth(time + 6 * 3600 * 1000, "America/New_York")
 newSession = ta.change(tday) != 0

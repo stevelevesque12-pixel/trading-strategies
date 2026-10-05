@@ -6,12 +6,14 @@ Execution model (deliberately conservative):
     (ATR as of the signal bar, so no lookahead).
   * Stops fill at the stop price -slippage (or at the open, -slippage, if the bar gaps
     through it). Targets are resting limits: fill at the target, no slippage.
-  * If one bar's range touches both stop and target, the stop is assumed first.
+  * Intrabar order (v5): the extreme nearer the open is assumed to trade first (TradingView's
+    broker-emulator rule), so a bar can hit its stop or its target first depending on shape.
   * Positions are flattened at the session cutoff (market, -slippage) and never held
     across sessions.
   * Fees are charged per contract round turn; slippage is charged in ticks per side.
   * Optional trailing ATR stop (trail_k > 0): the stop ratchets to the best price since
-    entry -/+ trail_k*ATR, updated after each bar closes; the ATR target stays as a cap.
+    entry -/+ trail_k*ATR *intrabar* (like a broker trailing stop), so a bar that rallies
+    and then reverses can stop out on the same bar; the ATR target stays as a cap.
   * Optional self-imposed daily loss limit / daily profit cap stop new entries for the
     rest of that session (prop-firm risk + consistency-rule management).
 """
@@ -74,31 +76,54 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 risk_amt = sl_k * pend_atr * pv * qty
                 reg = pend_reg
                 pos_atr = pend_atr
-                extreme = entry_px
+                extreme = pos * entry_px  # best price since entry, in favourable coordinates
             pending = 0
 
         # ---- manage open position on this bar
+        # Intrabar path, same assumption as TradingView's broker emulator: the extreme nearer
+        # the open is visited first (O-H-L-C or O-L-H-C). Work in "favourable" coordinates
+        # x = pos * price so long and short share one code path.
         if pos != 0:
             exit_px = 0.0
             reason = -1
-            if pos > 0:
-                if o[i] <= stop:
-                    exit_px, reason = o[i] - slip, 0
-                elif l[i] <= stop:
-                    exit_px, reason = stop - slip, 0
-                elif h[i] >= target:
-                    exit_px, reason = max(target, o[i]) if o[i] >= target else target, 1
-                worst = min(l[i], stop) if reason == 0 else l[i]
-                adverse = (worst - entry_px) * pv * qty
-            else:
-                if o[i] >= stop:
-                    exit_px, reason = o[i] + slip, 0
-                elif h[i] >= stop:
-                    exit_px, reason = stop + slip, 0
-                elif l[i] <= target:
-                    exit_px, reason = min(target, o[i]) if o[i] <= target else target, 1
-                worst = max(h[i], stop) if reason == 0 else h[i]
-                adverse = (entry_px - worst) * pv * qty
+            fav = h[i] if pos > 0 else l[i]
+            adv = l[i] if pos > 0 else h[i]
+            xo, xf, xa, xc = pos * o[i], pos * fav, pos * adv, pos * c[i]
+            xs, xt = pos * stop, pos * target
+            worst = xa
+            if xo <= xs:
+                reason, xexit = 0, xo
+                worst = xo
+            elif xo >= xt:
+                reason, xexit = 1, xo
+            elif xf - xo < xo - xa:  # favourable extreme first
+                if xf >= xt:
+                    reason, xexit = 1, xt
+                else:
+                    if trail_k > 0 and xf > extreme:
+                        extreme = xf
+                        xs = max(xs, extreme - trail_k * pos_atr)
+                    if xa <= xs:
+                        reason, xexit = 0, xs
+                        worst = xs
+            else:  # adverse extreme first
+                if xa <= xs:
+                    reason, xexit = 0, xs
+                    worst = xs
+                elif xf >= xt:
+                    reason, xexit = 1, xt
+                else:
+                    if trail_k > 0 and xf > extreme:
+                        extreme = xf
+                        xs = max(xs, extreme - trail_k * pos_atr)
+                    if xc <= xs:
+                        reason, xexit = 0, xs
+            stop = xs / pos
+            if reason == 0:
+                exit_px = xexit / pos - pos * slip
+            elif reason == 1:
+                exit_px = xexit / pos
+            adverse = (worst - pos * entry_px) * pv * qty
             if adverse < mae:
                 mae = adverse
             if reason < 0 and flatten[i]:
@@ -126,15 +151,6 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 pos = 0
                 # exit bar can't also be a signal bar for a same-bar re-entry fill
                 continue
-            # trailing ATR stop (chandelier): ratchets after the bar, used from the next bar on
-            if trail_k > 0:
-                if pos > 0:
-                    extreme = max(extreme, h[i])
-                    stop = max(stop, extreme - trail_k * pos_atr)
-                else:
-                    extreme = min(extreme, l[i])
-                    stop = min(stop, extreme + trail_k * pos_atr)
-
         # ---- new signal on this bar's close
         if pos == 0 and not locked and can_enter[i] and not flatten[i] and i + 1 < n:
             d = 0
