@@ -7,7 +7,7 @@ Protocol (per family = trend + 2 confirmations + regime filter):
      penalised below 75 trades per half.
   2. Stage 2 (prop sizing): with the signal frozen, sweep risk $/trade, small-size
      multiplier, daily loss limit and daily profit cap to maximise in-sample Lucid 50K
-     pass rate minus bust rate.
+     pass rate minus bust rate, with and without drawdown-cushion sizing (v4).
   3. The frozen spec is then run once on the out-of-sample period (never seen during
      optimisation) and on the real MES 15m contract (Sep 2025 - Aug 2026), and logged.
 """
@@ -22,7 +22,7 @@ import numpy as np
 
 from trend import components as comp
 from trend.data import load
-from trend.strategy import LucidRules, Spec, evaluate
+from trend.strategy import LucidRules, Spec, backtest, evaluate, metrics
 
 RESULTS = Path(__file__).resolve().parent / "results.jsonl"
 
@@ -37,7 +37,7 @@ SL_K = [1.0, 1.5, 2.0, 2.5, 3.0]
 TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 RISK = [100, 150, 200, 300, 400, 500, 650]
 TRAIL_K = [0.0, 0.0, 1.5, 2.0, 3.0]
-VERSION = 3
+VERSION = 4
 TRIGGERS = ["fresh", "any", "pullback", "pullback"]
 PB_N = [9, 20, 34, 50]
 SMALL = [0.33, 0.5, 0.66]
@@ -142,9 +142,11 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
                 for cap in CAP:
                     s = replace(best, risk_usd=risk, small_mult=small, daily_loss_limit=dll, daily_profit_cap=cap)
                     tried += 1
-                    sc = prop_score(evaluate(is_m, s, rules, curve_points=2))
-                    if sc > sized_sc:
-                        sized, sized_sc = s, sc
+                    trades = backtest(is_m, s, rules)
+                    for cush in (False, True):  # cushion sizing is a sim-side overlay: reuse the trades
+                        sc = prop_score(metrics(is_m, trades, rules, curve_points=0, cushion_sizing=cush))
+                        if sc > sized_sc:
+                            sized, sized_sc = replace(s, cushion_sizing=cush), sc
 
     r_is = evaluate(is_m, sized, rules, curve_points=0)
     r_oos = evaluate(oos_m, sized, rules, curve_points=0)

@@ -265,7 +265,7 @@ function select(id, scroll = true) {
         <tr><td>Chop filter</td><td>${s.regime} (${p(s.regime_p)})</td></tr>
         <tr><td>ATR bands</td><td>ATR(${s.atr_n}) · stop ${s.sl_k}× · target ${s.tp_k}×${s.trail_k ? ` · trailing ${s.trail_k}×` : ""}</td></tr>
         <tr><td>Entry / exit</td><td>${s.trigger === "fresh" ? "first aligned bar" : "any aligned bar"} · ${s.exit_on_flip ? "exit on trend flip" : "bracket only"} · window ${s.window}</td></tr>
-        <tr><td>Sizing</td><td>risk $${s.risk_usd} strong trend · ×${s.small_mult} weak trend · day stop −$${s.daily_loss_limit} · day cap ${s.daily_profit_cap > 9999 ? "none" : "+$" + s.daily_profit_cap}</td></tr>
+        <tr><td>Sizing</td><td>risk $${s.risk_usd} strong trend · ×${s.small_mult} weak trend · day stop −$${s.daily_loss_limit} · day cap ${s.daily_profit_cap > 9999 ? "none" : "+$" + s.daily_profit_cap}${s.cushion_sizing ? " · size scales down with drawdown cushion" : ""}</td></tr>
         <tr><td>Configs tried</td><td>${r.tried.toLocaleString()}</td></tr>
       </table>
       <table class="kv">

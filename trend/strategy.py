@@ -56,6 +56,7 @@ class Spec:
     daily_loss_limit: float = 600.0
     daily_profit_cap: float = 1400.0
     trail_k: float = 0.0             # 0 = fixed bracket; >0 = chandelier trail at trail_k*ATR
+    cushion_sizing: bool = False     # prop mode: scale size by (distance to MLL / max loss), floor 25%
 
     def key(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
@@ -137,8 +138,14 @@ def daily_series(m: Market, trades: np.ndarray):
     return days, pnl, low, ntr
 
 
-def lucid_sim(pnl, low, ntr, rules: LucidRules, step: int = 5):
-    """Start a fresh eval every `step` sessions; report pass / bust / timeout rates."""
+def lucid_sim(pnl, low, ntr, rules: LucidRules, step: int = 5, cushion_sizing: bool = False):
+    """Start a fresh eval every `step` sessions; report pass / bust / timeout rates.
+
+    cushion_sizing: each session's P&L is scaled by the account's remaining cushion
+    (balance - MLL) / max_loss, clipped to [0.25, 1] and rounded down to a quarter, as of
+    the session open. P&L is ~linear in contracts, so this approximates trading fewer
+    contracts after a drawdown (it ignores integer-contract rounding at small sizes).
+    """
     res = {"pass": 0, "bust": 0, "timeout": 0}
     days_to_pass = []
     starts = range(0, max(0, len(pnl) - 40), step)
@@ -149,12 +156,15 @@ def lucid_sim(pnl, low, ntr, rules: LucidRules, step: int = 5):
         traded = 0
         outcome = "timeout"
         for k in range(s0, min(len(pnl), s0 + rules.max_days)):
-            if cum + low[k] <= mll:
+            f = 1.0
+            if cushion_sizing:
+                f = max(0.25, min(1.0, np.floor((cum - mll) / rules.max_loss * 4) / 4))
+            if cum + f * low[k] <= mll:
                 outcome = "bust"
                 break
-            cum += pnl[k]
+            cum += f * pnl[k]
             traded += ntr[k] > 0
-            best_day = max(best_day, pnl[k])
+            best_day = max(best_day, f * pnl[k])
             if cum <= mll:
                 outcome = "bust"
                 break
@@ -176,7 +186,8 @@ def lucid_sim(pnl, low, ntr, rules: LucidRules, step: int = 5):
     }
 
 
-def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, curve_points: int = 300):
+def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, curve_points: int = 300,
+            cushion_sizing: bool = False):
     rules = rules or LucidRules()
     n = len(trades)
     out = {"trades": n}
@@ -185,7 +196,7 @@ def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, c
     out["years"] = round(years, 2)
     if n == 0:
         out.update(win_rate=0, profit_factor=0, net=0, max_dd=0, avg_trade=0, sharpe=0, trades_per_week=0,
-                   equity=[], lucid=lucid_sim(dpnl, dlow, dntr, rules))
+                   equity=[], lucid=lucid_sim(dpnl, dlow, dntr, rules, cushion_sizing=cushion_sizing))
         return out
     p = trades[:, engine.T_PNL]
     wins = p[p > 0].sum()
@@ -207,7 +218,7 @@ def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, c
         exit_mix={engine.REASONS[k]: int((trades[:, engine.T_REASON] == k).sum()) for k in engine.REASONS},
         pnl_full_size=float(p[trades[:, engine.T_REGIME] >= 2].sum()),
         pnl_small_size=float(p[trades[:, engine.T_REGIME] < 2].sum()),
-        lucid=lucid_sim(dpnl, dlow, dntr, rules),
+        lucid=lucid_sim(dpnl, dlow, dntr, rules, cushion_sizing=cushion_sizing),
     )
     # equity curve, down-sampled, as [unix_ms, equity]
     t_ms = m.index[trades[:, engine.T_EXIT_I].astype(int)].as_unit("ms").asi8
@@ -217,4 +228,4 @@ def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, c
 
 
 def evaluate(m: Market, s: Spec, rules: Optional[LucidRules] = None, **kw):
-    return metrics(m, backtest(m, s, rules), rules, **kw)
+    return metrics(m, backtest(m, s, rules), rules, cushion_sizing=s.cushion_sizing, **kw)

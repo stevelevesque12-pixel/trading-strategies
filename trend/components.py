@@ -12,6 +12,7 @@ research loop picks them up automatically.
 """
 
 import numpy as np
+from numba import njit
 
 from . import indicators as ind
 
@@ -178,3 +179,80 @@ def conf_obv_slope(m, n):
 def reg_atr_rank(m, n, look, lo, hi):
     a = ind.atr(m.h, m.l, m.c, n) / m.c
     return _bucket(ind.percent_rank(a, look), lo, hi)
+
+
+# ------------------------------------------------------------------ batch 3: session-structure components
+def _bar_open_minute(m):
+    return (m.close_minute - m.tf_min) % (24 * 60)
+
+
+@_reg(TREND, "orb", {"minutes": [15, 30, 60]})
+def trend_orb(m, minutes):
+    """Opening-range breakout direction: +1 after a close above the first `minutes` of RTH, -1 below; 0 before."""
+    return _orb(m.h, m.l, m.c, m.day_id, _bar_open_minute(m), 9 * 60 + 30, minutes)
+
+
+def _orb_py(h, l, c, day, om, start, minutes):
+    out = np.zeros(len(c), np.int8)
+    cur, hi, lo, d = -1, -np.inf, np.inf, 0
+    end = start + minutes
+    for i in range(len(c)):
+        if day[i] != cur:
+            cur, hi, lo, d = day[i], -np.inf, np.inf, 0
+        if start <= om[i] < end:
+            hi, lo = max(hi, h[i]), min(l[i], lo)
+        elif om[i] >= end and om[i] < 17 * 60 and hi > -np.inf:
+            if c[i] > hi:
+                d = 1
+            elif c[i] < lo:
+                d = -1
+            out[i] = d
+    return out
+
+
+_orb = njit(cache=True)(_orb_py)
+
+
+def _rth_open_py(o, c, day, om, start):
+    out = np.full(len(c), np.nan)
+    cur, op = -1, np.nan
+    for i in range(len(c)):
+        if day[i] != cur:
+            cur, op = day[i], np.nan
+        if om[i] == start or (op != op and start <= om[i] < 17 * 60):
+            if op != op:
+                op = o[i]
+        if start <= om[i] < 17 * 60:
+            out[i] = op
+    return out
+
+
+_rth_open = njit(cache=True)(_rth_open_py)
+
+
+@_reg(TREND, "rth_open", {"atr_buf": [0.0, 0.5, 1.0]})
+def trend_rth_open(m, atr_buf):
+    """Intraday trend: close above today's 09:30 open (+buffer*ATR14) = up day, below = down day."""
+    op = _rth_open(m.o, m.c, m.day_id, _bar_open_minute(m), 9 * 60 + 30)
+    buf = atr_buf * ind.atr(m.h, m.l, m.c, 14)
+    return np.where(m.c > op + buf, 1, np.where(m.c < op - buf, -1, 0)).astype(np.int8)
+
+
+@_reg(CONFIRM, "prev_close", {})
+def conf_prev_close(m):
+    """Close vs the prior session's last close."""
+    last = np.r_[m.day_id[1:] != m.day_id[:-1], True]
+    closes = np.where(last, m.c, np.nan)
+    prev = np.full(len(m.c), np.nan)
+    # value carried from the previous session's last bar
+    idx = np.where(last, np.arange(len(m.c)), -1)
+    np.maximum.accumulate(idx, out=idx)
+    shifted = np.r_[-1, idx[:-1]]
+    ok = shifted >= 0
+    prev[ok] = closes[shifted[ok]]
+    # within a session keep the prior session's close, not the current running one
+    first = np.r_[True, m.day_id[1:] != m.day_id[:-1]]
+    anchor = np.where(first, prev, np.nan)
+    j = np.where(first, np.arange(len(m.c)), 0)
+    np.maximum.accumulate(j, out=j)
+    return _sign(m.c - anchor[j])
