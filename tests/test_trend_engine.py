@@ -4,7 +4,7 @@ from trend import engine
 
 
 def _run(o, h, l, c, long_sig, regime=None, sl_k=1.0, tp_k=2.0, risk=100.0, small=0.5, flatten=None,
-         fee=2.5, slip=1.0, dll=1e9, cap=1e9, flip=False, trend=None):
+         fee=2.5, slip=1.0, dll=1e9, cap=1e9, flip=False, trend=None, trail=0.0):
     n = len(c)
     atr = np.full(n, 4.0)
     regime = np.full(n, 2.0) if regime is None else np.asarray(regime, float)
@@ -12,7 +12,7 @@ def _run(o, h, l, c, long_sig, regime=None, sl_k=1.0, tp_k=2.0, risk=100.0, smal
     trend = np.ones(n) if trend is None else np.asarray(trend, float)
     return engine.run(np.asarray(o, float), np.asarray(h, float), np.asarray(l, float), np.asarray(c, float), atr,
                       np.asarray(long_sig, bool), np.zeros(n, bool), trend, regime, np.ones(n, bool), flatten,
-                      np.zeros(n, np.int64), sl_k, tp_k, risk, small, 5.0, 0.25, fee, slip, 40, dll, cap, flip)
+                      np.zeros(n, np.int64), sl_k, tp_k, risk, small, 5.0, 0.25, fee, slip, 40, dll, cap, flip, trail)
 
 
 def test_long_target_hit_next_bar_fill_and_fees():
@@ -66,3 +66,14 @@ def test_daily_loss_limit_locks_day():
     c = [100.0] * n
     tr = _run(o, h, l, c, [1] * n, dll=50.0)
     assert len(tr) == 1
+
+
+def test_trailing_stop_ratchets():
+    # fill 100.25, atr 4, trail 1.0 -> after bar 2 high 110 stop = 106; bar 3 low 105 stops at 106 - slip
+    o = [100, 100, 108, 107]
+    h = [100, 101, 110, 108]
+    l = [99, 99, 107, 105]
+    c = [100, 100, 109, 106]
+    t = _run(o, h, l, c, [1, 0, 0, 0], tp_k=10.0, trail=1.0)[0]
+    assert engine.REASONS[int(t[engine.T_REASON])] == "stop"
+    assert t[engine.T_EXIT_I] == 3 and t[engine.T_EXIT_PX] == 106.0 - 0.25

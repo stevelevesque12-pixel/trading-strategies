@@ -10,6 +10,8 @@ Execution model (deliberately conservative):
   * Positions are flattened at the session cutoff (market, -slippage) and never held
     across sessions.
   * Fees are charged per contract round turn; slippage is charged in ticks per side.
+  * Optional trailing ATR stop (trail_k > 0): the stop ratchets to the best price since
+    entry -/+ trail_k*ATR, updated after each bar closes; the ATR target stays as a cap.
   * Optional self-imposed daily loss limit / daily profit cap stop new entries for the
     rest of that session (prop-firm risk + consistency-rule management).
 """
@@ -26,7 +28,7 @@ REASONS = {0: "stop", 1: "target", 2: "flatten", 3: "trend_flip"}
 @njit(cache=True)
 def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, flatten, day_id,
         sl_k, tp_k, risk_usd, small_mult, pv, tick, fee_rt, slip_ticks, max_qty,
-        daily_loss_limit, daily_profit_cap, exit_on_flip):
+        daily_loss_limit, daily_profit_cap, exit_on_flip, trail_k):
     n = len(c)
     out = np.zeros((n // 2 + 1, N_COLS))
     nt = 0
@@ -41,6 +43,8 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
     mae = 0.0
     risk_amt = 0.0
     reg = 0.0
+    pos_atr = 0.0
+    extreme = 0.0
 
     pending = 0
     pend_qty = 0
@@ -69,6 +73,8 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 mae = 0.0
                 risk_amt = sl_k * pend_atr * pv * qty
                 reg = pend_reg
+                pos_atr = pend_atr
+                extreme = entry_px
             pending = 0
 
         # ---- manage open position on this bar
@@ -120,6 +126,14 @@ def run(o, h, l, c, atr_v, long_sig, short_sig, trend_dir, regime, can_enter, fl
                 pos = 0
                 # exit bar can't also be a signal bar for a same-bar re-entry fill
                 continue
+            # trailing ATR stop (chandelier): ratchets after the bar, used from the next bar on
+            if trail_k > 0:
+                if pos > 0:
+                    extreme = max(extreme, h[i])
+                    stop = max(stop, extreme - trail_k * pos_atr)
+                else:
+                    extreme = min(extreme, l[i])
+                    stop = min(stop, extreme + trail_k * pos_atr)
 
         # ---- new signal on this bar's close
         if pos == 0 and not locked and can_enter[i] and not flatten[i] and i + 1 < n:

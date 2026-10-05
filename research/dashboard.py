@@ -24,7 +24,7 @@ def _slim(d):
             "pass": lu.get("pass_rate"), "bust": lu.get("bust_rate"), "days": lu.get("median_days_to_pass"),
             "evals": lu.get("evals")}
     return {
-        "id": d["id"], "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
+        "id": d["id"], "v": d.get("v", 1), "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
         "name": d["name"], "spec": d["spec"], "tried": d["configs_tried"], "robust": d["robust"],
         "is": m(d["is"]), "oos": m(d["oos"]), "full": m(d["full"]), "mes": m(d.get("mes_check")),
         "eq": d["full"].get("equity", []),
@@ -128,6 +128,7 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
     <div class="filters">
       <select id="f-track"><option value="">All tracks</option><option value="15m_full">15m, full history (10y)</option><option value="5m_recent">5m, recent MES</option></select>
       <label class="chk"><input type="checkbox" id="f-robust"> Robust only</label>
+      <label class="chk"><input type="checkbox" id="f-latest" checked> Latest engine only</label>
       <input type="search" id="f-q" placeholder="Filter by component…">
       <span class="note" id="count"></span>
     </div>
@@ -142,13 +143,14 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
     <b>How to read this.</b> Each row is one strategy family (trend + 2 confirmations + chop filter, ATR-band stop/target) after optimisation.
     Parameters are fit on the <b>in-sample</b> period only; <b>OOS</b> columns are the untouched later period and are the numbers to trust.
     Fees: $2.50/contract round turn + 1 tick slippage on every market fill. Sizing: risk $ per trade from the ATR stop, full size in strong-trend regime, reduced in weak-trend regime, no trade when the filter reads sideways.
-    Lucid pass % = share of simulated LucidFlex 50K evals (one started every 5 sessions) that hit +$3,000 with the 50% consistency rule before touching the $2,000 EOD-trailing MLL, within 60 sessions.
+    Lucid pass % = share of simulated LucidFlex 50K evals (one started every 5 sessions) that hit +$3,000 with the 50% consistency rule before touching the $2,000 EOD-trailing MLL, within ~250 sessions (LucidFlex has no time limit, so an unresolved eval is "still open", not failed). v1 rows used a 60-session cutoff and no trailing stop; untick "Latest engine only" to see them.
     "Robust" = IS and OOS profit factor &gt; 1.05, OOS Sharpe &gt; 0.3 and enough trades in both. With thousands of configurations tried, expect some OOS winners to be luck: favour families where many variants are robust.
   </div>
 </div>
 <script>
 const DATA = /*__DATA__*/null;
 const R = DATA.records;
+const VMAX = Math.max(1, ...R.map(r => r.v || 1));
 const $ = s => document.querySelector(s);
 const fmt$ = v => v == null ? "–" : (v < 0 ? "−$" : "$") + Math.abs(Math.round(v)).toLocaleString();
 const pct = v => v == null ? "–" : (v * 100).toFixed(0) + "%";
@@ -175,7 +177,7 @@ R.forEach(r => r._score = score(r));
 })();
 
 const COLS = [
-  ["Strategy", r => r.name, r => `${r.name} <span class="note">${r.tf}m</span>`, "l"],
+  ["Strategy", r => r.name, r => `${r.name} <span class="note">${r.tf}m · v${r.v}</span>`, "l"],
   ["Equity (full)", null, r => spark(r.eq), "l"],
   ["Robust", r => r.robust ? 1 : 0, r => r.robust ? '<span class="badge ok">✓ robust</span>' : '<span class="badge">– no</span>', "l"],
   ["IS PF", r => r.is?.profit_factor, r => f2(r.is?.profit_factor)],
@@ -196,13 +198,14 @@ document.querySelectorAll("th").forEach(th => th.onclick = () => {
   const i = +th.dataset.i; if (!COLS[i][1]) return;
   sortDir = sortCol === i ? -sortDir : -1; sortCol = i; page = 0; render();
 });
-["#f-track", "#f-robust", "#f-q"].forEach(s => $(s).oninput = () => { page = 0; render(); });
+["#f-track", "#f-robust", "#f-q", "#f-latest"].forEach(s => $(s).oninput = () => { page = 0; render(); });
 $("#prev").onclick = () => { page = Math.max(0, page - 1); render(); };
 $("#next").onclick = () => { page++; render(); };
 
 function rows() {
   const t = $("#f-track").value, rob = $("#f-robust").checked, q = $("#f-q").value.toLowerCase();
-  let rs = R.filter(r => (!t || r.track === t) && (!rob || r.robust) && (!q || r.name.toLowerCase().includes(q)));
+  const lat = $("#f-latest").checked;
+  let rs = R.filter(r => (!lat || r.v === VMAX) && (!t || r.track === t) && (!rob || r.robust) && (!q || r.name.toLowerCase().includes(q)));
   const key = sortCol >= 0 ? COLS[sortCol][1] : r => r._score;
   rs.sort((a, b) => { const x = key(a), y = key(b); return (x == null) - (y == null) || (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
   return rs;
@@ -250,7 +253,7 @@ function select(id, scroll = true) {
         <tr><td>Confirmation 1</td><td>${s.conf1} (${p(s.conf1_p)})</td></tr>
         <tr><td>Confirmation 2</td><td>${s.conf2} (${p(s.conf2_p)})</td></tr>
         <tr><td>Chop filter</td><td>${s.regime} (${p(s.regime_p)})</td></tr>
-        <tr><td>ATR bands</td><td>ATR(${s.atr_n}) · stop ${s.sl_k}× · target ${s.tp_k}×</td></tr>
+        <tr><td>ATR bands</td><td>ATR(${s.atr_n}) · stop ${s.sl_k}× · target ${s.tp_k}×${s.trail_k ? ` · trailing ${s.trail_k}×` : ""}</td></tr>
         <tr><td>Entry / exit</td><td>${s.trigger === "fresh" ? "first aligned bar" : "any aligned bar"} · ${s.exit_on_flip ? "exit on trend flip" : "bracket only"} · window ${s.window}</td></tr>
         <tr><td>Sizing</td><td>risk $${s.risk_usd} strong trend · ×${s.small_mult} weak trend · day stop −$${s.daily_loss_limit} · day cap ${s.daily_profit_cap > 9999 ? "none" : "+$" + s.daily_profit_cap}</td></tr>
         <tr><td>Configs tried</td><td>${r.tried.toLocaleString()}</td></tr>

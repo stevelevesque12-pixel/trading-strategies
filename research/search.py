@@ -33,8 +33,10 @@ TRACKS = {
 
 ATR_N = [10, 14, 20, 30]
 SL_K = [1.0, 1.5, 2.0, 2.5, 3.0]
-TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0]
-RISK = [100, 150, 200, 250, 300, 400]
+TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
+RISK = [100, 150, 200, 300, 400, 500, 650]
+TRAIL_K = [0.0, 0.0, 1.5, 2.0, 3.0]
+VERSION = 2
 SMALL = [0.33, 0.5, 0.66]
 DLL = [300, 450, 600, 900]
 CAP = [900, 1200, 1400, 99999]
@@ -53,7 +55,7 @@ def random_spec(family, rng):
         regime=r, regime_p=sample_params(comp.REGIME[r][1], rng),
         atr_n=rng.choice(ATR_N), sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K),
         trigger=rng.choice(["fresh", "any"]), exit_on_flip=rng.choice([True, False]),
-        window=rng.choice(["rth", "ny_am", "ext"]),
+        window=rng.choice(["rth", "ny_am", "ext"]), trail_k=rng.choice(TRAIL_K),
     )
 
 
@@ -68,7 +70,7 @@ def mutate(s: Spec, rng):
             k = rng.choice(list(space))
             getattr(s, attr)[k] = rng.choice(space[k])
     elif what == 4:
-        s = replace(s, sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K), atr_n=rng.choice(ATR_N))
+        s = replace(s, sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K), atr_n=rng.choice(ATR_N), trail_k=rng.choice(TRAIL_K))
     else:
         s = replace(s, trigger=rng.choice(["fresh", "any"]), exit_on_flip=rng.choice([True, False]),
                     window=rng.choice(["rth", "ny_am", "ext"]))
@@ -100,7 +102,7 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
     ds, split, _ = TRACKS[track]
     full = load(ds)
     is_m, oos_m = full.slice(end=split), full.slice(start=split)
-    min_trades = 150 if track == "15m_full" else 30
+    min_trades = 150 if track == "15m_full" else 60
     rules = LucidRules()
     tried = 0
     t0 = time.time()
@@ -142,7 +144,7 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
     rec = {
         "id": f"{track}:{sized.name()}:{abs(hash(sized.key())) % 10**8}",
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "track": track, "dataset": ds, "split": split, "tf_min": full.tf_min,
+        "v": VERSION, "track": track, "dataset": ds, "split": split, "tf_min": full.tf_min,
         "name": sized.name(), "spec": asdict(sized), "configs_tried": tried,
         "seconds": round(time.time() - t0, 1),
         "is": r_is, "oos": r_oos, "full": r_all,
@@ -176,7 +178,7 @@ def done_families(track):
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if d["track"] == track:
+            if d["track"] == track and d.get("v", 1) == VERSION:
                 s = d["spec"]
                 out.add((s["trend"], s["conf1"], s["conf2"], s["regime"]))
     return out

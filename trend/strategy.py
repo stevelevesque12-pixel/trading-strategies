@@ -31,7 +31,7 @@ class LucidRules:
     consistency: float = 0.50        # largest day <= 50% of total profit (eval only)
     min_days: int = 2
     max_micros: int = 40             # 4 minis / 40 micros
-    max_days: int = 60               # our own give-up horizon for the simulation
+    max_days: int = 250              # LucidFlex has no time limit (one-time fee); ~1 year horizon, unresolved = timeout
 
 
 @dataclass
@@ -54,6 +54,7 @@ class Spec:
     small_mult: float = 0.5
     daily_loss_limit: float = 600.0
     daily_profit_cap: float = 1400.0
+    trail_k: float = 0.0             # 0 = fixed bracket; >0 = chandelier trail at trail_k*ATR
 
     def key(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
@@ -103,7 +104,7 @@ def backtest(m: Market, s: Spec, rules: Optional[LucidRules] = None, fee_rt=FEE_
         m.entry_mask(s.window), m.flatten_mask(), m.day_id,
         float(s.sl_k), float(s.tp_k), float(s.risk_usd), float(s.small_mult),
         MES_POINT_VALUE, MES_TICK, float(fee_rt), float(slip_ticks), int(rules.max_micros),
-        float(s.daily_loss_limit), float(s.daily_profit_cap), bool(s.exit_on_flip),
+        float(s.daily_loss_limit), float(s.daily_profit_cap), bool(s.exit_on_flip), float(s.trail_k),
     )
     return trades
 
@@ -128,7 +129,7 @@ def lucid_sim(pnl, low, ntr, rules: LucidRules, step: int = 5):
     """Start a fresh eval every `step` sessions; report pass / bust / timeout rates."""
     res = {"pass": 0, "bust": 0, "timeout": 0}
     days_to_pass = []
-    starts = range(0, max(0, len(pnl) - 20), step)
+    starts = range(0, max(0, len(pnl) - 40), step)
     for s0 in starts:
         cum = peak = 0.0
         mll = -rules.max_loss
