@@ -27,7 +27,8 @@ def _slim(d):
         "id": d["id"], "v": d.get("v", 1), "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
         "name": d["name"], "spec": d["spec"], "tried": d["configs_tried"], "robust": d["robust"],
         "is": m(d["is"]), "oos": m(d["oos"]), "full": m(d["full"]), "mes": m(d.get("mes_check")),
-        "eq": d["full"].get("equity", []),
+        # early records stored seconds instead of ms (index resolution bug) - normalise
+        "eq": [[t * 1000 if t < 10**11 else t, v] for t, v in d["full"].get("equity", [])],
     }
 
 

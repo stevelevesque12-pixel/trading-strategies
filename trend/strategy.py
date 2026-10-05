@@ -198,7 +198,7 @@ def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, c
         lucid=lucid_sim(dpnl, dlow, dntr, rules),
     )
     # equity curve, down-sampled, as [unix_ms, equity]
-    t_ms = m.index[trades[:, engine.T_EXIT_I].astype(int)].asi8 // 1_000_000
+    t_ms = m.index[trades[:, engine.T_EXIT_I].astype(int)].as_unit("ms").asi8
     idx = np.unique(np.linspace(0, n - 1, min(n, curve_points)).astype(int))
     out["equity"] = [[int(t_ms[i]), round(float(eq[i]), 2)] for i in idx]
     return out
