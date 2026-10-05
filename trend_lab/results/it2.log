@@ -5,3 +5,8 @@ overnight_cont@15min#it2           IS pf= 1.39 net=  453.0 | OOS pf= 3.32 wr= 66
 overnight_cont@5min#it2            IS pf= 2.22 net= 1432.0 | OOS pf= 0.61 wr= 14.3 net= -850.0 dd=1619.0 n=  14 lucid=None top10med=None (15s)
 overnight_cont@10min#it2           IS pf=  1.4 net= 1481.0 | OOS pf= 0.81 wr= 40.0 net= -492.0 dd= 833.0 n=  25 lucid=None top10med=0.73 (10s)
 hull_turn@15min#it2                IS pf= 1.24 net=  790.0 | OOS pf= 0.49 wr= 25.6 net=-1618.0 dd=1705.0 n=  39 lucid=0.0 top10med=0.72 (27s)
+hull_turn@5min#it2                 IS pf= 1.28 net= 2095.0 | OOS pf= 0.86 wr= 32.8 net= -813.0 dd=1867.0 n=  64 lucid=None top10med=0.65 (19s)
+hull_turn@10min#it2                IS pf= 2.13 net= 2908.0 | OOS pf= 0.96 wr= 33.3 net= -114.0 dd=1122.0 n=  27 lucid=None top10med=0.82 (11s)
+keltner_volume@15min#it2           IS pf= 0.99 net= -110.0 | OOS pf=  1.1 wr= 36.0 net=  684.0 dd=1223.0 n= 100 lucid=0.0 top10med=1.36 (26s)
+keltner_volume@5min#it2            IS pf=  1.6 net= 1999.0 | OOS pf= 0.71 wr= 27.8 net= -934.0 dd=1966.0 n=  36 lucid=None top10med=0.68 (18s)
+keltner_volume@10min#it2           IS pf= 1.27 net= 1445.0 | OOS pf= 0.81 wr= 28.8 net= -798.0 dd=1180.0 n=  66 lucid=None top10med=0.79 (12s)

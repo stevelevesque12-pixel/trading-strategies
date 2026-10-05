@@ -57,6 +57,40 @@ def sample(space, rng):
     return {k: rng.choice(v) for k, v in space.items()}
 
 
+def neighbors(space, p):
+    """Every config that differs from p by one step in one parameter."""
+    for k, choices in space.items():
+        if len(choices) < 2 or p[k] not in choices:
+            continue
+        i = choices.index(p[k])
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(choices):
+                yield dict(p, **{k: choices[j]})
+
+
+def robust_pick(cands, score_fn, space, top=20):
+    """
+    Among the `top` best configs by score_fn, pick the one whose one-step
+    neighborhood has the best MEDIAN score (itself included): favors a
+    plateau over an isolated spike. score_fn must use in-sample data only.
+    """
+    memo = {}
+
+    def sc(p):
+        k = json.dumps(p, sort_keys=True, default=str)
+        if k not in memo:
+            memo[k] = score_fn(p)
+        return memo[k]
+
+    ranked = sorted(cands, key=lambda p: -sc(p))[:top]
+    best, best_r = ranked[0], -1e18
+    for p in ranked:
+        r = float(np.median([sc(p)] + [sc(q) for q in neighbors(space, p)]))
+        if r > best_r:
+            best, best_r = p, r
+    return best, best_r
+
+
 def run_config(df, fam, p, split_day, days):
     cfg = SimConfig(session=p["session"])
     trades = simulate(df, fam.generate(df, p), cfg)
@@ -67,7 +101,7 @@ def run_config(df, fam, p, split_day, days):
     return trades, compute(is_t, is_days), compute(oos_t, oos_days)
 
 
-def optimize(fam, tf, n, seed=0, top=10):
+def optimize(fam, tf, n, seed=0, top=10, select="best"):
     df = load_bars(tf, TIMEFRAMES[tf])
     days = sorted(set(df["trade_day"]))
     split_day = days[int(len(days) * IS_FRACTION)]
@@ -84,6 +118,10 @@ def optimize(fam, tf, n, seed=0, top=10):
         _, ism, _ = run_config(df, fam, p, split_day, days)
         results.append((score(ism), p))
     results.sort(key=lambda x: -x[0])
+    if select == "robust":
+        is_score = lambda p: score(run_config(df, fam, p, split_day, days)[1])
+        pick, _ = robust_pick([p for _, p in results], is_score, fam.space)
+        results = [(None, pick)] + [r for r in results if r[1] is not pick]
     best = []
     for sc, p in results[:top]:
         trades, ism, oosm = run_config(df, fam, p, split_day, days)
@@ -95,6 +133,7 @@ def optimize(fam, tf, n, seed=0, top=10):
         "family": fam.name,
         "description": fam.description,
         "tf": tf,
+        "selection": select,
         "configs_tested": len(results),
         "split_day": str(split_day),
         "data_start": str(days[0]),
@@ -119,6 +158,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--iteration", type=int, default=0)
     ap.add_argument("--note", default="")
+    ap.add_argument("--select", choices=["best", "robust"], default="best",
+                    help="best = top in-sample score; robust = best median score over one-step neighbors")
     args = ap.parse_args()
 
     fams = list(ALL_FAMILIES) if args.families == "all" else args.families.split(",")
@@ -126,8 +167,8 @@ def main():
     for name in fams:
         for tf in args.tfs.split(","):
             t0 = time.time()
-            run = optimize(ALL_FAMILIES[name], tf, args.n, seed=args.seed)
-            run["id"] = f"{name}@{tf}#it{args.iteration}"
+            run = optimize(ALL_FAMILIES[name], tf, args.n, seed=args.seed, select=args.select)
+            run["id"] = f"{name}@{tf}#it{args.iteration}" + ("r" if args.select == "robust" else "")
             run["iteration"] = args.iteration
             run["created"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             reg = load_registry()  # re-read: parallel optimizer processes may have written since

@@ -88,11 +88,15 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 <div class="tablewrap"><table id="tbl"><thead><tr></tr></thead><tbody></tbody></table></div>
 <h2>Equity curves <span style="color:var(--muted);font-weight:400;font-size:12px">— net $ after costs, shaded region = out-of-sample</span></h2>
 <div class="grid" id="cards"></div>
+<h2>Walk-forward validation <span style="color:var(--muted);font-weight:400;font-size:12px">— re-optimized every 20 trading days, trades only the following unseen window. The strictest test here.</span></h2>
+<div class="tablewrap"><table id="wf"><thead><tr><th>Family · mode</th><th>Trades</th><th>Win %</th><th>PF</th><th>Net</th><th>Max DD</th><th>Neighbors PF&gt;1</th><th>Best Lucid risk</th><th>Lucid pass</th><th>Lucid fail</th></tr></thead><tbody></tbody></table></div>
+<div class="grid" id="wfcards" style="margin-top:12px"></div>
 <h2>Iteration log</h2><ul class="log" id="log"></ul>
 </main><div class="tip" id="tip"></div>
 <script>
 const DATA = __DATA__;
 const ITER = __ITER__;
+const WF = __WF__;
 const $ = s => document.querySelector(s);
 const fmt$ = v => v==null?'–':(v<0?'−$':'$')+Math.abs(Math.round(v)).toLocaleString();
 const f2 = v => v==null?'–':(+v).toFixed(2);
@@ -190,7 +194,17 @@ function chart(r){
 ['#ftf','#fv','#fq'].forEach(s=>$(s).addEventListener('input',render));
 $('#tbl thead').addEventListener('click',e=>{const i=+e.target.dataset.i; if(isNaN(i))return; sortDir = i===sortI?-sortDir:-1; sortI=i; render();});
 $('#log').innerHTML = ITER.slice().reverse().map(it=>`<li><b>Iteration ${it.iteration}</b> · ${it.finished} · ${it.n} configs × ${it.families.length} families × [${it.tfs}] (${Math.round(it.seconds/60)} min)${it.note?' — '+it.note:''}</li>`).join('');
-kpis(); render();
+function renderWF(){
+  const vs = Object.values(WF).sort((a,b)=>(b.walk_forward.profit_factor||0)-(a.walk_forward.profit_factor||0));
+  $('#wf tbody').innerHTML = vs.length ? vs.map(v=>{const w=v.walk_forward, nb=v.neighborhood||{};
+    const best=(v.risk_sweep||[]).filter(r=>r.lucid_pass_pct!=null).sort((a,b)=>(b.lucid_pass_pct-a.lucid_pass_pct)||((a.lucid_fail_pct||0)-(b.lucid_fail_pct||0)))[0]||{};
+    return `<tr><td>${v.tag||v.family}</td><td>${w.trades}</td><td>${pct(w.win_rate)}</td><td>${f2(w.profit_factor)}</td><td>${fmt$(w.net)}</td><td>${fmt$(w.max_dd)}</td><td>${pct(nb.neighbors_pf_gt1_pct)}</td><td>${best.risk?'$'+best.risk:'–'}</td><td>${pct(best.lucid_pass_pct)}</td><td>${pct(best.lucid_fail_pct)}</td></tr>`}).join('')
+    : '<tr><td colspan="10" style="text-align:left;color:var(--text2)">No walk-forward runs yet.</td></tr>';
+  $('#wfcards').innerHTML = vs.map(v=>{const r={id:'wf-'+(v.tag||v.family),start:v.start,end:v.end,split:v.start,equity:v.equity};
+    return `<div class="card"><h3><span>${v.tag||v.family}</span></h3><div class="desc">Walk-forward stitched test windows only (all out-of-sample). $200 risk/trade.</div><svg id="s-${css(r.id)}" viewBox="0 0 360 150" role="img" aria-label="Walk-forward equity"></svg></div>`}).join('');
+  vs.forEach(v=>chart({id:'wf-'+(v.tag||v.family),start:v.start,end:v.end,split:v.start,equity:v.equity}));
+}
+kpis(); render(); renderWF();
 </script></body></html>"""
 
 
@@ -198,7 +212,8 @@ def build():
     reg = load_registry()
     data = [slim(r) for r in reg["runs"]]
     html = TEMPLATE.replace("__DATA__", json.dumps(data, default=str)).replace(
-        "__ITER__", json.dumps(reg["iterations"], default=str))
+        "__ITER__", json.dumps(reg["iterations"], default=str)).replace(
+        "__WF__", json.dumps(reg.get("validations", {}), default=str))
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(html)
     return OUT

@@ -1,0 +1,15 @@
+walk-forward trend_dip_atr|anchored|robust: {"trades": 84, "win_rate": 38.1, "profit_factor": 1.57, "net": 2353.0, "max_dd": 915.0, "lucid_pass_pct": 15.1, "lucid_fail_pct": 0.0}
+  test 2026-03-20..2026-04-17:  10 trades   -399.0
+  test 2026-04-20..2026-05-15:  11 trades   -516.0
+  test 2026-05-18..2026-06-12:  16 trades   1249.0
+  test 2026-06-15..2026-07-10:  16 trades    463.0
+  test 2026-07-13..2026-08-07:  18 trades   1025.0
+  test 2026-08-10..2026-08-25:  13 trades    531.0
+neighborhood: base pf 1.51, neighbors median pf 1.41, 94.7% of neighbors pf>1
+  risk $150: net 1765.0, eod dd 686.0, lucid pass 0.0% fail 0.0% median days None
+  risk $200: net 2353.0, eod dd 915.0, lucid pass 15.1% fail 0.0% median days 51.5
+  risk $300: net 3529.0, eod dd 1372.0, lucid pass 67.6% fail 0.0% median days 42.5
+  risk $400: net 4706.0, eod dd 1829.0, lucid pass 74.1% fail 0.0% median days 31.0
+  risk $500: net 5882.0, eod dd 2287.0, lucid pass 75.3% fail 9.9% median days 25.0
+  risk $600: net 7058.0, eod dd 2744.0, lucid pass 80.2% fail 19.8% median days 25.0
+  risk $800: net 9411.0, eod dd 3659.0, lucid pass 54.3% fail 45.7% median days 18.5
