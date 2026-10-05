@@ -1,2 +1,9 @@
 supertrend_adx           train  -4.64 | test avgR/PF gc:-0.243/0.47 es:+0.136/1.39 nq:+0.142/1.36 si:-0.066/0.81 | MCL pf 0.38 R -0.275 n 26 lucid 0.0
 ema_pullback             train  -5.79 | test avgR/PF gc:-0.041/0.92 es:-0.013/0.98 nq:+0.067/1.11 si:-0.057/0.89 | MCL pf 0.69 R -0.157 n 285 lucid 0.0
+donchian_er              train  -3.96 | test avgR/PF gc:+0.049/1.12 es:+0.045/1.11 nq:+0.003/1.01 si:+0.062/1.15 | MCL pf 1.09 R 0.036 n 65 lucid 0.0
+orb_trend                train  -5.54 | test avgR/PF gc:-0.021/0.95 es:+0.004/1.01 nq:-0.116/0.8 si:-0.020/0.96 | MCL pf 0.72 R -0.123 n 115 lucid 0.0
+vwap_trend               train  -6.06 | test avgR/PF gc:-0.081/0.79 es:-0.019/0.96 nq:-0.210/0.61 si:-0.367/0.3 | MCL pf 0.41 R -0.22 n 27 lucid 0.0
+trend_dip_rsi            train  -5.16 | test avgR/PF gc:+0.153/1.35 es:-0.071/0.84 nq:-0.065/0.86 si:-0.186/0.62 | MCL pf 0.63 R -0.143 n 35 lucid 0.0
+overnight_cont           train  -3.65 | test avgR/PF gc:-0.110/0.78 es:-0.014/0.97 nq:+0.047/1.08 si:+0.090/1.21 | MCL pf 1.28 R 0.125 n 26 lucid 0.0
+hull_turn                train  -4.93 | test avgR/PF gc:+0.233/1.72 es:+0.018/1.04 nq:+0.569/2.25 si:-0.177/0.64 | MCL pf 0.3 R -0.183 n 15 lucid 0.0
+keltner_volume           train  -4.14 | test avgR/PF gc:-0.030/0.96 es:+0.068/1.1 nq:+0.260/1.39 si:+0.005/1.01 | MCL pf 0.61 R -0.278 n 84 lucid 0.0
