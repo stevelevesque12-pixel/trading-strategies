@@ -20,8 +20,8 @@
 // Both: no entries Wed 10:15-10:45 ET (EIA), size = floor(risk / (stop*100 +
 // $3.24 costs)) micros, daily loss stop = 2.25 x risk, stop entering after
 // +$1,200 on the day (Lucid 50% consistency), max 6 trades/day.
-// Risk per trade defaults to "Cushion" sizing: 25% of the distance between the
-// account balance and Lucid's trailing max-loss line, clamped to $200-$600
+// Risk per trade defaults to "Cushion" sizing: 20% of the distance between the
+// account balance and Lucid's trailing max-loss line, clamped to $150-$500
 // (set "Account start" to your eval's day 1). Fixed $300 is the alternative.
 //
 // REQUIRED CHART: MCL1! (or the front MCL contract), 15-minute, exchange time.
@@ -53,11 +53,11 @@ strategy("MCL Trend Dip (15m)", overlay=true, initial_capital=50000, pyramiding=
 
 // ---------------- Inputs ----------------
 sizingMode     = input.string("Cushion", "Sizing", options=["Cushion", "Fixed"], group="Risk (Lucid 50K)",
-     tooltip="Cushion: risk = % of the distance between the account balance and Lucid's trailing max-loss line, clamped. Monte Carlo: 25% / $200-$600 passed ~70% with ~11% fails vs ~17% fails at fixed $300.")
+     tooltip="Cushion: risk = % of the distance between the account balance and Lucid's trailing max-loss line, clamped. Monte Carlo (full-year, conservative): 20% / $150-$500 passed ~63% with ~11% fails, vs ~27% fails at fixed $300.")
 fixedRiskUsd   = input.float(300.0, "Fixed risk per trade (USD)", minval=50, group="Risk (Lucid 50K)")
-cushionPct     = input.float(25.0, "Cushion %", minval=1, maxval=100, group="Risk (Lucid 50K)")
-cushionMin     = input.float(200.0, "Cushion sizing: min risk (USD)", group="Risk (Lucid 50K)")
-cushionMax     = input.float(600.0, "Cushion sizing: max risk (USD)", group="Risk (Lucid 50K)")
+cushionPct     = input.float(20.0, "Cushion %", minval=1, maxval=100, group="Risk (Lucid 50K)")
+cushionMin     = input.float(150.0, "Cushion sizing: min risk (USD)", group="Risk (Lucid 50K)")
+cushionMax     = input.float(500.0, "Cushion sizing: max risk (USD)", group="Risk (Lucid 50K)")
 acctStart      = input.time(timestamp("2026-10-06T00:00:00"), "Account start (eval/funded day 1)", group="Risk (Lucid 50K)",
      tooltip="Cushion is tracked from the strategy's own P&L since this date. Set it to the day your eval or funded account started; before it, fixed risk is used.")
 maxLossUsd     = input.float(2000.0, "Lucid max loss (EOD trailing)", group="Risk (Lucid 50K)")

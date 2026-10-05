@@ -52,3 +52,12 @@ was ever chosen. Added as an opt-in Pine input (A: time stop), defaults unchange
   15m PF 1.84 (73 trades) | 10m PF 1.58 (101 trades) | 5m PF 0.97 (237 trades).
   Holds down to 10m, breaks at 5m (costs are ~3x larger in R, dips are noise). A 10m chart variant
   is a forward-test option for more trades/week, but has only ~3.5 months of history behind it.
+
+## Iteration 12-13: diagnostics, 30m transfer, conservative Monte Carlo
+
+- OOS trade breakdown: both sides profitable (long PF 1.72, short 1.39), most entry hours positive,
+  4/5 weekdays positive (Wed 0.83), every month since April positive. No filters added (would be fitting).
+- 30m transfer (params x0.5): PF 0.66 / 1.09 -- fails. Works on 10m-15m only.
+- Oct-Mar (fit period) at $300 risk: PF 1.28, max DD $2,208 (> Lucid's $2,000). Full-year Monte Carlo is
+  therefore the conservative case. Pine default sizing changed to 20% of cushion, $150-$500
+  (full-year: pass 63% / fail 11%, median 48 days; unseen-only: 66% / 4%).

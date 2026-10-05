@@ -73523,5 +73523,79 @@
     "funded_blow_pct": 33.0
    }
   ]
+ },
+ "montecarlo_full": {
+  "source": "frozen MCL Trend Dip, full year Oct 2025-Aug 2026 (includes the fit period)",
+  "created": "2026-10-05T16:42:18+00:00",
+  "rows": [
+   {
+    "risk": 200,
+    "days": 232,
+    "mean_day": 20.4,
+    "eval_pass_pct": 45.4,
+    "eval_fail_pct": 8.5,
+    "eval_timeout_pct": 46.2,
+    "eval_pass_within_30d_pct": 1.2,
+    "eval_median_days": 80.0,
+    "funded_reach_2k_pct": 69.0,
+    "funded_blow_pct": 7.1
+   },
+   {
+    "risk": 300,
+    "days": 232,
+    "mean_day": 30.5,
+    "eval_pass_pct": 62.7,
+    "eval_fail_pct": 27.3,
+    "eval_timeout_pct": 10.0,
+    "eval_pass_within_30d_pct": 11.1,
+    "eval_median_days": 55.0,
+    "funded_reach_2k_pct": 74.2,
+    "funded_blow_pct": 22.6
+   },
+   {
+    "risk": 400,
+    "days": 232,
+    "mean_day": 42.9,
+    "eval_pass_pct": 64.5,
+    "eval_fail_pct": 34.0,
+    "eval_timeout_pct": 1.5,
+    "eval_pass_within_30d_pct": 24.9,
+    "eval_median_days": 37.0,
+    "funded_reach_2k_pct": 72.2,
+    "funded_blow_pct": 27.6
+   }
+  ],
+  "dynamic": [
+   {
+    "rule": "risk = 25% of cushion, $200-$600",
+    "eval_pass_pct": 65.2,
+    "eval_fail_pct": 21.7,
+    "eval_timeout_pct": 13.1,
+    "eval_pass_within_30d_pct": 25.9,
+    "eval_median_days": 39.0,
+    "funded_reach_2k_pct": 74.6,
+    "funded_blow_pct": 18.4
+   },
+   {
+    "rule": "risk = 20% of cushion, $150-$500",
+    "eval_pass_pct": 63.1,
+    "eval_fail_pct": 11.4,
+    "eval_timeout_pct": 25.5,
+    "eval_pass_within_30d_pct": 17.8,
+    "eval_median_days": 48.0,
+    "funded_reach_2k_pct": 74.5,
+    "funded_blow_pct": 10.1
+   },
+   {
+    "rule": "risk = 15% of cushion, $150-$400",
+    "eval_pass_pct": 56.6,
+    "eval_fail_pct": 5.9,
+    "eval_timeout_pct": 37.5,
+    "eval_pass_within_30d_pct": 8.4,
+    "eval_median_days": 61.0,
+    "funded_reach_2k_pct": 71.3,
+    "funded_blow_pct": 5.8
+   }
+  ]
  }
 }

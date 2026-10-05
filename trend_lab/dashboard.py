@@ -91,7 +91,7 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 <h2>Walk-forward validation <span style="color:var(--muted);font-weight:400;font-size:12px">— re-optimized every 20 trading days, trades only the following unseen window. The strictest test here.</span></h2>
 <div class="tablewrap"><table id="wf"><thead><tr><th>Family · mode</th><th>Trades</th><th>Win %</th><th>PF</th><th>Net</th><th>Max DD</th><th>Neighbors PF&gt;1</th><th>Best Lucid risk</th><th>Lucid pass</th><th>Lucid fail</th></tr></thead><tbody></tbody></table></div>
 <div class="grid" id="wfcards" style="margin-top:12px"></div>
-<h2>Lucid 50K Monte Carlo <span style="color:var(--muted);font-weight:400;font-size:12px">— MCL Trend Dip (exclusive), block-bootstrapped walk-forward daily P&amp;L, 10,000 paths per risk level</span></h2>
+<h2>Lucid 50K Monte Carlo <span style="color:var(--muted);font-weight:400;font-size:12px">— MCL Trend Dip (exclusive), block-bootstrapped daily P&amp;L, 10,000 paths per row. "Unseen period" = walk-forward test days only; "Full year" also includes the weaker Oct–Mar fit period (conservative).</span></h2>
 <div class="tablewrap"><table id="mc"><thead><tr><th>Sizing</th><th>Avg day</th><th>Eval pass</th><th>Eval fail</th><th>Still running at 120d</th><th>Pass within 30d</th><th>Median days to pass</th><th>Funded: +$2k before breach</th><th>Funded: breach first</th></tr></thead><tbody></tbody></table></div>
 <h2>Cross-market robustness <span style="color:var(--muted);font-weight:400;font-size:12px">— frozen MCL Trend Dip settings, no refitting, equal risk per trade (R-terms)</span></h2>
 <div class="tablewrap"><table id="xm"><thead><tr><th>Market</th><th>Data</th><th>Trades</th><th>Win %</th><th>PF (R)</th><th>Avg R</th><th>Verdict</th></tr></thead><tbody></tbody></table></div>
@@ -106,6 +106,7 @@ const WF = __WF__;
 const XM = __XM__;
 const XS = __XS__;
 const MC = __MC__;
+const MCF = __MCF__;
 const $ = s => document.querySelector(s);
 const fmt$ = v => v==null?'–':(v<0?'−$':'$')+Math.abs(Math.round(v)).toLocaleString();
 const f2 = v => v==null?'–':(+v).toFixed(2);
@@ -226,7 +227,8 @@ function renderXS(){
     : '<tr><td colspan="12" style="text-align:left;color:var(--text2)">Running…</td></tr>';
 }
 function renderMC(){
-  const rs = MC && MC.rows ? MC.rows.concat((MC.dynamic||[]).map(d=>Object.assign({label:d.rule},d))) : [];
+  const tag = (src, pre) => src && src.rows ? src.rows.map(r=>Object.assign({label:pre+'Fixed $'+r.risk},r)).concat((src.dynamic||[]).map(d=>Object.assign({label:pre+d.rule},d))) : [];
+  const rs = tag(MC, 'Unseen period · ').concat(tag(MCF, 'Full year (conservative) · '));
   $('#mc tbody').innerHTML = rs.length ? rs.map(r=>`<tr><td>${r.label||('Fixed $'+r.risk)}</td><td>${r.mean_day!=null?fmt$(r.mean_day):'varies'}</td><td>${pct(r.eval_pass_pct)}</td><td>${pct(r.eval_fail_pct)}</td><td>${pct(r.eval_timeout_pct)}</td><td>${pct(r.eval_pass_within_30d_pct)}</td><td>${r.eval_median_days??'–'}</td><td>${pct(r.funded_reach_2k_pct)}</td><td>${pct(r.funded_blow_pct)}</td></tr>`).join('')
     : '<tr><td colspan="9" style="text-align:left;color:var(--text2)">Not run yet.</td></tr>';
 }
@@ -242,6 +244,7 @@ def build():
         "__WF__", json.dumps(reg.get("validations", {}), default=str)).replace(
         "__XM__", json.dumps(reg.get("cross_market", {}), default=str)).replace(
         "__MC__", json.dumps(reg.get("montecarlo", {}), default=str)).replace(
+        "__MCF__", json.dumps(reg.get("montecarlo_full", {}), default=str)).replace(
         "__XS__", json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "mcl_equity"}
                               for k, v in reg.get("xm_runs", {}).items()}, default=str))
     OUT.parent.mkdir(exist_ok=True)
