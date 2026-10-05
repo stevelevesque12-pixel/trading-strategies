@@ -24,7 +24,8 @@ import numpy as np
 from research.search import ATR_N, RESULTS, SL_K, TP_K, TRAIL_K
 from trend import components as comp
 from trend.data import load
-from trend.strategy import FEE_RT, LucidRules, Spec, backtest, daily_series, metrics
+from trend.strategy import FEE_RT, INSTRUMENT, LucidRules, Spec, daily_series, metrics
+from trend.strategy import backtest as _backtest
 
 OUT = Path(__file__).resolve().parent / "validation"
 
@@ -72,6 +73,11 @@ def mc_lucid(pnl, low, ntr, rules, cushion, n=2000, block=5, horizon=250, seed=0
 def validate(rec):
     s = Spec(**rec["spec"])
     full = load(rec["dataset"])
+    pv, tick = INSTRUMENT.get(rec["dataset"].split("_")[0], (5.0, 0.25))
+
+    def backtest(m, spec, rules, **kw):
+        return _backtest(m, spec, rules, point_value=pv, tick=tick, **kw)
+
     split = rec["split"]
     oos = full.slice(start=split)
     rules = LucidRules()

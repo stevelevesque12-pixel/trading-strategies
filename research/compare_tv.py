@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from research.candidate import LIVE
+from research.candidate import CANDIDATES
 from trend import engine
 from trend.data import load
 from trend.strategy import LucidRules, backtest
@@ -24,11 +24,12 @@ from trend.strategy import LucidRules, backtest
 OUT = Path(__file__).resolve().parent / "compare"
 
 
-def python_trades(start, end):
+def python_trades(start, end, which="live"):
+    spec = CANDIDATES[which][0]
     # run on the whole file so indicators are warmed up like TradingView's, then keep the
     # trades entered inside [start, end)
     m = load("mes_15m")
-    tr = backtest(m, LIVE, LucidRules())
+    tr = backtest(m, spec, LucidRules())
     t_in = m.index[tr[:, engine.T_ENTRY_I].astype(int)]
     keep = (t_in >= pd.Timestamp(start, tz=m.index.tz)) & (t_in < pd.Timestamp(end, tz=m.index.tz))
     tr = tr[np.asarray(keep)]
@@ -81,10 +82,11 @@ def main():
     ap.add_argument("--tv")
     ap.add_argument("--start", default="2025-10-05")
     ap.add_argument("--end", default="2026-08-25")
+    ap.add_argument("--strategy", default="live", choices=["live", "orb"])
     a = ap.parse_args()
     OUT.mkdir(exist_ok=True)
-    py = python_trades(a.start, a.end)
-    py.to_csv(OUT / "python_trades_mes15.csv", index=False)
+    py = python_trades(a.start, a.end, a.strategy)
+    py.to_csv(OUT / f"python_trades_mes15_{a.strategy}.csv", index=False)
     pf = py.pnl[py.pnl > 0].sum() / -py.pnl[py.pnl <= 0].sum()
     print(f"Python {a.start}..{a.end}: {len(py)} trades, win {np.mean(py.pnl > 0):.1%}, PF {pf:.2f}, net ${py.pnl.sum():,.0f}")
     print(py.groupby(py.entry_time.dt.strftime("%Y-%m")).pnl.agg(["count", "sum"]).round(0).to_string())
