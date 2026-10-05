@@ -77,3 +77,11 @@ Pine defaults now: kill switch on, cushion 25% $200-$600; cushion tracks live-tr
 One position, engine A priority, per-engine exits, shared daily counters, kill switch with shadow trades,
 cushion sizing on live P&L -- mirrors tradingview/mcl_trend_dip.pine. Fixed $300: 221 trades, PF 1.39
 (merged-engine portfolio: 222, PF 1.39). Kill switch: identical to iteration 14. Parity test added.
+
+## Iteration 16: trend-definition sensitivity (Engine A, all else frozen)
+
+Mar20-Aug: all 8 variants (EMA / Supertrend / Donchian mid / linreg slope, with/without base EMA100)
+profitable, PF 1.04-1.72. Oct-Mar: only the fitted EMA definition is clearly positive (1.44); others
+0.85-1.18. => dip-buying in trend worked broadly in spring-summer 2026 crude; Oct-Mar result is partly fit.
+Regime-dependent edge -> the kill switch matters more than the exact trend indicator. Base EMA100 filter
+helps in 7/8 comparisons.
