@@ -9,7 +9,9 @@ cross-market tests and a Lucid Monte Carlo.
 **Current recommendation: `tradingview/mcl_trend_dip.pine` (15m MCL).** Two
 "buy the dip inside a higher-timeframe trend" engines (ATR dip under a 1h
 trend; RSI(3) dip under a 4h trend), one position at a time, risk-based
-sizing with "cushion" sizing for Lucid's trailing drawdown. Anchored
+sizing with "cushion" sizing for Lucid's trailing drawdown (25% of the distance to the max-loss
+line, $200-$600) and an equity-curve kill switch (live orders only while the strategy's equity is
+above its 20-trade average). Anchored
 walk-forward on ~5 months of unseen data: PF ~1.5, ~3.7 trades/week.
 
 **Read the limitations before trading it:**

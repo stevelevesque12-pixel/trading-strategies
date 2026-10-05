@@ -61,3 +61,13 @@ was ever chosen. Added as an opt-in Pine input (A: time stop), defaults unchange
 - Oct-Mar (fit period) at $300 risk: PF 1.28, max DD $2,208 (> Lucid's $2,000). Full-year Monte Carlo is
   therefore the conservative case. Pine default sizing changed to 20% of cushion, $150-$500
   (full-year: pass 63% / fail 11%, median 48 days; unseen-only: 66% / 4%).
+
+## Iteration 14: equity-curve kill switch (untuned, single rule tested)
+
+Live orders only while closed-trade equity >= mean of the last 20 closed-trade equity values
+(shadow-trade otherwise). Frozen MCL Trend Dip, $300 risk:
+full year PF 1.39 -> 1.48, DD $2,209 -> $1,831 | Oct-Mar PF 1.28 -> 1.33, DD $2,208 -> $1,645 |
+Mar-Aug PF 1.54 -> 1.71. Costs ~15% of net and ~30% of trades.
+Full-year Monte Carlo with the switch: 25% cushion $200-$600 -> pass 63.5% / fail 9.9% / median 47d,
+funded breach 8.6% (vs 63.1 / 11.4 / 48 / 10.1 without it at 20% $150-$500).
+Pine defaults now: kill switch on, cushion 25% $200-$600; cushion tracks live-trade P&L only.
