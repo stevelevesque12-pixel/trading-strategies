@@ -125,6 +125,15 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
   <div class="card" id="detail" style="display:none"></div>
 
   <div class="card">
+    <h2>Family robustness</h2>
+    <p class="note" style="margin-top:-6px">Each family is re-optimised from fresh random seeds over the loop. A family whose re-runs are robust again and again is far more trustworthy than one lucky row. Latest engine, 15m full history, families with 2+ runs. Click a family to filter the table below.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="l">Family</th><th>Runs</th><th>Robust runs</th><th>Median OOS PF</th><th>Median OOS Lucid pass</th><th>Median OOS bust</th><th>Best OOS pass</th></tr></thead>
+      <tbody id="fam"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
     <h2>Every strategy tested</h2>
     <div class="filters">
       <select id="f-track"><option value="">All tracks</option><option value="15m_full">15m, full history (10y)</option><option value="5m_recent">5m, recent MES</option></select>
@@ -305,6 +314,20 @@ function drawEquity(r) {
   };
   hit.onmouseleave = () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); };
 }
+function families() {
+  const med = a => { const b = a.filter(x => x != null).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
+  const g = {};
+  R.filter(r => r.v === VMAX && r.track === "15m_full").forEach(r => (g[r.name] = g[r.name] || []).push(r));
+  const rows = Object.entries(g).filter(([, rs]) => rs.length >= 2).map(([name, rs]) => ({
+    name, n: rs.length, rob: rs.filter(r => r.robust).length,
+    pf: med(rs.map(r => r.oos?.profit_factor)), pass: med(rs.map(r => r.oos?.pass)), bust: med(rs.map(r => r.oos?.bust)),
+    best: Math.max(...rs.map(r => r.oos?.pass ?? 0)),
+  })).sort((a, b) => b.rob / b.n - a.rob / a.n || b.pf - a.pf).slice(0, 25);
+  $("#fam").innerHTML = rows.length ? rows.map(f => `<tr data-name="${f.name}"><td class="l">${f.name}</td><td>${f.n}</td><td>${f.rob} (${pct(f.rob / f.n)})</td><td>${f2(f.pf)}</td><td>${pct(f.pass)}</td><td>${pct(f.bust)}</td><td>${pct(f.best)}</td></tr>`).join("")
+    : `<tr><td class="l note" colspan="7">No family has been re-run yet: every family gets one pass before repeats start.</td></tr>`;
+  document.querySelectorAll("#fam tr[data-name]").forEach(tr => tr.onclick = () => { $("#f-q").value = tr.dataset.name; page = 0; render(); $("#f-q").scrollIntoView({ behavior: "smooth", block: "center" }); });
+}
+families();
 window.addEventListener("resize", () => { const r = R.find(x => x.id === selId); if (r) drawEquity(r); });
 render();
 </script>

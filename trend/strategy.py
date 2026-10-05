@@ -47,7 +47,8 @@ class Spec:
     atr_n: int = 14
     sl_k: float = 2.0
     tp_k: float = 4.0
-    trigger: str = "fresh"           # "fresh" = enter on the bar everything first lines up; "any" = whenever aligned & flat
+    trigger: str = "fresh"           # "fresh" = first aligned bar; "any" = whenever aligned & flat; "pullback" = aligned bar that dips to EMA(pb_n) and closes back beyond it
+    pb_n: int = 20
     exit_on_flip: bool = True
     window: str = "rth"
     risk_usd: float = 200.0          # $ risked at full size (strong trend); sideways-ish trend uses small_mult
@@ -82,6 +83,13 @@ def _atr(m: Market, n):
     return _cache[k]
 
 
+def _ema_cached(m: Market, n):
+    k = (m.name, len(m), int(m.index[0].value), "ema", n)
+    if k not in _cache:
+        _cache[k] = ind.ema(m.c, n)
+    return _cache[k]
+
+
 def signals(m: Market, s: Spec):
     t = _component(m, comp.TREND, s.trend, s.trend_p)
     a = _component(m, comp.CONFIRM, s.conf1, s.conf1_p)
@@ -93,6 +101,10 @@ def signals(m: Market, s: Spec):
     if s.trigger == "fresh":
         long_ok = long_ok & ~np.r_[False, long_ok[:-1]]
         short_ok = short_ok & ~np.r_[False, short_ok[:-1]]
+    elif s.trigger == "pullback":
+        e = _ema_cached(m, s.pb_n)
+        long_ok = long_ok & (m.l <= e) & (m.c > e)
+        short_ok = short_ok & (m.h >= e) & (m.c < e)
     return t, r, long_ok, short_ok
 
 

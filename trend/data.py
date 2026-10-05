@@ -72,11 +72,16 @@ class Market:
 
     def slice(self, start=None, end=None) -> "Market":
         idx = self.index
+
+        def ts(x):
+            x = pd.Timestamp(x)
+            return x.tz_convert(idx.tz) if x.tzinfo else x.tz_localize(idx.tz)
+
         m = np.ones(len(idx), bool)
         if start is not None:
-            m &= idx >= pd.Timestamp(start, tz=idx.tz)
+            m &= idx >= ts(start)
         if end is not None:
-            m &= idx < pd.Timestamp(end, tz=idx.tz)
+            m &= idx < ts(end)
         return Market(self.name, self.tf_min, idx[m], self.o[m], self.h[m], self.l[m], self.c[m],
                       self.v[m], self.day_id[m], self.day_dates, self.close_minute[m])
 

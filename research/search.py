@@ -3,10 +3,11 @@
 Protocol (per family = trend + 2 confirmations + regime filter):
   1. Stage 1 (signal quality): random search + local mutation over component params,
      ATR length, ATR band multiples, trigger mode, exit-on-flip and session window,
-     at a fixed $200 risk. Objective: in-sample daily Sharpe, penalised below 150 trades.
+     at a fixed $200 risk. Objective (v3): the worse of the two in-sample halves' daily Sharpe,
+     penalised below 75 trades per half.
   2. Stage 2 (prop sizing): with the signal frozen, sweep risk $/trade, small-size
      multiplier, daily loss limit and daily profit cap to maximise in-sample Lucid 50K
-     pass rate (minus half the bust rate).
+     pass rate minus bust rate.
   3. The frozen spec is then run once on the out-of-sample period (never seen during
      optimisation) and on the real MES 15m contract (Sep 2025 - Aug 2026), and logged.
 """
@@ -36,7 +37,9 @@ SL_K = [1.0, 1.5, 2.0, 2.5, 3.0]
 TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 RISK = [100, 150, 200, 300, 400, 500, 650]
 TRAIL_K = [0.0, 0.0, 1.5, 2.0, 3.0]
-VERSION = 2
+VERSION = 3
+TRIGGERS = ["fresh", "any", "pullback", "pullback"]
+PB_N = [9, 20, 34, 50]
 SMALL = [0.33, 0.5, 0.66]
 DLL = [300, 450, 600, 900]
 CAP = [900, 1200, 1400, 99999]
@@ -54,7 +57,7 @@ def random_spec(family, rng):
         conf2=c2, conf2_p=sample_params(comp.CONFIRM[c2][1], rng),
         regime=r, regime_p=sample_params(comp.REGIME[r][1], rng),
         atr_n=rng.choice(ATR_N), sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K),
-        trigger=rng.choice(["fresh", "any"]), exit_on_flip=rng.choice([True, False]),
+        trigger=rng.choice(TRIGGERS), pb_n=rng.choice(PB_N), exit_on_flip=rng.choice([True, False]),
         window=rng.choice(["rth", "ny_am", "ext"]), trail_k=rng.choice(TRAIL_K),
     )
 
@@ -72,7 +75,7 @@ def mutate(s: Spec, rng):
     elif what == 4:
         s = replace(s, sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K), atr_n=rng.choice(ATR_N), trail_k=rng.choice(TRAIL_K))
     else:
-        s = replace(s, trigger=rng.choice(["fresh", "any"]), exit_on_flip=rng.choice([True, False]),
+        s = replace(s, trigger=rng.choice(TRIGGERS), pb_n=rng.choice(PB_N), exit_on_flip=rng.choice([True, False]),
                     window=rng.choice(["rth", "ny_am", "ext"]))
     return s
 
@@ -93,8 +96,9 @@ def signal_score(r, min_trades):
 
 
 def prop_score(r):
+    # a bust costs a fresh eval fee and as much time as a pass is worth: weigh them equally
     lu = r["lucid"]
-    return lu["pass_rate"] - 0.5 * lu["bust_rate"]
+    return lu["pass_rate"] - lu["bust_rate"]
 
 
 def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=None):
@@ -102,6 +106,8 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
     ds, split, _ = TRACKS[track]
     full = load(ds)
     is_m, oos_m = full.slice(end=split), full.slice(start=split)
+    mid = is_m.index[len(is_m) // 2]
+    is_a, is_b = is_m.slice(end=mid), is_m.slice(start=mid)
     min_trades = 150 if track == "15m_full" else 60
     rules = LucidRules()
     tried = 0
@@ -115,7 +121,9 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
             return
         seen.add(s.key())
         tried += 1
-        sc = signal_score(evaluate(is_m, s, rules, curve_points=2), min_trades)
+        # score = the worse of the two in-sample halves: a fit that only works in one regime loses
+        sc = min(signal_score(evaluate(is_a, s, rules, curve_points=0), min_trades // 2),
+                 signal_score(evaluate(is_b, s, rules, curve_points=0), min_trades // 2))
         if sc > best_sc:
             best, best_sc = s, sc
 
