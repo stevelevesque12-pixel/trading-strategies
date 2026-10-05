@@ -15,7 +15,7 @@ import argparse
 from datetime import datetime, timezone
 
 from .data import load_bars
-from .metrics import compute, equity_points
+from .metrics import compute, daily_pnl, equity_points
 from .optimize import load_registry, save_registry
 from .sim import SimConfig, simulate
 from .strategies import ALL_FAMILIES
@@ -81,8 +81,9 @@ def main():
                                                        "lucid_pass_pct", "lucid_fail_pct", "lucid_median_days",
                                                        "best_day", "worst_day")}}
         row["members"] = {n: compute(ts, test_days).get("profit_factor") for n, ts in members.items()}
+        row["daily"] = [round(float(v), 2) for v in daily_pnl(merged, test_days).to_numpy()]
         sweep.append((row, merged))
-        print(f"risk ${risk}: {row}", flush=True)
+        print(f"risk ${risk}: { {k: v for k, v in row.items() if k != 'daily'} }", flush=True)
 
     tag = "portfolio:" + "+".join(names) + ("|exclusive" if args.exclusive else "")
     best_row, best_trades = max(sweep, key=lambda x: ((x[0]["lucid_pass_pct"] or 0) - 2 * (x[0]["lucid_fail_pct"] or 0)))

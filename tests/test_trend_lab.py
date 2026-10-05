@@ -59,3 +59,17 @@ def test_lucid_eval_pass_and_fail():
     # one huge day breaks the 50% consistency rule until more profit accrues
     lumpy = pd.Series([3000.0] + [100.0] * 79)
     assert lucid_eval(lumpy)["lucid_median_days"] > 1
+
+
+def test_montecarlo_eval_rules():
+    from trend_lab.montecarlo import run_eval
+    assert run_eval([500.0] * 10) == ("pass", 6)
+    assert run_eval([-700.0] * 5) == ("fail", 3)
+    # trailing: at a +1500 high-water mark the line is -500; it locks at 0 once the peak reaches +2000
+    assert run_eval([1500.0, -1600.0])[0] == "timeout"
+    assert run_eval([1500.0, -2000.0])[0] == "fail"
+    assert run_eval([2500.0, -2400.0])[0] == "timeout"
+    assert run_eval([2500.0, -2500.0])[0] == "fail"
+    # consistency: one $3,000 day can't pass alone; needs total >= $6,000 or smaller days
+    assert run_eval([3000.0, 0.0, 0.0])[0] == "timeout"
+    assert run_eval([3000.0, 0.0], consistency=False) == ("pass", 1)

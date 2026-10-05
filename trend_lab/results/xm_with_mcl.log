@@ -1,0 +1,10 @@
+trend_dip_atr            train  -5.61 | test avgR/PF gc:+0.300/1.73 es:-0.110/0.8 nq:-0.102/0.84 si:-0.039/0.92 mclOOS:+0.037/1.1 n44 | MCL pf 0.96 R -0.016 n 97 lucid 0.0
+trend_dip_rsi            train  -6.51 | test avgR/PF gc:+0.026/1.14 es:-0.043/0.84 nq:+0.063/1.25 si:-0.093/0.64 mclOOS:+0.238/2.34 n23 | MCL pf 0.84 R -0.028 n 66 lucid 0.0
+trend_dip_oneside        train  -4.66 | test avgR/PF gc:+0.121/1.32 es:+0.012/1.03 nq:+0.171/1.39 si:+0.050/1.12 mclOOS:+0.550/3.03 n24 | MCL pf 1.13 R 0.065 n 69 lucid 0.0
+trend_dip_combo          train   -4.8 | test avgR/PF gc:+0.015/1.04 es:-0.002/0.99 nq:-0.169/0.65 si:-0.152/0.62 mclOOS:+0.055/1.15 n34 | MCL pf 1.11 R 0.052 n 75 lucid 0.0
+tsmom                    train  -4.37 | test avgR/PF gc:+0.027/1.07 es:+0.002/1.01 nq:+0.038/1.09 si:+0.029/1.08 mclOOS:-0.059/0.85 n35 | MCL pf 1.31 R 0.086 n 75 lucid 0.0
+intraday_mom             train  -4.38 | test avgR/PF gc:+0.029/1.08 es:+0.068/1.17 nq:+0.112/1.26 si:-0.085/0.77 mclOOS:-0.007/0.98 n32 | MCL pf 1.15 R 0.057 n 75 lucid 4.0
+donchian_er              train   -4.6 | test avgR/PF gc:+0.049/1.12 es:+0.045/1.11 nq:+0.003/1.01 si:+0.062/1.15 mclOOS:+0.071/1.22 n25 | MCL pf 1.09 R 0.036 n 65 lucid 0.0
+overnight_cont           train  -4.78 | test avgR/PF gc:-0.089/0.86 es:-0.259/0.62 nq:+0.106/1.17 si:-0.080/0.86 mclOOS:-0.005/0.99 n20 | MCL pf 0.44 R -0.379 n 59 lucid 0.0
+keltner_volume           train  -4.44 | test avgR/PF gc:-0.017/0.98 es:+0.107/1.15 nq:+0.218/1.31 si:-0.006/0.99 mclOOS:-0.181/0.76 n48 | MCL pf 0.54 R -0.359 n 130 lucid 0.0
+hull_turn                train  -4.87 | test avgR/PF gc:-0.029/0.93 es:-0.050/0.9 nq:+0.056/1.12 si:-0.097/0.78 mclOOS:-0.133/0.71 n40 | MCL pf 0.88 R -0.048 n 91 lucid 0.0
