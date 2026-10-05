@@ -1,3 +1,46 @@
+# MCL Trend Lab (trend_lab/) — trend following for a Lucid 50K Flex account
+
+A research loop that builds, optimizes, validates and logs trend-following
+strategies for **Micro WTI Crude (MCL)** on 1m-15m data. Every strategy tried
+is on the dashboard: **`dashboard/index.html`** (self-contained, opens
+offline) — leaderboard, equity curves, win rate, profit factor, walk-forward,
+cross-market tests and a Lucid Monte Carlo.
+
+**Current recommendation: `tradingview/mcl_trend_dip.pine` (15m MCL).** Two
+"buy the dip inside a higher-timeframe trend" engines (ATR dip under a 1h
+trend; RSI(3) dip under a 4h trend), one position at a time, risk-based
+sizing with "cushion" sizing for Lucid's trailing drawdown. Anchored
+walk-forward on ~5 months of unseen data: PF ~1.5, ~3.7 trades/week.
+
+**Read the limitations before trading it:**
+- ~5 months of out-of-sample trades; the data source of the parquet files is unconfirmed.
+- With frozen settings it is **not** profitable on other markets (10y GC/ES/NQ/SI, most micros):
+  it looks crude-specific, possibly regime-specific. Forward-test on a sim first.
+- Lucid rules are from third-party summaries (Oct 2026); confirm on lucidtrading.com.
+
+Layout:
+- `trend_lab/sim.py` — bar-by-bar simulator: next-open fills, 1 tick slippage/side, $1.24 RT
+  commission, risk-based sizing, session windows, EIA filter, daily loss stop / profit lock.
+- `trend_lab/metrics.py` — PF, win rate, drawdown, and a Lucid 50K Flex eval simulator.
+- `trend_lab/strategies/families_v*.py` — every strategy family, one batch per loop iteration.
+- `trend_lab/optimize.py` — random search, 60/40 in-sample/out-of-sample, optional plateau ("robust") selection.
+- `trend_lab/validate.py` — rolling or anchored walk-forward, parameter-neighborhood check, risk sweep.
+- `trend_lab/portfolio.py` — multi-engine walk-forward portfolio (exclusive = one position at a time).
+- `trend_lab/cross_market.py`, `trend_lab/xm_screen.py` — robustness on 10y GC/ES/NQ/SI and other micros.
+- `trend_lab/montecarlo.py` — block-bootstrap Lucid eval / funded-phase probabilities, fixed vs cushion sizing.
+- `trend_lab/dashboard.py` — renders `dashboard/index.html` from `trend_lab/results/registry.json`.
+- `trend_lab/LOOP.md` — the research-loop protocol and findings log.
+
+```bash
+python -m trend_lab.optimize --families trend_dip_atr --tfs 15min --n 400 --iteration 1
+python -m trend_lab.validate --family trend_dip_atr --n 300 --anchored
+python -m trend_lab.portfolio --families trend_dip_atr,trend_dip_rsi --n 300 --exclusive
+python -m trend_lab.montecarlo
+python -m trend_lab.dashboard
+```
+
+---
+
 # Failed 2s (TheStrat) — intraday automation for Tradovate
 
 Codifies the "Failed 2s" multi-timeframe reversal system (Failed-2 bias +

@@ -36,3 +36,10 @@ micros (see "Cross-market robustness" on the dashboard). So from here on, new
 families are screened with `python -m trend_lab.xm_screen` (add `--with-mcl` to make MCL's first 60% a 5th training market): optimize in R-terms on
 the 10-year GC/ES/NQ/SI histories (2016-2022), test on 2023-2026 for those
 markets AND on all of MCL. A family only counts if it holds up on both.
+
+## Iteration 9 (Engine A refinements)
+
+Anchored walk-forward of trend_dip_atr_plus: best-score selection PF 1.70 / +$3,119 / DD $815
+(baseline Engine A: PF 1.57 / +$2,353 / DD $915); plateau selection PF 1.51 / +$1,859.
+Both modes chose a 12-bar time stop + 3R target + no breakeven in every window; no ADX/ER gate
+was ever chosen. Added as an opt-in Pine input (A: time stop), defaults unchanged.

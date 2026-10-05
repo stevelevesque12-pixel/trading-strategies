@@ -8,5 +8,6 @@ from .families_v5 import FAMILIES as V5
 from .families_v6 import FAMILIES as V6
 from .families_v7 import FAMILIES as V7
 from .families_v8 import FAMILIES as V8
+from .families_v9 import FAMILIES as V9
 
-ALL_FAMILIES = {f.name: f for f in V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8}
+ALL_FAMILIES = {f.name: f for f in V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9}

@@ -81,6 +81,8 @@ aSwing   = input.int(8, "A: swing stop lookback", group="Engine A")
 aTarget  = input.float(2.0, "A: target R", group="Engine A")
 aBE      = input.float(1.0, "A: breakeven at R", group="Engine A")
 aTrail   = input.float(2.5, "A: trail ATR", group="Engine A")
+aMaxBars = input.int(0, "A: time stop (bars, 0 = off)", minval=0, group="Engine A",
+     tooltip="Walk-forward (iteration 9) chose a 12-bar time stop with a 3R target and no breakeven in every window; modest evidence, so off by default.")
 
 // Engine B
 bHtfTf   = input.timeframe("240", "B: HTF", group="Engine B")
@@ -166,6 +168,7 @@ var float stopPx   = na
 var float targetPx = na
 var float bestPx   = na
 var float pendDist = na
+var int   entryBar = na
 var int   pendEngine = 0
 
 exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
@@ -178,6 +181,7 @@ if strategy.position_size != 0 and strategy.position_size[1] == 0
     stopPx := strategy.position_avg_price - dir * riskPts
     targetPx := strategy.position_avg_price + dir * riskPts * (posEngine == 1 ? aTarget : bTarget)
     bestPx := strategy.position_avg_price
+    entryBar := bar_index
 
 // End-of-bar management: breakeven, chandelier trail, signal exits, flatten
 if strategy.position_size != 0
@@ -193,6 +197,8 @@ if strategy.position_size != 0
     rsiExit = posEngine == 2 and ((dir > 0 and rsi > bRsiExit) or (dir < 0 and rsi < 100 - bRsiExit))
     if rsiExit
         strategy.close_all(comment="rsi_exit", alert_message=exitMsg)
+    if posEngine == 1 and aMaxBars > 0 and bar_index - entryBar + 1 >= aMaxBars
+        strategy.close_all(comment="time_stop", alert_message=exitMsg)
     if (posEngine == 1 and flatA) or (posEngine == 2 and flatB)
         strategy.close_all(comment="session_flatten", alert_message=exitMsg)
 
