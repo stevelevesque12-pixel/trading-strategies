@@ -73,3 +73,20 @@ def test_montecarlo_eval_rules():
     # consistency: one $3,000 day can't pass alone; needs total >= $6,000 or smaller days
     assert run_eval([3000.0, 0.0, 0.0])[0] == "timeout"
     assert run_eval([3000.0, 0.0], consistency=False) == ("pass", 1)
+
+
+def test_combined_matches_merged_portfolio():
+    """The Pine-parity single-position sim must agree with the merged-engine portfolio."""
+    from trend_lab.combined import run
+    from trend_lab.cross_market import ENGINE_A, ENGINE_B
+    from trend_lab.data import load_bars
+    from trend_lab.portfolio import merge
+    from trend_lab.strategies import ALL_FAMILIES
+    df = load_bars("15min")
+    _, live = run(df)
+    lists = [simulate(df, ALL_FAMILIES[n].generate(df, p), SimConfig(session=p["session"], risk_usd=300,
+                                                                          daily_loss_stop=675))
+             for n, p in (ENGINE_A, ENGINE_B)]
+    merged = merge(lists, 675, exclusive=True)
+    assert abs(len(live) - len(merged)) <= 3
+    assert abs(sum(t.pnl for t in live) - sum(t.pnl for t in merged)) < 0.05 * abs(sum(t.pnl for t in merged))

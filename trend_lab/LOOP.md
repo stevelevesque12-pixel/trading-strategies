@@ -71,3 +71,9 @@ Mar-Aug PF 1.54 -> 1.71. Costs ~15% of net and ~30% of trades.
 Full-year Monte Carlo with the switch: 25% cushion $200-$600 -> pass 63.5% / fail 9.9% / median 47d,
 funded breach 8.6% (vs 63.1 / 11.4 / 48 / 10.1 without it at 20% $150-$500).
 Pine defaults now: kill switch on, cushion 25% $200-$600; cushion tracks live-trade P&L only.
+
+## Iteration 15: Pine-parity simulator (trend_lab/combined.py)
+
+One position, engine A priority, per-engine exits, shared daily counters, kill switch with shadow trades,
+cushion sizing on live P&L -- mirrors tradingview/mcl_trend_dip.pine. Fixed $300: 221 trades, PF 1.39
+(merged-engine portfolio: 222, PF 1.39). Kill switch: identical to iteration 14. Parity test added.
