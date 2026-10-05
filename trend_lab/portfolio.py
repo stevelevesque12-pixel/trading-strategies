@@ -31,7 +31,8 @@ def member_trades(fam, windows, risk, df):
         if k not in cache:
             cache[k] = simulate(df, fam.generate(df, w["params"]),
                                 SimConfig(session=w["params"]["session"], risk_usd=risk,
-                                          daily_loss_stop=2.25 * risk))
+                                          daily_loss_stop=2.25 * risk,
+                                          **getattr(fam, "sim_overrides", {})))
         te0, te1 = w["test"].split("..")
         out += [t for t in cache[k] if te0 <= str(t.trade_day) <= te1]
     return out

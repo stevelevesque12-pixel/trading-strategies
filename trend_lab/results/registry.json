@@ -36055,6 +36055,817 @@
    "id": "trend_dip_atr_daygate@15min#it6r",
    "iteration": 6,
    "created": "2026-10-05T15:57:05+00:00"
+  },
+  {
+   "family": "eia_momentum",
+   "description": "Wednesday EIA crude inventory report (10:30 ET): if the release bar moves >= k x ATR and agrees with the higher-TF trend, join it at the close of the bar; ride with an ATR stop.",
+   "tf": "15min",
+   "selection": "robust",
+   "configs_tested": 400,
+   "split_day": "2026-04-17",
+   "data_start": "2025-10-01",
+   "data_end": "2026-08-25",
+   "params": {
+    "session": "us",
+    "k": 0.5,
+    "confirm_bars": 1,
+    "stop_k": 1.0,
+    "htf_rule": "240min",
+    "htf_len": 50,
+    "trail_k": 2.0,
+    "target_r": 1.5,
+    "be_r": null
+   },
+   "is": {
+    "trades": 6,
+    "days": 139,
+    "win_rate": 66.7,
+    "profit_factor": 2.65,
+    "net": 591.0,
+    "max_dd": 180.0,
+    "eod_dd": 180.0,
+    "avg_r": 0.498,
+    "avg_trade": 98.5,
+    "sharpe": 1.48,
+    "trades_per_week": 0.22,
+    "ret_dd": 3.28,
+    "best_day": 241.0,
+    "worst_day": -180.0,
+    "lucid_attempts": 80,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 4,
+    "days": 93,
+    "win_rate": 25.0,
+    "profit_factor": 0.71,
+    "net": -106.0,
+    "max_dd": 235.0,
+    "eod_dd": 235.0,
+    "avg_r": -0.285,
+    "avg_trade": -26.6,
+    "sharpe": -0.51,
+    "trades_per_week": 0.22,
+    "ret_dd": -0.45,
+    "best_day": 264.0,
+    "worst_day": -138.0,
+    "lucid_attempts": 34,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 10,
+    "days": 232,
+    "win_rate": 50.0,
+    "profit_factor": 1.66,
+    "net": 485.0,
+    "max_dd": 235.0,
+    "eod_dd": 235.0,
+    "avg_r": 0.185,
+    "avg_trade": 48.5,
+    "sharpe": 0.79,
+    "trades_per_week": 0.22,
+    "ret_dd": 2.07,
+    "best_day": 264.0,
+    "worst_day": -180.0,
+    "lucid_attempts": 173,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": null,
+   "top10": [
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "trail_k": 2.0,
+      "target_r": 1.5,
+      "be_r": null
+     },
+     "is_pf": 2.65,
+     "oos_pf": 0.71,
+     "is_net": 591.0,
+     "oos_net": -106.0,
+     "oos_trades": 4
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "trail_k": 3.0,
+      "target_r": 2.0,
+      "be_r": null
+     },
+     "is_pf": 3.15,
+     "oos_pf": 1.23,
+     "is_net": 771.0,
+     "oos_net": 105.0,
+     "oos_trades": 5
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "trail_k": 3.0,
+      "target_r": 1.5,
+      "be_r": null
+     },
+     "is_pf": 2.65,
+     "oos_pf": 1.84,
+     "is_net": 591.0,
+     "oos_net": 229.0,
+     "oos_trades": 4
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "trail_k": 2.0,
+      "target_r": 1.5,
+      "be_r": null
+     },
+     "is_pf": 1.33,
+     "oos_pf": 0.37,
+     "is_net": 235.0,
+     "oos_net": -453.0,
+     "oos_trades": 6
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "trail_k": 3.0,
+      "target_r": 1.5,
+      "be_r": null
+     },
+     "is_pf": 1.33,
+     "oos_pf": 0.81,
+     "is_net": 235.0,
+     "oos_net": -118.0,
+     "oos_trades": 6
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "trail_k": 3.0,
+      "target_r": null,
+      "be_r": 1.0
+     },
+     "is_pf": 1.34,
+     "oos_pf": 99.0,
+     "is_net": 114.0,
+     "oos_net": 754.0,
+     "oos_trades": 3
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 0.5,
+      "confirm_bars": 1,
+      "stop_k": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "trail_k": 3.0,
+      "target_r": null,
+      "be_r": 1.0
+     },
+     "is_pf": 1.34,
+     "oos_pf": 4.28,
+     "is_net": 114.0,
+     "oos_net": 578.0,
+     "oos_trades": 4
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 1.0,
+      "confirm_bars": 2,
+      "stop_k": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": null
+     },
+     "is_pf": 1.06,
+     "oos_pf": 0.15,
+     "is_net": 41.0,
+     "oos_net": -126.0,
+     "oos_trades": 2
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 1.0,
+      "confirm_bars": 2,
+      "stop_k": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0
+     },
+     "is_pf": 1.06,
+     "oos_pf": 0.15,
+     "is_net": 41.0,
+     "oos_net": -126.0,
+     "oos_trades": 2
+    },
+    {
+     "params": {
+      "session": "us",
+      "k": 1.0,
+      "confirm_bars": 2,
+      "stop_k": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "trail_k": 3.0,
+      "target_r": 2.0,
+      "be_r": null
+     },
+     "is_pf": 1.0,
+     "oos_pf": 0.13,
+     "is_net": 2.0,
+     "oos_net": -166.0,
+     "oos_trades": 2
+    }
+   ],
+   "equity": [
+    [
+     "2025-10-29T11:00:00-04:00",
+     238.0
+    ],
+    [
+     "2025-11-12T11:15:00-05:00",
+     478.4
+    ],
+    [
+     "2025-11-26T11:15:00-05:00",
+     299.7
+    ],
+    [
+     "2025-12-03T10:45:00-05:00",
+     530.0
+    ],
+    [
+     "2025-12-17T11:00:00-05:00",
+     349.6
+    ],
+    [
+     "2026-01-21T13:30:00-05:00",
+     591.1
+    ],
+    [
+     "2026-04-22T11:00:00-04:00",
+     455.3
+    ],
+    [
+     "2026-04-29T11:45:00-04:00",
+     719.4
+    ],
+    [
+     "2026-05-06T12:45:00-04:00",
+     581.7
+    ],
+    [
+     "2026-06-03T13:00:00-04:00",
+     484.8
+    ]
+   ],
+   "id": "eia_momentum@15min#it8r",
+   "iteration": 8,
+   "created": "2026-10-05T16:34:32+00:00"
+  },
+  {
+   "family": "trend_dip_atr_window",
+   "description": "Engine A (trend_dip_atr) restricted to an explicit entry window -- e.g. London (02:00-08:00 ET) -- to add trades from sessions the US-hours engines never see. Session 'all' (flat 16:40 ET).",
+   "tf": "15min",
+   "selection": "robust",
+   "configs_tested": 400,
+   "split_day": "2026-04-17",
+   "data_start": "2025-10-01",
+   "data_end": "2026-08-25",
+   "params": {
+    "trail_k": 2.5,
+    "target_r": null,
+    "be_r": 1.0,
+    "htf_rule": "240min",
+    "htf_len": 50,
+    "slope_bars": 4,
+    "base_ema": 100,
+    "session": "all",
+    "fast": 9,
+    "dip_k": 1.0,
+    "dip_bars": 4,
+    "swing_lb": 8,
+    "window": [
+     180,
+     540
+    ]
+   },
+   "is": {
+    "trades": 31,
+    "days": 139,
+    "win_rate": 29.0,
+    "profit_factor": 1.65,
+    "net": 1099.0,
+    "max_dd": 483.0,
+    "eod_dd": 483.0,
+    "avg_r": 0.183,
+    "avg_trade": 35.4,
+    "sharpe": 1.16,
+    "trades_per_week": 1.12,
+    "ret_dd": 2.27,
+    "best_day": 755.0,
+    "worst_day": -185.0,
+    "lucid_attempts": 80,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 8,
+    "days": 93,
+    "win_rate": 37.5,
+    "profit_factor": 0.81,
+    "net": -95.0,
+    "max_dd": 272.0,
+    "eod_dd": 272.0,
+    "avg_r": -0.149,
+    "avg_trade": -11.9,
+    "sharpe": -0.36,
+    "trades_per_week": 0.43,
+    "ret_dd": -0.35,
+    "best_day": 365.0,
+    "worst_day": -139.0,
+    "lucid_attempts": 34,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 39,
+    "days": 232,
+    "win_rate": 30.8,
+    "profit_factor": 1.46,
+    "net": 1004.0,
+    "max_dd": 519.0,
+    "eod_dd": 519.0,
+    "avg_r": 0.115,
+    "avg_trade": 25.7,
+    "sharpe": 0.78,
+    "trades_per_week": 0.84,
+    "ret_dd": 1.93,
+    "best_day": 755.0,
+    "worst_day": -185.0,
+    "lucid_attempts": 173,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": 0.59,
+   "top10": [
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": null,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "slope_bars": 4,
+      "base_ema": 100,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 1.0,
+      "dip_bars": 4,
+      "swing_lb": 8,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.65,
+     "oos_pf": 0.81,
+     "is_net": 1099.0,
+     "oos_net": -95.0,
+     "oos_trades": 8
+    },
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 100,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 1.0,
+      "dip_bars": 4,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.34,
+     "oos_pf": 0.38,
+     "is_net": 796.0,
+     "oos_net": -440.0,
+     "oos_trades": 10
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "slope_bars": 4,
+      "base_ema": 50,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 0.5,
+      "dip_bars": 6,
+      "swing_lb": 8,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.23,
+     "oos_pf": 0.37,
+     "is_net": 841.0,
+     "oos_net": -1502.0,
+     "oos_trades": 25
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": null,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 50,
+      "session": "all",
+      "fast": 13,
+      "dip_k": 1.0,
+      "dip_bars": 6,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.39,
+     "oos_pf": 0.44,
+     "is_net": 561.0,
+     "oos_net": -385.0,
+     "oos_trades": 12
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": null,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 20,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 0.5,
+      "dip_bars": 4,
+      "swing_lb": 8,
+      "window": [
+       1140,
+       120
+      ]
+     },
+     "is_pf": 1.3,
+     "oos_pf": 1.48,
+     "is_net": 1770.0,
+     "oos_net": 1679.0,
+     "oos_trades": 36
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 20,
+      "session": "all",
+      "fast": 21,
+      "dip_k": 0.5,
+      "dip_bars": 4,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.26,
+     "oos_pf": 0.45,
+     "is_net": 395.0,
+     "oos_net": -380.0,
+     "oos_trades": 16
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": null,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 50,
+      "session": "all",
+      "fast": 13,
+      "dip_k": 0.5,
+      "dip_bars": 4,
+      "swing_lb": 8,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.2,
+     "oos_pf": 0.73,
+     "is_net": 479.0,
+     "oos_net": -265.0,
+     "oos_trades": 16
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": 3.0,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 20,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 0.5,
+      "dip_bars": 6,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.16,
+     "oos_pf": 0.88,
+     "is_net": 470.0,
+     "oos_net": -168.0,
+     "oos_trades": 27
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "slope_bars": 4,
+      "base_ema": 50,
+      "session": "all",
+      "fast": 9,
+      "dip_k": 1.0,
+      "dip_bars": 6,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.04,
+     "oos_pf": 0.98,
+     "is_net": 433.0,
+     "oos_net": -185.0,
+     "oos_trades": 103
+    },
+    {
+     "params": {
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "slope_bars": 4,
+      "base_ema": 50,
+      "session": "all",
+      "fast": 21,
+      "dip_k": 0.5,
+      "dip_bars": 4,
+      "swing_lb": 5,
+      "window": [
+       180,
+       540
+      ]
+     },
+     "is_pf": 1.04,
+     "oos_pf": 0.34,
+     "is_net": 84.0,
+     "oos_net": -915.0,
+     "oos_trades": 15
+    }
+   ],
+   "equity": [
+    [
+     "2025-10-01T09:00:00-04:00",
+     -1.4
+    ],
+    [
+     "2025-10-03T09:30:00-04:00",
+     -57.1
+    ],
+    [
+     "2025-10-13T09:45:00-04:00",
+     30.3
+    ],
+    [
+     "2025-11-03T06:00:00-05:00",
+     -67.8
+    ],
+    [
+     "2025-11-21T06:00:00-05:00",
+     -105.3
+    ],
+    [
+     "2025-12-05T07:00:00-05:00",
+     -279.5
+    ],
+    [
+     "2025-12-12T07:30:00-05:00",
+     -299.4
+    ],
+    [
+     "2025-12-15T14:15:00-05:00",
+     -172.7
+    ],
+    [
+     "2025-12-18T09:15:00-05:00",
+     -353.0
+    ],
+    [
+     "2025-12-22T09:00:00-05:00",
+     402.3
+    ],
+    [
+     "2025-12-24T07:30:00-05:00",
+     400.1
+    ],
+    [
+     "2025-12-24T09:45:00-05:00",
+     397.3
+    ],
+    [
+     "2025-12-26T05:45:00-05:00",
+     395.3
+    ],
+    [
+     "2025-12-31T07:45:00-05:00",
+     393.6
+    ],
+    [
+     "2026-01-07T05:15:00-05:00",
+     212.4
+    ],
+    [
+     "2026-01-09T13:00:00-05:00",
+     779.4
+    ],
+    [
+     "2026-01-14T07:15:00-05:00",
+     944.0
+    ],
+    [
+     "2026-01-16T09:30:00-05:00",
+     759.2
+    ],
+    [
+     "2026-01-21T08:45:00-05:00",
+     840.8
+    ],
+    [
+     "2026-01-26T07:30:00-05:00",
+     739.7
+    ],
+    [
+     "2026-01-29T10:00:00-05:00",
+     1253.5
+    ],
+    [
+     "2026-01-30T12:15:00-05:00",
+     1397.6
+    ],
+    [
+     "2026-02-04T06:15:00-05:00",
+     1303.3
+    ],
+    [
+     "2026-02-06T09:30:00-05:00",
+     1205.8
+    ],
+    [
+     "2026-02-10T07:30:00-05:00",
+     1204.4
+    ],
+    [
+     "2026-03-02T05:00:00-05:00",
+     1039.2
+    ],
+    [
+     "2026-03-04T05:00:00-05:00",
+     914.5
+    ],
+    [
+     "2026-03-05T15:00:00-05:00",
+     1274.4
+    ],
+    [
+     "2026-03-17T08:00:00-04:00",
+     1099.5
+    ],
+    [
+     "2026-03-25T07:45:00-04:00",
+     1099.3
+    ],
+    [
+     "2026-04-15T06:15:00-04:00",
+     1098.6
+    ],
+    [
+     "2026-04-21T07:00:00-04:00",
+     1024.1
+    ],
+    [
+     "2026-05-14T07:45:00-04:00",
+     916.1
+    ],
+    [
+     "2026-05-19T09:45:00-04:00",
+     878.4
+    ],
+    [
+     "2026-06-24T11:45:00-04:00",
+     1243.8
+    ],
+    [
+     "2026-07-13T09:00:00-04:00",
+     1255.6
+    ],
+    [
+     "2026-07-15T07:45:00-04:00",
+     1122.8
+    ],
+    [
+     "2026-07-30T06:30:00-04:00",
+     983.4
+    ],
+    [
+     "2026-08-21T06:15:00-04:00",
+     1003.5
+    ]
+   ],
+   "id": "trend_dip_atr_window@15min#it8r",
+   "iteration": 8,
+   "created": "2026-10-05T16:35:40+00:00"
   }
  ],
  "iterations": [
@@ -36139,6 +36950,18 @@
    "n": 500,
    "finished": "2026-10-05T15:57:05+00:00",
    "seconds": 386
+  },
+  {
+   "iteration": 8,
+   "note": "Batch v8: EIA release momentum; ATR-dip engine in London/Asia windows (to add uncorrelated trades to MCL Trend Dip)",
+   "families": [
+    "eia_momentum",
+    "trend_dip_atr_window"
+   ],
+   "tfs": "15min",
+   "n": 400,
+   "finished": "2026-10-05T16:35:41+00:00",
+   "seconds": 108
   }
  ],
  "validations": {

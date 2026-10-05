@@ -92,7 +92,7 @@ def robust_pick(cands, score_fn, space, top=20):
 
 
 def run_config(df, fam, p, split_day, days):
-    cfg = SimConfig(session=p["session"])
+    cfg = SimConfig(session=p["session"], **getattr(fam, "sim_overrides", {}))
     trades = simulate(df, fam.generate(df, p), cfg)
     is_t = [t for t in trades if t.trade_day < split_day]
     oos_t = [t for t in trades if t.trade_day >= split_day]

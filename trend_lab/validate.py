@@ -30,7 +30,8 @@ TRAIN_DAYS, TEST_DAYS = 120, 20
 
 
 def _run(df, fam, p, risk=200.0):
-    return simulate(df, fam.generate(df, p), SimConfig(session=p["session"], risk_usd=risk))
+    return simulate(df, fam.generate(df, p), SimConfig(session=p["session"], risk_usd=risk,
+                                                      **getattr(fam, "sim_overrides", {})))
 
 
 def walk_forward(fam, n, seed=0, tf="15min", anchored=False, select="best"):
