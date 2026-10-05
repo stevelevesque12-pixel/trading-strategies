@@ -49,4 +49,31 @@ class TrendDipATRPlus:
         return sig
 
 
-FAMILIES = [TrendDipATRPlus()]
+
+class TrendDipRSIPlus:
+    name = "trend_dip_rsi_plus"
+    description = ("Engine B (short-RSI dip in a higher-TF trend) widened for frequency: 1h or 4h trend, looser "
+                   "oversold levels, RSI lengths 2-4, optional US-hours session and time stop.")
+    space = {
+        "session": ["ny", "us"],
+        "trail_k": [2.0, 3.0],
+        "target_r": [2.0, 3.0],
+        "be_r": [None, 1.0],
+        "htf_rule": ["60min", "240min"],
+        "htf_len": [20, 50],
+        "base_ema": [50, 100],
+        "rsi_n": [2, 3, 4],
+        "rsi_lo": [25, 30, 35, 40],
+        "swing_lb": [5, 8],
+        "exit_rsi": [None, 70, 80],
+        "max_bars": [None, 12, 24],
+    }
+
+    def generate(self, df, p):
+        from .families_v2 import TrendDipRSI
+        sig = TrendDipRSI().generate(df, p)
+        sig["max_bars"] = p["max_bars"]
+        return sig
+
+
+FAMILIES = [TrendDipATRPlus(), TrendDipRSIPlus()]

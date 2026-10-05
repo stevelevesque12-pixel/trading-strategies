@@ -1,0 +1,14 @@
+walk-forward trend_dip_rsi_plus|anchored|best: {"trades": 28, "win_rate": 64.3, "profit_factor": 1.05, "net": 73.0, "max_dd": 418.0, "lucid_pass_pct": 0.0, "lucid_fail_pct": 0.0}
+  test 2026-03-20..2026-04-17:   4 trades   -206.0
+  test 2026-04-20..2026-05-15:  12 trades   -158.0
+  test 2026-05-18..2026-06-12:   4 trades    241.0
+  test 2026-06-15..2026-07-10:   2 trades    162.0
+  test 2026-07-13..2026-08-07:   4 trades    -43.0
+  test 2026-08-10..2026-08-25:   2 trades     76.0
+  risk $150: net 54.0, eod dd 314.0, lucid pass 0.0% fail 0.0% median days None
+  risk $200: net 73.0, eod dd 418.0, lucid pass 0.0% fail 0.0% median days None
+  risk $300: net 109.0, eod dd 627.0, lucid pass 0.0% fail 0.0% median days None
+  risk $400: net 145.0, eod dd 836.0, lucid pass 0.0% fail 0.0% median days None
+  risk $500: net 181.0, eod dd 1045.0, lucid pass 0.0% fail 0.0% median days None
+  risk $600: net 218.0, eod dd 1254.0, lucid pass 0.0% fail 0.0% median days None
+  risk $800: net 290.0, eod dd 1673.0, lucid pass 0.0% fail 0.0% median days None

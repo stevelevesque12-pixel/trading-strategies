@@ -37805,6 +37805,620 @@
    "id": "trend_dip_atr_plus@15min#it9r",
    "iteration": 9,
    "created": "2026-10-05T16:38:14+00:00"
+  },
+  {
+   "family": "trend_dip_rsi_plus",
+   "description": "Engine B (short-RSI dip in a higher-TF trend) widened for frequency: 1h or 4h trend, looser oversold levels, RSI lengths 2-4, optional US-hours session and time stop.",
+   "tf": "15min",
+   "selection": "robust",
+   "configs_tested": 500,
+   "split_day": "2026-04-17",
+   "data_start": "2025-10-01",
+   "data_end": "2026-08-25",
+   "params": {
+    "session": "ny",
+    "trail_k": 2.0,
+    "target_r": 2.0,
+    "be_r": null,
+    "htf_rule": "60min",
+    "htf_len": 20,
+    "base_ema": 100,
+    "rsi_n": 3,
+    "rsi_lo": 30,
+    "swing_lb": 8,
+    "exit_rsi": 70,
+    "max_bars": null
+   },
+   "is": {
+    "trades": 50,
+    "days": 139,
+    "win_rate": 62.0,
+    "profit_factor": 1.01,
+    "net": 34.0,
+    "max_dd": 622.0,
+    "eod_dd": 622.0,
+    "avg_r": -0.014,
+    "avg_trade": 0.7,
+    "sharpe": 0.05,
+    "trades_per_week": 1.8,
+    "ret_dd": 0.05,
+    "best_day": 297.0,
+    "worst_day": -301.0,
+    "lucid_attempts": 80,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 28,
+    "days": 93,
+    "win_rate": 75.0,
+    "profit_factor": 2.29,
+    "net": 1176.0,
+    "max_dd": 235.0,
+    "eod_dd": 235.0,
+    "avg_r": 0.252,
+    "avg_trade": 42.0,
+    "sharpe": 2.89,
+    "trades_per_week": 1.51,
+    "ret_dd": 5.0,
+    "best_day": 355.0,
+    "worst_day": -154.0,
+    "lucid_attempts": 34,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 78,
+    "days": 232,
+    "win_rate": 66.7,
+    "profit_factor": 1.37,
+    "net": 1210.0,
+    "max_dd": 764.0,
+    "eod_dd": 764.0,
+    "avg_r": 0.081,
+    "avg_trade": 15.5,
+    "sharpe": 1.14,
+    "trades_per_week": 1.68,
+    "ret_dd": 1.58,
+    "best_day": 355.0,
+    "worst_day": -301.0,
+    "lucid_attempts": 173,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": 1.87,
+   "top10": [
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "is_pf": 1.01,
+     "oos_pf": 2.29,
+     "is_net": 34.0,
+     "oos_net": 1176.0,
+     "oos_trades": 28
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "is_pf": 1.09,
+     "oos_pf": 1.35,
+     "is_net": 213.0,
+     "oos_net": 570.0,
+     "oos_trades": 37
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "is_pf": 1.05,
+     "oos_pf": 1.66,
+     "is_net": 135.0,
+     "oos_net": 1193.0,
+     "oos_trades": 47
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "is_pf": 1.18,
+     "oos_pf": 1.86,
+     "is_net": 220.0,
+     "oos_net": 479.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 3.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 50,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "is_pf": 0.94,
+     "oos_pf": 1.82,
+     "is_net": -125.0,
+     "oos_net": 1109.0,
+     "oos_trades": 37
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "base_ema": 50,
+      "rsi_n": 2,
+      "rsi_lo": 30,
+      "swing_lb": 5,
+      "exit_rsi": 80,
+      "max_bars": 24
+     },
+     "is_pf": 0.96,
+     "oos_pf": 1.47,
+     "is_net": -139.0,
+     "oos_net": 988.0,
+     "oos_trades": 52
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 2.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 4,
+      "rsi_lo": 30,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": 24
+     },
+     "is_pf": 0.92,
+     "oos_pf": 3.06,
+     "is_net": -139.0,
+     "oos_net": 910.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 2.0,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "base_ema": 50,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 24
+     },
+     "is_pf": 0.92,
+     "oos_pf": 2.55,
+     "is_net": -156.0,
+     "oos_net": 845.0,
+     "oos_trades": 18
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 3.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "is_pf": 0.9,
+     "oos_pf": 1.96,
+     "is_net": -174.0,
+     "oos_net": 859.0,
+     "oos_trades": 28
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 50,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "is_pf": 0.92,
+     "oos_pf": 1.92,
+     "is_net": -178.0,
+     "oos_net": 1181.0,
+     "oos_trades": 37
+    }
+   ],
+   "equity": [
+    [
+     "2025-10-01T13:45:00-04:00",
+     93.8
+    ],
+    [
+     "2025-10-06T14:30:00-04:00",
+     67.9
+    ],
+    [
+     "2025-10-16T11:45:00-04:00",
+     218.9
+    ],
+    [
+     "2025-10-17T09:30:00-04:00",
+     289.0
+    ],
+    [
+     "2025-10-20T11:15:00-04:00",
+     159.3
+    ],
+    [
+     "2025-10-20T13:30:00-04:00",
+     -12.2
+    ],
+    [
+     "2025-10-22T12:30:00-04:00",
+     -128.4
+    ],
+    [
+     "2025-10-23T09:15:00-04:00",
+     -112.9
+    ],
+    [
+     "2025-10-23T11:45:00-04:00",
+     -49.9
+    ],
+    [
+     "2025-10-24T10:00:00-04:00",
+     25.5
+    ],
+    [
+     "2025-10-31T11:45:00-04:00",
+     139.3
+    ],
+    [
+     "2025-10-31T13:15:00-04:00",
+     221.8
+    ],
+    [
+     "2025-11-06T12:15:00-05:00",
+     236.9
+    ],
+    [
+     "2025-11-06T13:30:00-05:00",
+     54.7
+    ],
+    [
+     "2025-11-07T12:45:00-05:00",
+     101.3
+    ],
+    [
+     "2025-11-14T13:15:00-05:00",
+     115.4
+    ],
+    [
+     "2025-11-17T11:30:00-05:00",
+     113.4
+    ],
+    [
+     "2025-11-20T09:30:00-05:00",
+     -68.5
+    ],
+    [
+     "2025-11-26T14:00:00-05:00",
+     -78.2
+    ],
+    [
+     "2025-11-27T11:15:00-05:00",
+     -49.4
+    ],
+    [
+     "2025-11-27T13:00:00-05:00",
+     113.0
+    ],
+    [
+     "2025-12-05T12:30:00-05:00",
+     215.0
+    ],
+    [
+     "2025-12-10T13:15:00-05:00",
+     27.2
+    ],
+    [
+     "2025-12-11T13:30:00-05:00",
+     -161.1
+    ],
+    [
+     "2025-12-12T14:00:00-05:00",
+     -103.5
+    ],
+    [
+     "2025-12-16T14:15:00-05:00",
+     30.6
+    ],
+    [
+     "2025-12-18T09:15:00-05:00",
+     -131.1
+    ],
+    [
+     "2025-12-19T11:30:00-05:00",
+     -16.3
+    ],
+    [
+     "2025-12-23T11:30:00-05:00",
+     24.3
+    ],
+    [
+     "2025-12-29T10:45:00-05:00",
+     18.1
+    ],
+    [
+     "2026-01-09T09:15:00-05:00",
+     208.7
+    ],
+    [
+     "2026-01-13T14:00:00-05:00",
+     240.9
+    ],
+    [
+     "2026-01-15T12:00:00-05:00",
+     294.7
+    ],
+    [
+     "2026-01-16T11:30:00-05:00",
+     353.3
+    ],
+    [
+     "2026-01-19T13:45:00-05:00",
+     359.4
+    ],
+    [
+     "2026-01-20T09:15:00-05:00",
+     656.2
+    ],
+    [
+     "2026-01-21T10:00:00-05:00",
+     478.6
+    ],
+    [
+     "2026-01-22T11:00:00-05:00",
+     345.6
+    ],
+    [
+     "2026-01-23T13:00:00-05:00",
+     360.6
+    ],
+    [
+     "2026-01-29T12:45:00-05:00",
+     380.2
+    ],
+    [
+     "2026-02-02T12:15:00-05:00",
+     564.0
+    ],
+    [
+     "2026-02-03T13:00:00-05:00",
+     496.4
+    ],
+    [
+     "2026-02-11T11:45:00-05:00",
+     560.2
+    ],
+    [
+     "2026-02-11T13:45:00-05:00",
+     600.5
+    ],
+    [
+     "2026-02-13T09:45:00-05:00",
+     644.3
+    ],
+    [
+     "2026-02-13T12:30:00-05:00",
+     461.0
+    ],
+    [
+     "2026-02-20T09:30:00-05:00",
+     285.6
+    ],
+    [
+     "2026-02-24T13:00:00-05:00",
+     304.7
+    ],
+    [
+     "2026-02-27T12:30:00-05:00",
+     148.5
+    ],
+    [
+     "2026-03-16T12:15:00-04:00",
+     34.0
+    ],
+    [
+     "2026-04-20T13:30:00-04:00",
+     -95.1
+    ],
+    [
+     "2026-04-21T10:30:00-04:00",
+     -86.3
+    ],
+    [
+     "2026-04-23T11:45:00-04:00",
+     7.2
+    ],
+    [
+     "2026-04-28T13:30:00-04:00",
+     94.7
+    ],
+    [
+     "2026-05-01T12:15:00-04:00",
+     -18.7
+    ],
+    [
+     "2026-05-05T13:30:00-04:00",
+     55.6
+    ],
+    [
+     "2026-05-12T09:30:00-04:00",
+     127.1
+    ],
+    [
+     "2026-05-14T13:00:00-04:00",
+     46.0
+    ],
+    [
+     "2026-05-15T10:30:00-04:00",
+     -108.1
+    ],
+    [
+     "2026-05-22T11:45:00-04:00",
+     11.4
+    ],
+    [
+     "2026-05-25T10:30:00-04:00",
+     124.7
+    ],
+    [
+     "2026-05-25T13:00:00-04:00",
+     213.4
+    ],
+    [
+     "2026-05-29T11:15:00-04:00",
+     356.2
+    ],
+    [
+     "2026-06-10T10:00:00-04:00",
+     395.7
+    ],
+    [
+     "2026-06-10T12:00:00-04:00",
+     513.2
+    ],
+    [
+     "2026-06-12T09:30:00-04:00",
+     378.8
+    ],
+    [
+     "2026-06-15T10:30:00-04:00",
+     462.1
+    ],
+    [
+     "2026-06-24T13:30:00-04:00",
+     554.4
+    ],
+    [
+     "2026-07-08T09:30:00-04:00",
+     623.9
+    ],
+    [
+     "2026-07-13T10:15:00-04:00",
+     979.0
+    ],
+    [
+     "2026-07-17T12:15:00-04:00",
+     1154.6
+    ],
+    [
+     "2026-07-22T09:15:00-04:00",
+     1003.9
+    ],
+    [
+     "2026-07-24T10:30:00-04:00",
+     1093.4
+    ],
+    [
+     "2026-07-27T10:15:00-04:00",
+     1166.9
+    ],
+    [
+     "2026-07-29T12:15:00-04:00",
+     1019.6
+    ],
+    [
+     "2026-08-05T09:45:00-04:00",
+     1089.1
+    ],
+    [
+     "2026-08-05T13:00:00-04:00",
+     1144.6
+    ],
+    [
+     "2026-08-20T11:30:00-04:00",
+     1209.9
+    ]
+   ],
+   "id": "trend_dip_rsi_plus@15min#it10r",
+   "iteration": 10,
+   "created": "2026-10-05T16:40:17+00:00"
   }
  ],
  "iterations": [
@@ -37912,6 +38526,17 @@
    "n": 500,
    "finished": "2026-10-05T16:38:14+00:00",
    "seconds": 72
+  },
+  {
+   "iteration": 10,
+   "note": "Batch v9b: Engine B widened for frequency",
+   "families": [
+    "trend_dip_rsi_plus"
+   ],
+   "tfs": "15min",
+   "n": 500,
+   "finished": "2026-10-05T16:40:18+00:00",
+   "seconds": 62
   }
  ],
  "validations": {
@@ -43569,6 +44194,738 @@
      "lucid_pass_pct": 18.7,
      "lucid_fail_pct": 81.3,
      "lucid_median_days": 10.0
+    }
+   ]
+  },
+  "trend_dip_rsi_plus|anchored|best": {
+   "tag": "trend_dip_rsi_plus|anchored|best",
+   "family": "trend_dip_rsi_plus",
+   "anchored": true,
+   "select": "best",
+   "created": "2026-10-05T16:39:48+00:00",
+   "candidates_per_window": 300,
+   "train_days": 120,
+   "test_days": 20,
+   "walk_forward": {
+    "trades": 28,
+    "days": 112,
+    "win_rate": 64.3,
+    "profit_factor": 1.05,
+    "net": 73.0,
+    "max_dd": 418.0,
+    "eod_dd": 418.0,
+    "avg_r": -0.0,
+    "avg_trade": 2.6,
+    "sharpe": 0.19,
+    "trades_per_week": 1.25,
+    "ret_dd": 0.17,
+    "best_day": 176.0,
+    "worst_day": -163.0,
+    "lucid_attempts": 53,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "equity": [
+    [
+     "2026-03-20T14:45:00-04:00",
+     54.8
+    ],
+    [
+     "2026-03-31T08:15:00-04:00",
+     -89.0
+    ],
+    [
+     "2026-04-15T14:30:00-04:00",
+     -84.2
+    ],
+    [
+     "2026-04-17T14:30:00-04:00",
+     -205.6
+    ],
+    [
+     "2026-04-20T13:30:00-04:00",
+     -334.7
+    ],
+    [
+     "2026-04-21T10:30:00-04:00",
+     -325.9
+    ],
+    [
+     "2026-04-22T08:45:00-04:00",
+     -244.4
+    ],
+    [
+     "2026-04-23T11:45:00-04:00",
+     -150.9
+    ],
+    [
+     "2026-04-28T13:30:00-04:00",
+     -63.3
+    ],
+    [
+     "2026-04-29T08:30:00-04:00",
+     2.2
+    ],
+    [
+     "2026-05-01T12:15:00-04:00",
+     -111.2
+    ],
+    [
+     "2026-05-05T13:30:00-04:00",
+     -37.0
+    ],
+    [
+     "2026-05-08T08:45:00-04:00",
+     -199.7
+    ],
+    [
+     "2026-05-12T09:30:00-04:00",
+     -128.2
+    ],
+    [
+     "2026-05-14T13:00:00-04:00",
+     -209.3
+    ],
+    [
+     "2026-05-15T10:30:00-04:00",
+     -363.4
+    ],
+    [
+     "2026-05-22T11:45:00-04:00",
+     -243.9
+    ],
+    [
+     "2026-05-25T10:30:00-04:00",
+     -130.6
+    ],
+    [
+     "2026-05-29T11:15:00-04:00",
+     12.2
+    ],
+    [
+     "2026-06-12T09:30:00-04:00",
+     -122.3
+    ],
+    [
+     "2026-06-24T13:30:00-04:00",
+     -30.0
+    ],
+    [
+     "2026-07-08T09:30:00-04:00",
+     39.5
+    ],
+    [
+     "2026-07-17T12:15:00-04:00",
+     215.0
+    ],
+    [
+     "2026-07-22T09:15:00-04:00",
+     64.4
+    ],
+    [
+     "2026-07-27T10:15:00-04:00",
+     137.9
+    ],
+    [
+     "2026-07-29T12:15:00-04:00",
+     -3.5
+    ],
+    [
+     "2026-08-17T08:45:00-04:00",
+     7.3
+    ],
+    [
+     "2026-08-20T11:30:00-04:00",
+     72.6
+    ]
+   ],
+   "start": "2026-03-20",
+   "end": "2026-08-25",
+   "windows": [
+    {
+     "train": "2025-10-01..2026-03-19",
+     "test": "2026-03-20..2026-04-17",
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "test_pnl": -206.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-04-17",
+     "test": "2026-04-20..2026-05-15",
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "test_pnl": -158.0,
+     "test_trades": 12
+    },
+    {
+     "train": "2025-10-01..2026-05-15",
+     "test": "2026-05-18..2026-06-12",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 241.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-06-12",
+     "test": "2026-06-15..2026-07-10",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 162.0,
+     "test_trades": 2
+    },
+    {
+     "train": "2025-10-01..2026-07-10",
+     "test": "2026-07-13..2026-08-07",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": -43.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-08-07",
+     "test": "2026-08-10..2026-08-25",
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "test_pnl": 76.0,
+     "test_trades": 2
+    }
+   ],
+   "neighborhood": null,
+   "risk_sweep": [
+    {
+     "risk": 150,
+     "net": 54.0,
+     "eod_dd": 314.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 200,
+     "net": 73.0,
+     "eod_dd": 418.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 300,
+     "net": 109.0,
+     "eod_dd": 627.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 400,
+     "net": 145.0,
+     "eod_dd": 836.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 500,
+     "net": 181.0,
+     "eod_dd": 1045.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 600,
+     "net": 218.0,
+     "eod_dd": 1254.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 800,
+     "net": 290.0,
+     "eod_dd": 1673.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    }
+   ]
+  },
+  "trend_dip_rsi_plus|anchored|robust": {
+   "tag": "trend_dip_rsi_plus|anchored|robust",
+   "family": "trend_dip_rsi_plus",
+   "anchored": true,
+   "select": "robust",
+   "created": "2026-10-05T16:40:26+00:00",
+   "candidates_per_window": 300,
+   "train_days": 120,
+   "test_days": 20,
+   "walk_forward": {
+    "trades": 16,
+    "days": 112,
+    "win_rate": 75.0,
+    "profit_factor": 1.99,
+    "net": 555.0,
+    "max_dd": 219.0,
+    "eod_dd": 219.0,
+    "avg_r": 0.227,
+    "avg_trade": 34.7,
+    "sharpe": 1.86,
+    "trades_per_week": 0.71,
+    "ret_dd": 2.54,
+    "best_day": 176.0,
+    "worst_day": -151.0,
+    "lucid_attempts": 53,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "equity": [
+    [
+     "2026-04-20T13:30:00-04:00",
+     -133.6
+    ],
+    [
+     "2026-04-23T11:45:00-04:00",
+     -40.1
+    ],
+    [
+     "2026-04-28T13:30:00-04:00",
+     47.5
+    ],
+    [
+     "2026-05-12T09:30:00-04:00",
+     119.0
+    ],
+    [
+     "2026-05-22T11:45:00-04:00",
+     238.5
+    ],
+    [
+     "2026-05-25T10:30:00-04:00",
+     351.8
+    ],
+    [
+     "2026-05-29T11:15:00-04:00",
+     494.5
+    ],
+    [
+     "2026-06-12T09:30:00-04:00",
+     360.1
+    ],
+    [
+     "2026-06-24T13:30:00-04:00",
+     452.4
+    ],
+    [
+     "2026-07-08T09:30:00-04:00",
+     521.9
+    ],
+    [
+     "2026-07-17T12:15:00-04:00",
+     697.4
+    ],
+    [
+     "2026-07-22T09:15:00-04:00",
+     546.8
+    ],
+    [
+     "2026-07-27T10:15:00-04:00",
+     620.3
+    ],
+    [
+     "2026-07-29T12:15:00-04:00",
+     478.9
+    ],
+    [
+     "2026-08-17T08:45:00-04:00",
+     489.7
+    ],
+    [
+     "2026-08-20T11:30:00-04:00",
+     555.0
+    ]
+   ],
+   "start": "2026-03-20",
+   "end": "2026-08-25",
+   "windows": [
+    {
+     "train": "2025-10-01..2026-03-19",
+     "test": "2026-03-20..2026-04-17",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 0,
+     "test_trades": 0
+    },
+    {
+     "train": "2025-10-01..2026-04-17",
+     "test": "2026-04-20..2026-05-15",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 119.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-05-15",
+     "test": "2026-05-18..2026-06-12",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 241.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-06-12",
+     "test": "2026-06-15..2026-07-10",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": 162.0,
+     "test_trades": 2
+    },
+    {
+     "train": "2025-10-01..2026-07-10",
+     "test": "2026-07-13..2026-08-07",
+     "params": {
+      "session": "ny",
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 25,
+      "swing_lb": 5,
+      "exit_rsi": 70,
+      "max_bars": null
+     },
+     "test_pnl": -43.0,
+     "test_trades": 4
+    },
+    {
+     "train": "2025-10-01..2026-08-07",
+     "test": "2026-08-10..2026-08-25",
+     "params": {
+      "session": "us",
+      "trail_k": 2.0,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "base_ema": 100,
+      "rsi_n": 3,
+      "rsi_lo": 30,
+      "swing_lb": 8,
+      "exit_rsi": 70,
+      "max_bars": 12
+     },
+     "test_pnl": 76.0,
+     "test_trades": 2
+    }
+   ],
+   "neighborhood": {
+    "base_pf": 1.37,
+    "base_net": 1210.0,
+    "rows": [
+     {
+      "param": "session",
+      "value": "us",
+      "pf": 1.25,
+      "net": 1216.0,
+      "trades": 113
+     },
+     {
+      "param": "trail_k",
+      "value": "3.0",
+      "pf": 1.37,
+      "net": 1223.0,
+      "trades": 78
+     },
+     {
+      "param": "target_r",
+      "value": "3.0",
+      "pf": 1.35,
+      "net": 1135.0,
+      "trades": 78
+     },
+     {
+      "param": "be_r",
+      "value": "1.0",
+      "pf": 1.31,
+      "net": 1025.0,
+      "trades": 78
+     },
+     {
+      "param": "htf_rule",
+      "value": "240min",
+      "pf": 1.43,
+      "net": 1261.0,
+      "trades": 69
+     },
+     {
+      "param": "htf_len",
+      "value": "50",
+      "pf": 1.39,
+      "net": 1198.0,
+      "trades": 74
+     },
+     {
+      "param": "base_ema",
+      "value": "50",
+      "pf": 1.3,
+      "net": 862.0,
+      "trades": 66
+     },
+     {
+      "param": "rsi_n",
+      "value": "2",
+      "pf": 0.81,
+      "net": -1000.0,
+      "trades": 128
+     },
+     {
+      "param": "rsi_n",
+      "value": "4",
+      "pf": 1.22,
+      "net": 581.0,
+      "trades": 47
+     },
+     {
+      "param": "rsi_lo",
+      "value": "25",
+      "pf": 1.14,
+      "net": 332.0,
+      "trades": 49
+     },
+     {
+      "param": "rsi_lo",
+      "value": "35",
+      "pf": 1.08,
+      "net": 396.0,
+      "trades": 103
+     },
+     {
+      "param": "swing_lb",
+      "value": "5",
+      "pf": 1.47,
+      "net": 1533.0,
+      "trades": 79
+     },
+     {
+      "param": "exit_rsi",
+      "value": "None",
+      "pf": 0.93,
+      "net": -357.0,
+      "trades": 77
+     },
+     {
+      "param": "exit_rsi",
+      "value": "80",
+      "pf": 0.99,
+      "net": -37.0,
+      "trades": 78
+     },
+     {
+      "param": "max_bars",
+      "value": "12",
+      "pf": 1.37,
+      "net": 1210.0,
+      "trades": 78
+     }
+    ],
+    "neighbors_pf_median": 1.3,
+    "neighbors_pf_gt1_pct": 80.0
+   },
+   "risk_sweep": [
+    {
+     "risk": 150,
+     "net": 416.0,
+     "eod_dd": 164.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 200,
+     "net": 555.0,
+     "eod_dd": 219.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 300,
+     "net": 832.0,
+     "eod_dd": 328.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 400,
+     "net": 1110.0,
+     "eod_dd": 437.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 500,
+     "net": 1387.0,
+     "eod_dd": 546.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 600,
+     "net": 1665.0,
+     "eod_dd": 656.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
+    },
+    {
+     "risk": 800,
+     "net": 2220.0,
+     "eod_dd": 874.0,
+     "lucid_attempts": 53,
+     "lucid_pass_pct": 0.0,
+     "lucid_fail_pct": 0.0,
+     "lucid_median_days": null
     }
    ]
   }
