@@ -1,3 +1,32 @@
+# MES trend research (ATR-band trend following for Lucid 50K)
+
+A third, separate project lives in `trend/` + `research/`: an automated search for intraday
+trend-following strategies on MES, built for a Lucid Trading 50K (LucidFlex) evaluation.
+
+- **Structure**: 1 trend-direction indicator + 2 confirmations + 1 volatility/chop filter, with
+  ATR bands for the stop and take-profit (optionally a trailing ATR stop). The chop filter
+  outputs three states: sideways (no trades), trending (reduced size), strong trend (full size).
+  Components are pluggable (`trend/components.py`); every combination is a "family".
+- **Engine** (`trend/engine.py`, numba): next-bar-open entries, $2.50/contract round-turn fees +
+  1 tick slippage on every market fill, stop-before-target on ambiguous bars, flat by 15:55 ET,
+  risk-based sizing from the ATR stop, optional daily loss limit / profit cap.
+- **Data**: the 10-year ES 15m file priced at MES's $5/point (same index, same price; MES only
+  launched in 2019) is the "full history" test; real MES 15m (2025-26) is checked separately.
+  The 1m/5m MES files only span weeks to months, so sub-15m results are low-confidence.
+- **Lucid 50K simulator** (`trend/strategy.py:lucid_sim`): +$3,000 target, $2,000 EOD-trailing
+  MLL locking at +$100, 50% consistency rule, 40-micro cap, no time limit (~1y horizon).
+  Optional drawdown-cushion sizing scales size down as the account nears the MLL.
+- **Research loop** (`python -m research.loop --minutes 110 --workers 4`): per family, optimise
+  on 2016-2022 (scored on the worse of the two halves), size for Lucid pass-minus-bust, then test
+  once on 2023-2026 and real MES. Robust results are auto-validated (`research/validate.py`:
+  yearly P&L, cost stress, parameter neighbours, Monte Carlo Lucid odds).
+- **Dashboard**: `research/dashboard.html` (live, regenerated after every result) /
+  `research/snapshot/dashboard.html` (committed). Every strategy with its equity curve, win rate,
+  profit factor, Lucid pass/bust, plus family-robustness and validation panels.
+- **Live candidate**: `tradingview/trend_atr_mes.pine` (EMA300 trend, DMI + ROC confirmation,
+  efficiency-ratio filter, 3xATR trailing stop / 8xATR target, cushion sizing). Same TradersPost
+  webhook setup as the other Pine scripts. `python -m research.candidate` logs it to the dashboard.
+
 # Failed 2s (TheStrat) — intraday automation for Tradovate
 
 Codifies the "Failed 2s" multi-timeframe reversal system (Failed-2 bias +

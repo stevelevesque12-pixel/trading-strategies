@@ -24,7 +24,7 @@ def _slim(d):
             "pass": lu.get("pass_rate"), "bust": lu.get("bust_rate"), "days": lu.get("median_days_to_pass"),
             "evals": lu.get("evals")}
     return {
-        "id": d["id"], "v": d.get("v", 1), "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
+        "id": d["id"], "v": d.get("v", 1), "cand": d.get("candidate", False), "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
         "name": d["name"], "spec": d["spec"], "tried": d["configs_tried"], "robust": d["robust"],
         "is": m(d["is"]), "oos": m(d["oos"]), "full": m(d["full"]), "mes": m(d.get("mes_check")),
         # early records stored seconds instead of ms (index resolution bug) - normalise
@@ -172,20 +172,21 @@ const DATA = /*__DATA__*/null;
 const R = DATA.records;
 const VAL = DATA.validation || {};
 const VMAX = Math.max(1, ...R.map(r => r.v || 1));
+const CANDS = R.filter(r => r.cand);
 const $ = s => document.querySelector(s);
 const fmt$ = v => v == null ? "–" : (v < 0 ? "−$" : "$") + Math.abs(Math.round(v)).toLocaleString();
 const pct = v => v == null ? "–" : (v * 100).toFixed(0) + "%";
 const f2 = v => v == null ? "–" : (v >= 99 ? "∞" : v.toFixed(2));
 const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
 
-const score = r => (r.robust ? 1000 : 0) + (r.oos?.pass ?? 0) * 100 + (r.oos?.sharpe ?? -9);
+const score = r => (r.cand ? 1e6 : 0) + (r.robust ? 1000 : 0) + (r.oos?.pass ?? 0) * 100 + (r.oos?.sharpe ?? -9);
 R.forEach(r => r._score = score(r));
 
 // header tiles
 (function () {
   const f15 = R.filter(r => r.track === "15m_full"), rob = R.filter(r => r.robust);
   const tried = R.reduce((a, r) => a + (r.tried || 0), 0);
-  const best = [...R].sort((a, b) => b._score - a._score)[0];
+  const best = [...R].filter(r => !r.cand).sort((a, b) => b._score - a._score)[0];
   $("#sub").textContent = `Intraday trend-following research on MES · Lucid 50K rules · updated ${DATA.generated}`;
   const tiles = [
     ["Strategies logged", R.length.toLocaleString(), `${f15.length} on 10-year 15m`],
@@ -198,7 +199,7 @@ R.forEach(r => r._score = score(r));
 })();
 
 const COLS = [
-  ["Strategy", r => r.name, r => `${r.name} <span class="note">${r.tf}m · v${r.v}</span>`, "l"],
+  ["Strategy", r => r.name, r => `${r.name} <span class="note">${r.tf}m · ${r.cand ? "pinned live candidate" : "v" + r.v}</span>`, "l"],
   ["Equity (full)", null, r => spark(r.eq), "l"],
   ["Robust", r => (r.robust ? 1 : 0) + (VAL[r.id] ? 2 : 0), r => (r.robust ? '<span class="badge ok">✓ robust</span>' : '<span class="badge">– no</span>') + (VAL[r.id] ? ' <span class="badge ok">✓ validated</span>' : ""), "l"],
   ["IS PF", r => r.is?.profit_factor, r => f2(r.is?.profit_factor)],
@@ -226,7 +227,7 @@ $("#next").onclick = () => { page++; render(); };
 function rows() {
   const t = $("#f-track").value, rob = $("#f-robust").checked, q = $("#f-q").value.toLowerCase();
   const lat = $("#f-latest").checked;
-  let rs = R.filter(r => (!lat || r.v === VMAX) && (!t || r.track === t) && (!rob || r.robust) && (!q || r.name.toLowerCase().includes(q)));
+  let rs = R.filter(r => (!lat || r.v === VMAX || r.cand) && (!t || r.track === t) && (!rob || r.robust) && (!q || r.name.toLowerCase().includes(q)));
   const key = sortCol >= 0 ? COLS[sortCol][1] : r => r._score;
   rs.sort((a, b) => { const x = key(a), y = key(b); return (x == null) - (y == null) || (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
   return rs;

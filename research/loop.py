@@ -24,11 +24,34 @@ def _job(args):
         return {"error": repr(e), "family": fam, "track": track}
 
 
+def promising_families(track):
+    """Families with at least one robust result on the current engine version."""
+    import json
+    from research.search import RESULTS, VERSION
+    out = set()
+    if RESULTS.exists():
+        for line in RESULTS.read_text().splitlines():
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("v") == VERSION and d["track"] == track and d["robust"]:
+                s = d["spec"]
+                out.add((s["trend"], s["conf1"], s["conf2"], s["regime"]))
+    return sorted(out)
+
+
 def plan(track, n, rng):
     done = done_families(track)
     fams = all_families()
     fresh = [f for f in fams if f not in done]
     rng.shuffle(fresh)
+    # a quarter of each batch re-runs promising families from new seeds: robustness across
+    # independent re-optimisations is the best evidence that a family isn't a fluke
+    prom = promising_families(track)
+    if prom:
+        k = max(1, n // 4)
+        fresh = [rng.choice(prom) for _ in range(k)] + fresh
     if len(fresh) < n:
         extra = fams[:]
         rng.shuffle(extra)

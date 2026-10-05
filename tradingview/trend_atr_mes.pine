@@ -1,0 +1,168 @@
+//@version=6
+// ATR-band trend follower for MES (15-minute chart), ported from trend/ (Python research framework).
+// Current research leader: ema_slope + dmi + roc | er  (see research/ and README "Trend research").
+//
+//   Trend direction : EMA(300) -- close above a rising EMA = up, below a falling EMA = down
+//   Confirmation 1  : DMI(20)  -- +DI above -DI (long) / below (short)
+//   Confirmation 2  : ROC(40)  -- close above / below the close 40 bars ago
+//   Chop filter     : Kaufman efficiency ratio ER(30):
+//                       ER <  0.25 -> sideways, no new trades
+//                       0.25..0.40 -> trending, reduced size (x0.33)
+//                       ER >= 0.40 -> strong trend, full size
+//   Entry           : the first bar where trend + both confirmations + filter all line up,
+//                     signal bars closing 09:45-12:00 ET only; market order at the next open
+//   Stop / target   : ATR(20) bands -- trailing stop 3.0 x ATR from the best price since entry
+//                     (starts 3.0 x ATR from the fill), take-profit 8.0 x ATR
+//   Also exits      : trend flips against the position; session flatten at 15:55 ET
+//   Day guards      : no new entries after -$600 or +$900 realised on the day (Lucid consistency)
+//   Sizing          : contracts = risk$ x regime mult x cushion factor / (stop distance x $5 + costs)
+//                     cushion factor = (eval balance - trailing MLL) / $2,000, in quarters, floor 25%
+//
+// Backtest of this exact variant on 10y of ES-as-MES 15m data, fees $2.50 RT + 1 tick slippage:
+//   2016-2022 (in-sample):     PF 1.26, win 41%
+//   2023-2026 (out-of-sample): PF 1.33-1.41, win 42%
+// It is a thin edge. Validate on TradingView's strategy tester and on a Lucid sim/eval before
+// sizing up. TradingView's EMA/RMA seeding and fill model differ slightly from the Python engine.
+//
+// Alerts (TradersPost, same as tradingview/failed2s_mes.pine): create one alert with condition
+// "Any alert() function call" and paste your TradersPost webhook URL. Entries carry a broker-side
+// trailing stop + take-profit so protection lives at the broker, not in TradingView. Check that
+// your TradersPost strategy has trailing stops enabled for Tradovate; if not, switch
+// "Broker stop type" to "fixed" (the stop then stays at the initial 3 x ATR level at the broker
+// and the trend-flip / flatten exits still fire from here).
+
+strategy("ATR Trend (EMA+DMI+ROC | ER) - MES 15m", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1)
+
+// ---- Inputs ----
+gS = "Signal"
+emaLen   = input.int(300, "Trend EMA length", group=gS)
+dmiLen   = input.int(20, "DMI length", group=gS)
+rocLen   = input.int(40, "ROC length", group=gS)
+erLen    = input.int(30, "Efficiency ratio length", group=gS)
+erLo     = input.float(0.25, "ER: trending above", step=0.01, group=gS)
+erHi     = input.float(0.40, "ER: strong trend above", step=0.01, group=gS)
+exitFlip = input.bool(true, "Exit when trend flips", group=gS)
+
+gX = "ATR bands"
+atrLen  = input.int(20, "ATR length", group=gX)
+stopK   = input.float(3.0, "Stop / trail distance (x ATR)", step=0.25, group=gX)
+tpK     = input.float(8.0, "Take-profit (x ATR)", step=0.25, group=gX)
+brokerStop = input.string("trailing", "Broker stop type", options=["trailing", "fixed"], group=gX)
+
+gT = "Session (America/New_York)"
+entryWin = input.session("0945-1200", "Signal-bar close window", group=gT)
+flatWin  = input.session("1555-1700", "Flatten from", group=gT)
+
+gR = "Risk (Lucid 50K)"
+riskUsd    = input.float(800, "Risk per trade at full size ($)", group=gR)
+smallMult  = input.float(0.33, "Size multiplier in weak trend", step=0.01, group=gR)
+dayLossLim = input.float(600, "Stop for the day after realised loss ($)", group=gR)
+dayProfCap = input.float(900, "Stop for the day after realised profit ($)", group=gR)
+useCushion = input.bool(true, "Scale size with drawdown cushion", group=gR)
+evalStart  = input.time(timestamp("2026-10-06T00:00:00-04:00"), "Eval start (for cushion tracking)", group=gR)
+maxLoss    = input.float(2000, "Max loss limit (EOD trailing)", group=gR)
+mllLockAt  = input.float(100, "MLL locks at start + ($)", group=gR)
+maxQty     = input.int(40, "Max contracts (Lucid 50K = 40 micros)", group=gR)
+pointValue = input.float(5.0, "Point value ($/pt, MES = 5)", group=gR)
+costPerCt  = input.float(5.0, "Round-turn cost per contract incl. slippage ($)", group=gR)
+
+// ---- Indicators ----
+ema   = ta.ema(close, emaLen)
+slope = ema - ema[3]
+trend = close > ema and slope > 0 ? 1 : close < ema and slope < 0 ? -1 : 0
+
+[diPlus, diMinus, _adx] = ta.dmi(dmiLen, dmiLen)
+c1 = diPlus > diMinus ? 1 : diPlus < diMinus ? -1 : 0
+c2 = close > close[rocLen] ? 1 : close < close[rocLen] ? -1 : 0
+
+er = math.sum(math.abs(ta.change(close)), erLen)
+er := er > 0 ? math.abs(close - close[erLen]) / er : 0
+regime = er >= erHi ? 2 : er >= erLo ? 1 : 0
+
+atr = ta.atr(atrLen)
+
+longAligned  = trend == 1 and c1 == 1 and c2 == 1 and regime > 0
+shortAligned = trend == -1 and c1 == -1 and c2 == -1 and regime > 0
+longSig  = longAligned and not longAligned[1]
+shortSig = shortAligned and not shortAligned[1]
+
+// ---- Session ----
+inEntry = not na(time_close(timeframe.period, entryWin, "America/New_York"))
+inFlat  = not na(time_close(timeframe.period, flatWin, "America/New_York"))
+// trading day rolls at 18:00 ET (CME session)
+tday = dayofmonth(time + 6 * 3600 * 1000, "America/New_York")
+newSession = ta.change(tday) != 0
+
+// ---- Day P&L guards ----
+var float dayStartProfit = 0.0
+if newSession
+    dayStartProfit := strategy.netprofit
+dayPnl = strategy.netprofit - dayStartProfit
+dayLocked = dayPnl <= -dayLossLim or dayPnl >= dayProfCap
+
+// ---- Lucid EOD trailing MLL tracking (from eval start) ----
+var float evalBase = na
+var float peakEod = 0.0
+var float mll = -maxLoss
+if time >= evalStart and na(evalBase)
+    evalBase := strategy.netprofit
+evalPnl = na(evalBase) ? 0.0 : strategy.netprofit - evalBase
+if newSession and not na(evalBase)
+    prevEod = evalPnl  // realised P&L at the session boundary (positions are flat by then)
+    if prevEod > peakEod
+        peakEod := prevEod
+        mll := math.min(peakEod - maxLoss, mllLockAt)
+cushionF = useCushion ? math.max(0.25, math.min(1.0, math.floor((evalPnl - mll) / maxLoss * 4) / 4)) : 1.0
+
+// ---- Sizing ----
+mult = regime >= 2 ? 1.0 : smallMult
+perCt = stopK * atr * pointValue + costPerCt
+qty = perCt > 0 ? math.min(maxQty, math.floor(riskUsd * mult * cushionF / perCt)) : 0
+
+// ---- Entries ----
+flat = strategy.position_size == 0
+canEnter = flat and inEntry and not inFlat and not dayLocked and qty >= 1
+trailPts = stopK * atr
+tpPts = tpK * atr
+
+if canEnter and longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("L x", from_entry="L", limit=close + tpPts, trail_points=0, trail_offset=trailPts / syminfo.mintick)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         (brokerStop == "trailing" ? ',"stopLoss":{"type":"trailing_stop","trailAmount":' + str.tostring(math.round_to_mintick(trailPts)) + '}'
+                                   : ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close - trailPts)) + '}') +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close + tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+if canEnter and shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("S x", from_entry="S", limit=close - tpPts, trail_points=0, trail_offset=trailPts / syminfo.mintick)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         (brokerStop == "trailing" ? ',"stopLoss":{"type":"trailing_stop","trailAmount":' + str.tostring(math.round_to_mintick(trailPts)) + '}'
+                                   : ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close + trailPts)) + '}') +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close - tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+// ---- Discretionary exits: trend flip, session flatten ----
+exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+if strategy.position_size > 0 and exitFlip and trend == -1
+    strategy.close("L", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if strategy.position_size < 0 and exitFlip and trend == 1
+    strategy.close("S", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if inFlat and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(ema, "Trend EMA", color=trend == 1 ? color.new(color.teal, 0) : trend == -1 ? color.new(color.red, 0) : color.gray, linewidth=2)
+plot(ema + tpK * atr, "Upper ATR band", color=color.new(color.gray, 70))
+plot(ema - tpK * atr, "Lower ATR band", color=color.new(color.gray, 70))
+bgcolor(regime == 0 ? color.new(color.gray, 90) : na, title="Sideways (no trades)")
+plotshape(canEnter and longSig, "Long", shape.triangleup, location.belowbar, color.new(color.teal, 0), size=size.tiny)
+plotshape(canEnter and shortSig, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.tiny)
