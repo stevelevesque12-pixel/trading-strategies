@@ -43,3 +43,12 @@ Anchored walk-forward of trend_dip_atr_plus: best-score selection PF 1.70 / +$3,
 (baseline Engine A: PF 1.57 / +$2,353 / DD $915); plateau selection PF 1.51 / +$1,859.
 Both modes chose a 12-bar time stop + 3R target + no breakeven in every window; no ADX/ER gate
 was ever chosen. Added as an opt-in Pine input (A: time stop), defaults unchanged.
+
+## Iterations 10-11
+
+- Engine B widened for frequency (trend_dip_rsi_plus): walk-forward PF 1.05 (best) / 1.99 on 16 trades
+  (robust) -- fewer trades than the original. Original Engine B kept.
+- Timeframe transfer, NO refitting (bar-count params scaled to the same clock time), May 11 - Aug 25:
+  15m PF 1.84 (73 trades) | 10m PF 1.58 (101 trades) | 5m PF 0.97 (237 trades).
+  Holds down to 10m, breaks at 5m (costs are ~3x larger in R, dips are noise). A 10m chart variant
+  is a forward-test option for more trades/week, but has only ~3.5 months of history behind it.

@@ -25,6 +25,9 @@
 // (set "Account start" to your eval's day 1). Fixed $300 is the alternative.
 //
 // REQUIRED CHART: MCL1! (or the front MCL contract), 15-minute, exchange time.
+// (Untested-in-depth option: a 10-minute chart with A: slope 18, base EMA 150, fast EMA 20,
+//  dip lookback 9, swing 12; B: base EMA 150, swing 8 kept PF ~1.6 May-Aug 2026 with ~40% more
+//  trades. 5-minute does NOT work.)
 // Settings came from an anchored walk-forward (re-optimized every 20 trading
 // days, same parameters chosen in every window) on 11 months of 15m data,
 // Oct 2025 - Aug 2026. Walk-forward OOS at $300 risk: see the dashboard.
