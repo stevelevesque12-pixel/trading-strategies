@@ -30,6 +30,9 @@ TRACKS = {
     # name: (dataset, in-sample end, description)
     "15m_full": ("es_15m", "2023-01-01", "ES 15m 2016-05..2026-08 priced as MES; IS < 2023, OOS >= 2023"),
     "5m_recent": ("mes_5m", "2026-07-15", "MES 5m 2026-05..2026-08; IS < Jul 15, OOS after (short, low confidence)"),
+    # v7: optimise on ES *and* NQ in-sample jointly (score = worst of the four IS halves); single-market
+    # ES fits proved to be mostly noise (ES IS PF had ~0 correlation with ES OOS PF).
+    "15m_joint": ("es_15m", "2023-01-01", "ES+NQ 15m jointly (MES/MNQ pricing); IS < 2023 on both, OOS >= 2023 on both"),
 }
 
 ATR_N = [10, 14, 20, 30]
@@ -37,9 +40,10 @@ SL_K = [1.0, 1.5, 2.0, 2.5, 3.0]
 TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 RISK = [100, 150, 200, 300, 400, 500, 650]
 TRAIL_K = [0.0, 0.0, 1.5, 2.0, 3.0]
-VERSION = 6  # v6: + whole-tick stop/trail distances (matches TradingView trade-for-trade)
+VERSION = 6  # v6: + whole-tick stop/trail distances (matches TradingView trade-for-trade); 15m_joint track added
 TRIGGERS = ["fresh", "any", "pullback", "pullback"]
 PB_N = [9, 20, 34, 50]
+WINDOW_CHOICES = ["rth", "ny_am", "ext", "pm", "late", "all_rth"]
 SMALL = [0.33, 0.5, 0.66]
 DLL = [300, 450, 600, 900]
 CAP = [900, 1200, 1400, 99999]
@@ -58,7 +62,7 @@ def random_spec(family, rng):
         regime=r, regime_p=sample_params(comp.REGIME[r][1], rng),
         atr_n=rng.choice(ATR_N), sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K),
         trigger=rng.choice(TRIGGERS), pb_n=rng.choice(PB_N), exit_on_flip=rng.choice([True, False]),
-        window=rng.choice(["rth", "ny_am", "ext"]), trail_k=rng.choice(TRAIL_K),
+        window=rng.choice(WINDOW_CHOICES), trail_k=rng.choice(TRAIL_K),
     )
 
 
@@ -76,7 +80,7 @@ def mutate(s: Spec, rng):
         s = replace(s, sl_k=rng.choice(SL_K), tp_k=rng.choice(TP_K), atr_n=rng.choice(ATR_N), trail_k=rng.choice(TRAIL_K))
     else:
         s = replace(s, trigger=rng.choice(TRIGGERS), pb_n=rng.choice(PB_N), exit_on_flip=rng.choice([True, False]),
-                    window=rng.choice(["rth", "ny_am", "ext"]))
+                    window=rng.choice(WINDOW_CHOICES))
     return s
 
 
@@ -108,7 +112,13 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
     is_m, oos_m = full.slice(end=split), full.slice(start=split)
     mid = is_m.index[len(is_m) // 2]
     is_a, is_b = is_m.slice(end=mid), is_m.slice(start=mid)
-    min_trades = 150 if track == "15m_full" else 60
+    halves = [is_a, is_b]
+    if track == "15m_joint":
+        nq = load("nq_15m")
+        nq_is, nq_oos = nq.slice(end=split), nq.slice(start=split)
+        nmid = nq_is.index[len(nq_is) // 2]
+        halves += [nq_is.slice(end=nmid), nq_is.slice(start=nmid)]
+    min_trades = 60 if track == "5m_recent" else 150
     rules = LucidRules()
     tried = 0
     t0 = time.time()
@@ -122,8 +132,7 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
         seen.add(s.key())
         tried += 1
         # score = the worse of the two in-sample halves: a fit that only works in one regime loses
-        sc = min(signal_score(evaluate(is_a, s, rules, curve_points=0), min_trades // 2),
-                 signal_score(evaluate(is_b, s, rules, curve_points=0), min_trades // 2))
+        sc = min(signal_score(evaluate(h, s, rules, curve_points=0), min_trades // 2) for h in halves)
         if sc > best_sc:
             best, best_sc = s, sc
 
@@ -159,12 +168,16 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
         "seconds": round(time.time() - t0, 1),
         "is": r_is, "oos": r_oos, "full": r_all,
     }
-    if track == "15m_full":
+    if track in ("15m_full", "15m_joint"):
         rec["mes_check"] = evaluate(load("mes_15m"), sized, rules, curve_points=0)
+    if track == "15m_joint":
+        rec["nq_is"] = evaluate(nq_is, sized, rules, curve_points=0)
+        rec["nq_oos"] = evaluate(nq_oos, sized, rules, curve_points=0)
     rec["robust"] = bool(
         r_is["trades"] >= min_trades and r_oos["trades"] >= min_trades // 3
         and r_is["profit_factor"] > 1.05 and r_oos["profit_factor"] > 1.05
         and r_oos["sharpe"] > 0.3
+        and (track != "15m_joint" or (rec["nq_oos"]["profit_factor"] > 1.05 and rec["nq_is"]["profit_factor"] > 1.05))
     )
     return rec
 

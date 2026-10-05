@@ -1,0 +1,1669 @@
+{
+ "legs": [
+  {
+   "name": "ema_cross+roc+rsi|adx",
+   "spec": {
+    "trend": "ema_cross",
+    "trend_p": {
+     "fast": 50,
+     "slow": 200
+    },
+    "conf1": "roc",
+    "conf1_p": {
+     "n": 40
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 21,
+     "band": 10
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 40
+    },
+    "atr_n": 14,
+    "sl_k": 1.5,
+    "tp_k": 3.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "supertrend+macd+roc|adx",
+   "spec": {
+    "trend": "supertrend",
+    "trend_p": {
+     "n": 10,
+     "mult": 5.0
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 21,
+     "sig": 5
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 20
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 35
+    },
+    "atr_n": 20,
+    "sl_k": 3.0,
+    "tp_k": 3.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "hma_slope+macd+roc|adx",
+   "spec": {
+    "trend": "hma_slope",
+    "trend_p": {
+     "n": 150
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 21,
+     "sig": 5
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 5
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 35
+    },
+    "atr_n": 30,
+    "sl_k": 3.0,
+    "tp_k": 4.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_slope+macd+rsi|adx",
+   "spec": {
+    "trend": "ema_slope",
+    "trend_p": {
+     "n": 300
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 21,
+     "sig": 5
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 21,
+     "band": 10
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 35
+    },
+    "atr_n": 20,
+    "sl_k": 3.0,
+    "tp_k": 3.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+macd+vwap|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 26,
+     "sig": 5
+    },
+    "conf2": "vwap",
+    "conf2_p": {},
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 10,
+    "sl_k": 1.5,
+    "tp_k": 6.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_cross+fast_ema+roc|er",
+   "spec": {
+    "trend": "ema_cross",
+    "trend_p": {
+     "fast": 20,
+     "slow": 300
+    },
+    "conf1": "fast_ema",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 20,
+    "sl_k": 2.0,
+    "tp_k": 4.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "linreg_slope+dmi+macd|adx",
+   "spec": {
+    "trend": "linreg_slope",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "macd",
+    "conf2_p": {
+     "fast": 8,
+     "slow": 21,
+     "sig": 5
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 30
+    },
+    "atr_n": 20,
+    "sl_k": 2.5,
+    "tp_k": 4.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_cross+fast_ema+rsi|er",
+   "spec": {
+    "trend": "ema_cross",
+    "trend_p": {
+     "fast": 30,
+     "slow": 300
+    },
+    "conf1": "fast_ema",
+    "conf1_p": {
+     "n": 34
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 21,
+     "band": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.25,
+     "hi": 0.35
+    },
+    "atr_n": 10,
+    "sl_k": 1.5,
+    "tp_k": 5.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+rsi+vwap|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "rsi",
+    "conf1_p": {
+     "n": 21,
+     "band": 10
+    },
+    "conf2": "vwap",
+    "conf2_p": {},
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.25,
+     "hi": 0.4
+    },
+    "atr_n": 20,
+    "sl_k": 2.5,
+    "tp_k": 4.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_slope+roc+rsi|er",
+   "spec": {
+    "trend": "ema_slope",
+    "trend_p": {
+     "n": 200
+    },
+    "conf1": "roc",
+    "conf1_p": {
+     "n": 40
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 21,
+     "band": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 30,
+    "sl_k": 2.0,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "linreg_slope+macd+roc|er",
+   "spec": {
+    "trend": "linreg_slope",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 26,
+     "sig": 5
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 5
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 30,
+    "sl_k": 2.0,
+    "tp_k": 6.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_cross+obv_slope+rsi|er",
+   "spec": {
+    "trend": "ema_cross",
+    "trend_p": {
+     "fast": 20,
+     "slow": 300
+    },
+    "conf1": "obv_slope",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 21,
+     "band": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 10,
+    "sl_k": 1.5,
+    "tp_k": 4.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_slope+dmi+roc|er",
+   "spec": {
+    "trend": "ema_slope",
+    "trend_p": {
+     "n": 300
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 40
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.25,
+     "hi": 0.4
+    },
+    "atr_n": 20,
+    "sl_k": 2.5,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "hma_slope+dmi+fast_ema|adx",
+   "spec": {
+    "trend": "hma_slope",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "fast_ema",
+    "conf2_p": {
+     "n": 34
+    },
+    "regime": "adx",
+    "regime_p": {
+     "n": 20,
+     "lo": 25,
+     "hi": 40
+    },
+    "atr_n": 10,
+    "sl_k": 1.5,
+    "tp_k": 3.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+dmi+obv_slope|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 10
+    },
+    "conf2": "obv_slope",
+    "conf2_p": {
+     "n": 20
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 20,
+    "sl_k": 2.0,
+    "tp_k": 6.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+dmi+roc|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 10
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 40
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 10,
+    "sl_k": 2.0,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+roc+vwap|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 150
+    },
+    "conf1": "roc",
+    "conf1_p": {
+     "n": 10
+    },
+    "conf2": "vwap",
+    "conf2_p": {},
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 20,
+    "sl_k": 2.0,
+    "tp_k": 5.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "linreg_slope+macd+rsi|er",
+   "spec": {
+    "trend": "linreg_slope",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 26,
+     "sig": 5
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 9,
+     "band": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 30,
+    "sl_k": 2.0,
+    "tp_k": 8.0,
+    "trigger": "any",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_slope+macd+obv_slope|er",
+   "spec": {
+    "trend": "ema_slope",
+    "trend_p": {
+     "n": 300
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 26,
+     "sig": 5
+    },
+    "conf2": "obv_slope",
+    "conf2_p": {
+     "n": 10
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.3,
+     "hi": 0.4
+    },
+    "atr_n": 10,
+    "sl_k": 2.0,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 20,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "donchian+heikin+roc|er",
+   "spec": {
+    "trend": "donchian",
+    "trend_p": {
+     "n": 100
+    },
+    "conf1": "heikin",
+    "conf1_p": {
+     "smooth": 1
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 5
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.25,
+     "hi": 0.4
+    },
+    "atr_n": 30,
+    "sl_k": 2.0,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 34,
+    "exit_on_flip": false,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 3.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "kama_slope+macd+obv_slope|bbw_rank",
+   "spec": {
+    "trend": "kama_slope",
+    "trend_p": {
+     "n": 20
+    },
+    "conf1": "macd",
+    "conf1_p": {
+     "fast": 8,
+     "slow": 21,
+     "sig": 5
+    },
+    "conf2": "obv_slope",
+    "conf2_p": {
+     "n": 50
+    },
+    "regime": "bbw_rank",
+    "regime_p": {
+     "n": 20,
+     "look": 200,
+     "lo": 0.5,
+     "hi": 0.8
+    },
+    "atr_n": 14,
+    "sl_k": 3.0,
+    "tp_k": 5.0,
+    "trigger": "pullback",
+    "pb_n": 50,
+    "exit_on_flip": false,
+    "window": "rth",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "ema_cross+fast_ema+heikin|er",
+   "spec": {
+    "trend": "ema_cross",
+    "trend_p": {
+     "fast": 20,
+     "slow": 200
+    },
+    "conf1": "fast_ema",
+    "conf1_p": {
+     "n": 9
+    },
+    "conf2": "heikin",
+    "conf2_p": {
+     "smooth": 3
+    },
+    "regime": "er",
+    "regime_p": {
+     "n": 30,
+     "lo": 0.25,
+     "hi": 0.4
+    },
+    "atr_n": 30,
+    "sl_k": 2.5,
+    "tp_k": 8.0,
+    "trigger": "fresh",
+    "pb_n": 50,
+    "exit_on_flip": true,
+    "window": "ny_am",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "linreg_slope+obv_slope+roc|chop",
+   "spec": {
+    "trend": "linreg_slope",
+    "trend_p": {
+     "n": 200
+    },
+    "conf1": "obv_slope",
+    "conf1_p": {
+     "n": 20
+    },
+    "conf2": "roc",
+    "conf2_p": {
+     "n": 5
+    },
+    "regime": "chop",
+    "regime_p": {
+     "n": 30,
+     "lo": 42,
+     "hi": 50
+    },
+    "atr_n": 30,
+    "sl_k": 3.0,
+    "tp_k": 3.0,
+    "trigger": "pullback",
+    "pb_n": 34,
+    "exit_on_flip": false,
+    "window": "ext",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "kama_slope+heikin+vwap|chop",
+   "spec": {
+    "trend": "kama_slope",
+    "trend_p": {
+     "n": 50
+    },
+    "conf1": "heikin",
+    "conf1_p": {
+     "smooth": 3
+    },
+    "conf2": "vwap",
+    "conf2_p": {},
+    "regime": "chop",
+    "regime_p": {
+     "n": 14,
+     "lo": 38.2,
+     "hi": 50
+    },
+    "atr_n": 20,
+    "sl_k": 3.0,
+    "tp_k": 5.0,
+    "trigger": "pullback",
+    "pb_n": 50,
+    "exit_on_flip": false,
+    "window": "rth",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  },
+  {
+   "name": "supertrend+dmi+rsi|bbw_rank",
+   "spec": {
+    "trend": "supertrend",
+    "trend_p": {
+     "n": 10,
+     "mult": 3.0
+    },
+    "conf1": "dmi",
+    "conf1_p": {
+     "n": 10
+    },
+    "conf2": "rsi",
+    "conf2_p": {
+     "n": 14,
+     "band": 10
+    },
+    "regime": "bbw_rank",
+    "regime_p": {
+     "n": 20,
+     "look": 100,
+     "lo": 0.5,
+     "hi": 0.7
+    },
+    "atr_n": 14,
+    "sl_k": 3.0,
+    "tp_k": 5.0,
+    "trigger": "pullback",
+    "pb_n": 34,
+    "exit_on_flip": true,
+    "window": "rth",
+    "risk_usd": 200.0,
+    "small_mult": 0.33,
+    "daily_loss_limit": 1000000000.0,
+    "daily_profit_cap": 1000000000.0,
+    "trail_k": 0.0,
+    "cushion_sizing": false
+   }
+  }
+ ],
+ "scale": 1.0,
+ "cushion": true,
+ "correlation_is": [
+  [
+   1.0,
+   0.319,
+   0.313,
+   0.334,
+   0.277,
+   0.261,
+   0.363,
+   0.311,
+   0.241,
+   0.222,
+   0.276,
+   0.272,
+   0.126,
+   0.287,
+   0.241,
+   0.228,
+   0.279,
+   0.305,
+   0.165,
+   0.199,
+   -0.001,
+   0.242,
+   0.003,
+   0.014,
+   0.05
+  ],
+  [
+   0.319,
+   1.0,
+   0.838,
+   0.925,
+   0.455,
+   0.193,
+   0.662,
+   0.217,
+   0.183,
+   0.239,
+   0.445,
+   0.203,
+   0.205,
+   0.188,
+   0.206,
+   0.223,
+   0.238,
+   0.439,
+   0.317,
+   0.253,
+   0.055,
+   0.283,
+   0.013,
+   0.037,
+   0.062
+  ],
+  [
+   0.313,
+   0.838,
+   1.0,
+   0.797,
+   0.459,
+   0.214,
+   0.697,
+   0.246,
+   0.208,
+   0.259,
+   0.457,
+   0.25,
+   0.216,
+   0.166,
+   0.246,
+   0.251,
+   0.265,
+   0.428,
+   0.331,
+   0.282,
+   0.035,
+   0.273,
+   -0.013,
+   0.043,
+   0.037
+  ],
+  [
+   0.334,
+   0.925,
+   0.797,
+   1.0,
+   0.485,
+   0.206,
+   0.686,
+   0.239,
+   0.197,
+   0.253,
+   0.469,
+   0.216,
+   0.21,
+   0.118,
+   0.228,
+   0.241,
+   0.255,
+   0.465,
+   0.339,
+   0.269,
+   0.028,
+   0.299,
+   -0.002,
+   0.028,
+   0.03
+  ],
+  [
+   0.277,
+   0.455,
+   0.459,
+   0.485,
+   1.0,
+   0.542,
+   0.508,
+   0.47,
+   0.519,
+   0.537,
+   0.819,
+   0.598,
+   0.355,
+   0.135,
+   0.61,
+   0.657,
+   0.604,
+   0.846,
+   0.68,
+   0.577,
+   0.009,
+   0.547,
+   0.013,
+   0.027,
+   0.026
+  ],
+  [
+   0.261,
+   0.193,
+   0.214,
+   0.206,
+   0.542,
+   1.0,
+   0.231,
+   0.531,
+   0.608,
+   0.566,
+   0.458,
+   0.73,
+   0.409,
+   0.139,
+   0.671,
+   0.609,
+   0.717,
+   0.435,
+   0.582,
+   0.458,
+   0.039,
+   0.519,
+   0.01,
+   0.063,
+   0.081
+  ],
+  [
+   0.363,
+   0.662,
+   0.697,
+   0.686,
+   0.508,
+   0.231,
+   1.0,
+   0.287,
+   0.247,
+   0.217,
+   0.555,
+   0.298,
+   0.18,
+   0.144,
+   0.273,
+   0.305,
+   0.271,
+   0.54,
+   0.353,
+   0.317,
+   -0.014,
+   0.283,
+   0.012,
+   -0.01,
+   0.034
+  ],
+  [
+   0.311,
+   0.217,
+   0.246,
+   0.239,
+   0.47,
+   0.531,
+   0.287,
+   1.0,
+   0.459,
+   0.476,
+   0.396,
+   0.571,
+   0.398,
+   0.134,
+   0.508,
+   0.457,
+   0.503,
+   0.404,
+   0.438,
+   0.423,
+   0.048,
+   0.52,
+   0.03,
+   0.054,
+   0.096
+  ],
+  [
+   0.241,
+   0.183,
+   0.208,
+   0.197,
+   0.519,
+   0.608,
+   0.247,
+   0.459,
+   1.0,
+   0.507,
+   0.393,
+   0.476,
+   0.559,
+   0.139,
+   0.727,
+   0.648,
+   0.621,
+   0.379,
+   0.516,
+   0.592,
+   0.06,
+   0.515,
+   0.021,
+   0.053,
+   0.064
+  ],
+  [
+   0.222,
+   0.239,
+   0.259,
+   0.253,
+   0.537,
+   0.566,
+   0.217,
+   0.476,
+   0.507,
+   1.0,
+   0.452,
+   0.557,
+   0.529,
+   0.152,
+   0.583,
+   0.652,
+   0.682,
+   0.504,
+   0.669,
+   0.476,
+   0.071,
+   0.498,
+   0.041,
+   0.055,
+   0.054
+  ],
+  [
+   0.276,
+   0.445,
+   0.457,
+   0.469,
+   0.819,
+   0.458,
+   0.555,
+   0.396,
+   0.393,
+   0.452,
+   1.0,
+   0.501,
+   0.315,
+   0.098,
+   0.503,
+   0.538,
+   0.502,
+   0.937,
+   0.568,
+   0.517,
+   -0.009,
+   0.45,
+   0.013,
+   0.004,
+   0.033
+  ],
+  [
+   0.272,
+   0.203,
+   0.25,
+   0.216,
+   0.598,
+   0.73,
+   0.298,
+   0.571,
+   0.476,
+   0.557,
+   0.501,
+   1.0,
+   0.373,
+   0.16,
+   0.637,
+   0.604,
+   0.631,
+   0.499,
+   0.641,
+   0.443,
+   0.028,
+   0.561,
+   0.026,
+   0.047,
+   0.074
+  ],
+  [
+   0.126,
+   0.205,
+   0.216,
+   0.21,
+   0.355,
+   0.409,
+   0.18,
+   0.398,
+   0.559,
+   0.529,
+   0.315,
+   0.373,
+   1.0,
+   0.114,
+   0.469,
+   0.468,
+   0.466,
+   0.323,
+   0.511,
+   0.498,
+   0.101,
+   0.544,
+   0.017,
+   0.075,
+   0.106
+  ],
+  [
+   0.287,
+   0.188,
+   0.166,
+   0.118,
+   0.135,
+   0.139,
+   0.144,
+   0.134,
+   0.139,
+   0.152,
+   0.098,
+   0.16,
+   0.114,
+   1.0,
+   0.109,
+   0.155,
+   0.148,
+   0.116,
+   0.15,
+   0.105,
+   0.033,
+   0.12,
+   0.001,
+   0.035,
+   0.094
+  ],
+  [
+   0.241,
+   0.206,
+   0.246,
+   0.228,
+   0.61,
+   0.671,
+   0.273,
+   0.508,
+   0.727,
+   0.583,
+   0.503,
+   0.637,
+   0.469,
+   0.109,
+   1.0,
+   0.727,
+   0.685,
+   0.49,
+   0.634,
+   0.662,
+   0.041,
+   0.538,
+   0.032,
+   0.044,
+   0.036
+  ],
+  [
+   0.228,
+   0.223,
+   0.251,
+   0.241,
+   0.657,
+   0.609,
+   0.305,
+   0.457,
+   0.648,
+   0.652,
+   0.538,
+   0.604,
+   0.468,
+   0.155,
+   0.727,
+   1.0,
+   0.718,
+   0.546,
+   0.723,
+   0.625,
+   0.034,
+   0.593,
+   0.038,
+   0.06,
+   0.039
+  ],
+  [
+   0.279,
+   0.238,
+   0.265,
+   0.255,
+   0.604,
+   0.717,
+   0.271,
+   0.503,
+   0.621,
+   0.682,
+   0.502,
+   0.631,
+   0.466,
+   0.148,
+   0.685,
+   0.718,
+   1.0,
+   0.513,
+   0.625,
+   0.564,
+   0.017,
+   0.523,
+   0.024,
+   0.059,
+   0.051
+  ],
+  [
+   0.305,
+   0.439,
+   0.428,
+   0.465,
+   0.846,
+   0.435,
+   0.54,
+   0.404,
+   0.379,
+   0.504,
+   0.937,
+   0.499,
+   0.323,
+   0.116,
+   0.49,
+   0.546,
+   0.513,
+   1.0,
+   0.579,
+   0.508,
+   -0.012,
+   0.455,
+   0.016,
+   0.005,
+   0.038
+  ],
+  [
+   0.165,
+   0.317,
+   0.331,
+   0.339,
+   0.68,
+   0.582,
+   0.353,
+   0.438,
+   0.516,
+   0.669,
+   0.568,
+   0.641,
+   0.511,
+   0.15,
+   0.634,
+   0.723,
+   0.625,
+   0.579,
+   1.0,
+   0.543,
+   0.042,
+   0.627,
+   0.016,
+   0.069,
+   0.034
+  ],
+  [
+   0.199,
+   0.253,
+   0.282,
+   0.269,
+   0.577,
+   0.458,
+   0.317,
+   0.423,
+   0.592,
+   0.476,
+   0.517,
+   0.443,
+   0.498,
+   0.105,
+   0.662,
+   0.625,
+   0.564,
+   0.508,
+   0.543,
+   1.0,
+   0.056,
+   0.587,
+   0.023,
+   0.038,
+   0.068
+  ],
+  [
+   -0.001,
+   0.055,
+   0.035,
+   0.028,
+   0.009,
+   0.039,
+   -0.014,
+   0.048,
+   0.06,
+   0.071,
+   -0.009,
+   0.028,
+   0.101,
+   0.033,
+   0.041,
+   0.034,
+   0.017,
+   -0.012,
+   0.042,
+   0.056,
+   1.0,
+   0.066,
+   0.18,
+   0.349,
+   0.431
+  ],
+  [
+   0.242,
+   0.283,
+   0.273,
+   0.299,
+   0.547,
+   0.519,
+   0.283,
+   0.52,
+   0.515,
+   0.498,
+   0.45,
+   0.561,
+   0.544,
+   0.12,
+   0.538,
+   0.593,
+   0.523,
+   0.455,
+   0.627,
+   0.587,
+   0.066,
+   1.0,
+   0.015,
+   0.052,
+   0.079
+  ],
+  [
+   0.003,
+   0.013,
+   -0.013,
+   -0.002,
+   0.013,
+   0.01,
+   0.012,
+   0.03,
+   0.021,
+   0.041,
+   0.013,
+   0.026,
+   0.017,
+   0.001,
+   0.032,
+   0.038,
+   0.024,
+   0.016,
+   0.016,
+   0.023,
+   0.18,
+   0.015,
+   1.0,
+   0.141,
+   0.095
+  ],
+  [
+   0.014,
+   0.037,
+   0.043,
+   0.028,
+   0.027,
+   0.063,
+   -0.01,
+   0.054,
+   0.053,
+   0.055,
+   0.004,
+   0.047,
+   0.075,
+   0.035,
+   0.044,
+   0.06,
+   0.059,
+   0.005,
+   0.069,
+   0.038,
+   0.349,
+   0.052,
+   0.141,
+   1.0,
+   0.315
+  ],
+  [
+   0.05,
+   0.062,
+   0.037,
+   0.03,
+   0.026,
+   0.081,
+   0.034,
+   0.096,
+   0.064,
+   0.054,
+   0.033,
+   0.074,
+   0.106,
+   0.094,
+   0.036,
+   0.039,
+   0.051,
+   0.038,
+   0.034,
+   0.068,
+   0.431,
+   0.079,
+   0.095,
+   0.315,
+   1.0
+  ]
+ ],
+ "periods": {
+  "is": {
+   "net": 132003.4096751798,
+   "pf_daily": 1.3947338327096697,
+   "sharpe": 1.240462265669867,
+   "max_dd": 23094.395054942295,
+   "trades": 11847,
+   "roll": {
+    "evals": 333,
+    "pass_rate": 0.36936936936936937,
+    "bust_rate": 0.6126126126126126,
+    "timeout_rate": 0.018018018018018018,
+    "median_days_to_pass": 50.0
+   },
+   "mc": {
+    "pass": 0.307,
+    "bust": 0.69,
+    "timeout": 0.003
+   }
+  },
+  "oos": {
+   "net": 1444.458234338972,
+   "pf_daily": 1.0072063325583298,
+   "sharpe": 0.028849137078892816,
+   "max_dd": 20223.46499517439,
+   "trades": 4841,
+   "roll": {
+    "evals": 181,
+    "pass_rate": 0.055248618784530384,
+    "bust_rate": 0.8950276243093923,
+    "timeout_rate": 0.049723756906077346,
+    "median_days_to_pass": 21.0
+   },
+   "mc": {
+    "pass": 0.093,
+    "bust": 0.903,
+    "timeout": 0.004
+   }
+  },
+  "mes": {
+   "net": 12192.062690599847,
+   "pf_daily": 1.3062974501088302,
+   "sharpe": 0.8321902255406451,
+   "max_dd": 9497.132576719647,
+   "trades": 794,
+   "roll": {
+    "evals": 39,
+    "pass_rate": 0.07692307692307693,
+    "bust_rate": 0.6923076923076923,
+    "timeout_rate": 0.23076923076923078,
+    "median_days_to_pass": 19.0
+   },
+   "mc": {
+    "pass": 0.221,
+    "bust": 0.768,
+    "timeout": 0.011
+   }
+  }
+ }
+}

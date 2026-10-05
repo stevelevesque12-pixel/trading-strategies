@@ -41,9 +41,14 @@ def promising_families(track):
     return sorted(out)
 
 
+FOCUS = []
+
+
 def plan(track, n, rng):
     done = done_families(track)
     fams = all_families()
+    if FOCUS:  # only families that use at least one focus component
+        fams = [f for f in fams if any(c in f for c in FOCUS)]
     fresh = [f for f in fams if f not in done]
     rng.shuffle(fresh)
     # a quarter of each batch re-runs promising families from new seeds: robustness across
@@ -64,7 +69,9 @@ def main():
     ap.add_argument("--minutes", type=float, default=60)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--five-min-every", type=int, default=6, help="every Nth job runs on the 5m MES track")
+    ap.add_argument("--focus", default="", help="comma-separated component names to restrict new families to")
     args = ap.parse_args()
+    FOCUS[:] = [c for c in args.focus.split(",") if c]
 
     rng = random.Random()
     deadline = time.time() + args.minutes * 60
@@ -72,7 +79,8 @@ def main():
     with ProcessPoolExecutor(args.workers) as ex:
         while time.time() < deadline:
             batch = []
-            for track, k in (("15m_full", args.workers * 2), ("5m_recent", max(1, args.workers * 2 // args.five_min_every))):
+            for track, k in (("15m_joint", args.workers * 2), ("15m_full", max(1, args.workers // 2)),
+                             ("5m_recent", max(1, args.workers * 2 // args.five_min_every))):
                 batch += [(f, track, rng.randrange(10**9)) for f in plan(track, k, rng)]
             futs = [ex.submit(_job, b) for b in batch]
             for fu in as_completed(futs):
@@ -84,7 +92,7 @@ def main():
                     continue
                 append(rec)
                 jobs_done += 1
-                if rec["robust"] and rec["track"] == "15m_full":
+                if rec["robust"] and rec["track"] in ("15m_full", "15m_joint"):
                     try:
                         validate.save(rec)  # auto stress-test every robust 10-year result
                     except Exception as e:

@@ -27,6 +27,7 @@ def _slim(d):
         "id": d["id"], "v": d.get("v", 1), "cand": d.get("candidate", False), "created": d["created"], "track": d["track"], "tf": d["tf_min"], "split": d["split"],
         "name": d["name"], "spec": d["spec"], "tried": d["configs_tried"], "robust": d["robust"],
         "is": m(d["is"]), "oos": m(d["oos"]), "full": m(d["full"]), "mes": m(d.get("mes_check")),
+        "nq_is": m(d.get("nq_is")), "nq_oos": m(d.get("nq_oos")),
         # early records stored seconds instead of ms (index resolution bug) - normalise
         "eq": [[t * 1000 if t < 10**11 else t, v] for t, v in d["full"].get("equity", [])],
     }
@@ -146,7 +147,7 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
   <div class="card">
     <h2>Every strategy tested</h2>
     <div class="filters">
-      <select id="f-track"><option value="">All tracks</option><option value="15m_full">15m, full history (10y)</option><option value="5m_recent">5m, recent MES</option></select>
+      <select id="f-track"><option value="">All tracks</option><option value="15m_joint">15m, ES + NQ joint (10y)</option><option value="15m_full">15m, ES only (10y)</option><option value="5m_recent">5m, recent MES</option></select>
       <label class="chk"><input type="checkbox" id="f-robust"> Robust only</label>
       <label class="chk"><input type="checkbox" id="f-latest" checked> Latest engine only</label>
       <input type="search" id="f-q" placeholder="Filter by component…">
@@ -208,6 +209,7 @@ const COLS = [
   ["OOS net", r => r.oos?.net, r => `<span class="${cls(r.oos?.net)}">${fmt$(r.oos?.net)}</span>`],
   ["OOS max DD", r => r.oos?.max_dd, r => fmt$(r.oos?.max_dd)],
   ["OOS Sharpe", r => r.oos?.sharpe, r => f2(r.oos?.sharpe)],
+  ["NQ OOS PF", r => r.nq_oos?.profit_factor, r => f2(r.nq_oos?.profit_factor)],
   ["OOS Lucid pass", r => r.oos?.pass, r => pct(r.oos?.pass)],
   ["OOS bust", r => r.oos?.bust, r => pct(r.oos?.bust)],
   ["Trades/wk", r => r.full?.trades_per_week, r => r.full?.trades_per_week?.toFixed(1) ?? "–"],
@@ -258,7 +260,7 @@ function select(id, scroll = true) {
   const s = r.spec, p = o => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(", ") || "–";
   const per = (lab, m) => m ? `<tr><td>${lab}</td><td>${m.trades} trades · win ${pct(m.win_rate)} · PF ${f2(m.profit_factor)} · net ${fmt$(m.net)} · DD ${fmt$(m.max_dd)} · Sharpe ${f2(m.sharpe)} · Lucid pass ${pct(m.pass)} / bust ${pct(m.bust)}${m.days ? ` · ${m.days} sessions to pass` : ""}</td></tr>` : "";
   d.innerHTML = `
-    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
+    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : r.track === "15m_joint" ? "fit on ES + NQ jointly, 2016–2022" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
     <div class="detail-grid">
       ${tile("OOS win rate", pct(r.oos?.win_rate), `IS ${pct(r.is?.win_rate)}`)}
       ${tile("OOS profit factor", f2(r.oos?.profit_factor), `IS ${f2(r.is?.profit_factor)}`)}
@@ -281,7 +283,7 @@ function select(id, scroll = true) {
         <tr><td>Configs tried</td><td>${r.tried.toLocaleString()}</td></tr>
       </table>
       <table class="kv">
-        ${per("In-sample", r.is)}${per("Out-of-sample", r.oos)}${per("Full period", r.full)}${per("Real MES 15m 2025–26", r.mes)}
+        ${per("In-sample", r.is)}${per("Out-of-sample", r.oos)}${per("Full period", r.full)}${per("Real MES 15m 2025–26", r.mes)}${per("NQ (as MNQ) 2016–22", r.nq_is)}${per("NQ (as MNQ) 2023–26", r.nq_oos)}
         <tr><td>Size buckets (full)</td><td>full-size trades ${pct(r.full?.pct_full_size)} · P&L full ${fmt$(r.full?.pnl_full_size)} · reduced ${fmt$(r.full?.pnl_small_size)}</td></tr>
         <tr><td>Exits (full)</td><td>${r.full?.exit_mix ? Object.entries(r.full.exit_mix).map(([k, v]) => `${k} ${v}`).join(" · ") : "–"}</td></tr>
       </table>
@@ -349,7 +351,7 @@ function drawEquity(r) {
 function families() {
   const med = a => { const b = a.filter(x => x != null).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
   const g = {};
-  R.filter(r => r.v === VMAX && r.track === "15m_full").forEach(r => (g[r.name] = g[r.name] || []).push(r));
+  R.filter(r => r.v === VMAX && (r.track === "15m_full" || r.track === "15m_joint")).forEach(r => (g[r.name] = g[r.name] || []).push(r));
   const rows = Object.entries(g).filter(([, rs]) => rs.length >= 2).map(([name, rs]) => ({
     name, n: rs.length, rob: rs.filter(r => r.robust).length,
     pf: med(rs.map(r => r.oos?.profit_factor)), pass: med(rs.map(r => r.oos?.pass)), bust: med(rs.map(r => r.oos?.bust)),

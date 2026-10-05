@@ -109,14 +109,15 @@ def signals(m: Market, s: Spec):
     return t, r, long_ok, short_ok
 
 
-def backtest(m: Market, s: Spec, rules: Optional[LucidRules] = None, fee_rt=FEE_RT, slip_ticks=SLIP_TICKS):
+def backtest(m: Market, s: Spec, rules: Optional[LucidRules] = None, fee_rt=FEE_RT, slip_ticks=SLIP_TICKS,
+             point_value=MES_POINT_VALUE, tick=MES_TICK):
     rules = rules or LucidRules()
     t, r, lg, sh = signals(m, s)
     trades = engine.run(
         m.o, m.h, m.l, m.c, _atr(m, s.atr_n), lg, sh, t.astype(np.float64), r.astype(np.float64),
         m.entry_mask(s.window), m.flatten_mask(), m.day_id,
         float(s.sl_k), float(s.tp_k), float(s.risk_usd), float(s.small_mult),
-        MES_POINT_VALUE, MES_TICK, float(fee_rt), float(slip_ticks), int(rules.max_micros),
+        float(point_value), float(tick), float(fee_rt), float(slip_ticks), int(rules.max_micros),
         float(s.daily_loss_limit), float(s.daily_profit_cap), bool(s.exit_on_flip), float(s.trail_k),
     )
     return trades
@@ -227,5 +228,13 @@ def metrics(m: Market, trades: np.ndarray, rules: Optional[LucidRules] = None, c
     return out
 
 
+INSTRUMENT = {  # dataset prefix -> (micro point value, tick)
+    "es": (5.0, 0.25), "mes": (5.0, 0.25),  # MES
+    "nq": (2.0, 0.25), "mnq": (2.0, 0.25),  # MNQ
+    "gc": (10.0, 0.1),  # MGC
+}
+
+
 def evaluate(m: Market, s: Spec, rules: Optional[LucidRules] = None, **kw):
-    return metrics(m, backtest(m, s, rules), rules, cushion_sizing=s.cushion_sizing, **kw)
+    pv, tick = INSTRUMENT.get(m.name.split("_")[0], (MES_POINT_VALUE, MES_TICK))
+    return metrics(m, backtest(m, s, rules, point_value=pv, tick=tick), rules, cushion_sizing=s.cushion_sizing, **kw)

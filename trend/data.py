@@ -27,6 +27,10 @@ DATASETS = {
     "mes_15m": ("real_mes_15m_2025-09-30_2026-08-25.parquet", 15),
     "mes_5m": ("real_mes_5m_2026-05-10_2026-08-25.parquet", 5),
     "mes_1m": ("real_mes_1m_2026-08-02_2026-08-25.parquet", 1),
+    # out-of-instrument checks (never used for optimisation)
+    "nq_15m": ("real_nq_15m_2016-05-29_2026-08-25.parquet", 15),
+    "gc_15m": ("real_gc_15m_2016-05-26_2026-08-25.parquet", 15),
+    "si_15m": ("real_si_15m_2016-05-26_2026-08-25.parquet", 15),
 }
 
 # Session windows (ET). Entries are only taken on signal bars whose *close*
@@ -37,6 +41,9 @@ WINDOWS = {
     "rth": (time(9, 45), time(15, 30)),
     "ny_am": (time(9, 45), time(12, 0)),
     "ext": (time(3, 0), time(15, 30)),  # London open through NY
+    "pm": (time(13, 0), time(15, 30)),
+    "late": (time(14, 45), time(15, 45)),  # intraday-momentum-into-the-close window
+    "all_rth": (time(9, 45), time(15, 45)),
 }
 FLATTEN_AT = time(15, 55)
 

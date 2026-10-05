@@ -256,3 +256,56 @@ def conf_prev_close(m):
     j = np.where(first, np.arange(len(m.c)), 0)
     np.maximum.accumulate(j, out=j)
     return _sign(m.c - anchor[j])
+
+
+# ------------------------------------------------------------------ batch 4: higher-timeframe / session-flow components
+def _session_last_close(m):
+    """Per bar: the previous session's final close (no lookahead)."""
+    last = np.r_[m.day_id[1:] != m.day_id[:-1], True]
+    first = np.r_[True, m.day_id[1:] != m.day_id[:-1]]
+    closes = m.c[last]  # one per session, in order
+    sess_idx = np.cumsum(first) - 1  # 0-based session number per bar
+    prev = np.full(len(m.c), np.nan)
+    ok = sess_idx >= 1
+    prev[ok] = closes[sess_idx[ok] - 1]
+    return prev, sess_idx, closes
+
+
+def _daily_ema_level(m, n):
+    _, sess_idx, closes = _session_last_close(m)
+    e = ind.ema(closes, n)  # EMA of session closes, value known at each session's end
+    lvl = np.full(len(m.c), np.nan)
+    ok = sess_idx >= 1
+    lvl[ok] = e[sess_idx[ok] - 1]  # use yesterday's EMA during today
+    return lvl
+
+
+def _daily_ema(m, n):
+    return _sign(m.c - _daily_ema_level(m, n))
+
+
+TREND["daily_ema"] = (_daily_ema, {"n": [5, 10, 20, 50]})
+CONFIRM["daily_ema"] = (_daily_ema, {"n": [5, 10, 20, 50]})
+
+
+@_reg(TREND, "daily_slope", {"n": [10, 20, 50]})
+def trend_daily_slope(m, n):
+    """Multi-day trend: yesterday's daily EMA vs the day before's (rising / falling)."""
+    lvl = _daily_ema_level(m, n)
+    _, sess_idx, closes = _session_last_close(m)
+    e = ind.ema(closes, n)
+    prev = np.full(len(m.c), np.nan)
+    ok = sess_idx >= 2
+    prev[ok] = e[sess_idx[ok] - 2]
+    return _sign(lvl - prev)
+
+
+@_reg(CONFIRM, "overnight", {})
+def conf_overnight(m):
+    """Overnight gap direction: today's 09:30 open vs the prior session's close, held all day."""
+    prev, _, _ = _session_last_close(m)
+    op = _rth_open(m.o, m.c, m.day_id, _bar_open_minute(m), 9 * 60 + 30)
+    return _sign(op - prev)
+
+
+CONFIRM["session_move"] = (lambda m, atr_buf: TREND["rth_open"][0](m, atr_buf), {"atr_buf": [0.0, 0.5]})

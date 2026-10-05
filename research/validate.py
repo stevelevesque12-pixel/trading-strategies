@@ -127,7 +127,7 @@ def main():
         chosen = [r for r in recs if r["id"] == args.id]
     else:
         vmax = max(r.get("v", 1) for r in recs)
-        pool = [r for r in recs if r.get("v", 1) == vmax and r["track"] == "15m_full" and r["robust"]]
+        pool = [r for r in recs if r.get("v", 1) == vmax and r["track"] in ("15m_full", "15m_joint") and r["robust"]]
         pool.sort(key=lambda r: r["oos"]["lucid"]["pass_rate"] - r["oos"]["lucid"]["bust_rate"], reverse=True)
         chosen = pool[: args.top or 5]
     for rec in chosen:
