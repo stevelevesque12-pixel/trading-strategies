@@ -1,1 +1,3 @@
 trend_dip_stoch@15min#it6r         IS pf=  1.3 net=  524.0 | OOS pf= 0.87 wr= 27.3 net= -166.0 dd= 449.0 n=  22 lucid=0.0 top10med=0.95 (64s)
+fib_pullback@15min#it6r            IS pf= 2.19 net= 1741.0 | OOS pf= 0.47 wr= 30.8 net= -406.0 dd= 607.0 n=  13 lucid=0.0 top10med=0.95 (254s)
+trend_dip_atr_daygate@15min#it6r   IS pf= 2.06 net=  679.0 | OOS pf= 6.92 wr= 80.0 net=  999.0 dd= 169.0 n=   5 lucid=0.0 top10med=1.57 (68s)

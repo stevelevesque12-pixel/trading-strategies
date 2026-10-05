@@ -1,0 +1,2 @@
+supertrend_adx           train  -4.64 | test avgR/PF gc:-0.243/0.47 es:+0.136/1.39 nq:+0.142/1.36 si:-0.066/0.81 | MCL pf 0.38 R -0.275 n 26 lucid 0.0
+ema_pullback             train  -5.79 | test avgR/PF gc:-0.041/0.92 es:-0.013/0.98 nq:+0.067/1.11 si:-0.057/0.89 | MCL pf 0.69 R -0.157 n 285 lucid 0.0
