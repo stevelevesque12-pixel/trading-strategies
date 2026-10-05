@@ -16287,6 +16287,1986 @@
    "id": "trend_dip_rsi@10min#it2",
    "iteration": 2,
    "created": "2026-10-05T15:29:01+00:00"
+  },
+  {
+   "family": "overnight_cont",
+   "description": "If Globex (18:00 to 08:59 ET) trended cleanly (high efficiency ratio, big net move vs ATR), join that direction on the first pullback-and-resume after the 09:00 open. ATR trail exit.",
+   "tf": "15min",
+   "configs_tested": 400,
+   "split_day": "2026-04-17",
+   "data_start": "2025-10-01",
+   "data_end": "2026-08-25",
+   "params": {
+    "trail_k": 3.0,
+    "target_r": 1.5,
+    "be_r": null,
+    "htf_rule": "240min",
+    "htf_len": 50,
+    "session": "us",
+    "er_min": 0.35,
+    "move_atr": 6.0,
+    "pb_ema": 9,
+    "last_entry": 750,
+    "stop_k": 1.5
+   },
+   "is": {
+    "trades": 16,
+    "days": 139,
+    "win_rate": 50.0,
+    "profit_factor": 1.39,
+    "net": 453.0,
+    "max_dd": 432.0,
+    "eod_dd": 322.0,
+    "avg_r": 0.171,
+    "avg_trade": 28.3,
+    "sharpe": 0.82,
+    "trades_per_week": 0.58,
+    "ret_dd": 1.05,
+    "best_day": 471.0,
+    "worst_day": -185.0,
+    "lucid_attempts": 80,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 6,
+    "days": 93,
+    "win_rate": 66.7,
+    "profit_factor": 3.32,
+    "net": 636.0,
+    "max_dd": 147.0,
+    "eod_dd": 147.0,
+    "avg_r": 0.658,
+    "avg_trade": 106.1,
+    "sharpe": 1.85,
+    "trades_per_week": 0.32,
+    "ret_dd": 4.34,
+    "best_day": 512.0,
+    "worst_day": -147.0,
+    "lucid_attempts": 34,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 22,
+    "days": 232,
+    "win_rate": 54.5,
+    "profit_factor": 1.75,
+    "net": 1090.0,
+    "max_dd": 432.0,
+    "eod_dd": 322.0,
+    "avg_r": 0.304,
+    "avg_trade": 49.5,
+    "sharpe": 1.22,
+    "trades_per_week": 0.47,
+    "ret_dd": 2.52,
+    "best_day": 512.0,
+    "worst_day": -185.0,
+    "lucid_attempts": 173,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": null,
+   "top10": [
+    {
+     "params": {
+      "trail_k": 3.0,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.39,
+     "oos_pf": 3.32,
+     "is_net": 453.0,
+     "oos_net": 636.0,
+     "oos_trades": 6
+    },
+    {
+     "params": {
+      "trail_k": 2.0,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.38,
+     "oos_pf": 2.59,
+     "is_net": 386.0,
+     "oos_net": 486.0,
+     "oos_trades": 6
+    },
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.2,
+     "oos_pf": 3.88,
+     "is_net": 267.0,
+     "oos_net": 676.0,
+     "oos_trades": 6
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 4.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 2.0
+     },
+     "is_pf": 1.22,
+     "oos_pf": 1.69,
+     "is_net": 200.0,
+     "oos_net": 287.0,
+     "oos_trades": 7
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 2.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.12,
+     "oos_pf": 2.55,
+     "is_net": 165.0,
+     "oos_net": 432.0,
+     "oos_trades": 5
+    },
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.14,
+     "oos_pf": 3.23,
+     "is_net": 137.0,
+     "oos_net": 524.0,
+     "oos_trades": 5
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 2.0
+     },
+     "is_pf": 1.18,
+     "oos_pf": 99.0,
+     "is_net": 131.0,
+     "oos_net": 520.0,
+     "oos_trades": 2
+    },
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": 2.0,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.35,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.5
+     },
+     "is_pf": 1.06,
+     "oos_pf": 2.55,
+     "is_net": 82.0,
+     "oos_net": 432.0,
+     "oos_trades": 5
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.25,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 2.0
+     },
+     "is_pf": 1.03,
+     "oos_pf": 1.58,
+     "is_net": 33.0,
+     "oos_net": 364.0,
+     "oos_trades": 12
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 2.0
+     },
+     "is_pf": 1.03,
+     "oos_pf": 1.58,
+     "is_net": 33.0,
+     "oos_net": 364.0,
+     "oos_trades": 12
+    }
+   ],
+   "equity": [
+    [
+     "2025-12-11T13:30:00-05:00",
+     -132.2
+    ],
+    [
+     "2025-12-16T10:15:00-05:00",
+     109.3
+    ],
+    [
+     "2025-12-16T11:30:00-05:00",
+     -56.3
+    ],
+    [
+     "2025-12-22T10:45:00-05:00",
+     -238.7
+    ],
+    [
+     "2025-12-22T16:30:00-05:00",
+     -149.4
+    ],
+    [
+     "2025-12-29T13:00:00-05:00",
+     -322.4
+    ],
+    [
+     "2026-01-15T09:30:00-05:00",
+     -79.1
+    ],
+    [
+     "2026-01-15T16:30:00-05:00",
+     -120.0
+    ],
+    [
+     "2026-01-23T11:00:00-05:00",
+     -295.3
+    ],
+    [
+     "2026-01-23T16:30:00-05:00",
+     -128.7
+    ],
+    [
+     "2026-02-11T10:00:00-05:00",
+     -313.2
+    ],
+    [
+     "2026-02-18T09:45:00-05:00",
+     -83.8
+    ],
+    [
+     "2026-02-18T12:00:00-05:00",
+     157.4
+    ],
+    [
+     "2026-03-03T11:30:00-05:00",
+     37.5
+    ],
+    [
+     "2026-03-06T11:45:00-05:00",
+     232.7
+    ],
+    [
+     "2026-03-06T12:30:00-05:00",
+     453.5
+    ],
+    [
+     "2026-04-17T09:15:00-04:00",
+     306.8
+    ],
+    [
+     "2026-05-27T14:30:00-04:00",
+     458.3
+    ],
+    [
+     "2026-06-16T10:30:00-04:00",
+     705.8
+    ],
+    [
+     "2026-06-16T11:45:00-04:00",
+     970.8
+    ],
+    [
+     "2026-06-22T09:45:00-04:00",
+     1217.3
+    ],
+    [
+     "2026-06-22T15:15:00-04:00",
+     1089.9
+    ]
+   ],
+   "id": "overnight_cont@15min#it2",
+   "iteration": 2,
+   "created": "2026-10-05T15:29:21+00:00"
+  },
+  {
+   "family": "overnight_cont",
+   "description": "If Globex (18:00 to 08:59 ET) trended cleanly (high efficiency ratio, big net move vs ATR), join that direction on the first pullback-and-resume after the 09:00 open. ATR trail exit.",
+   "tf": "5min",
+   "configs_tested": 400,
+   "split_day": "2026-07-14",
+   "data_start": "2026-05-11",
+   "data_end": "2026-08-25",
+   "params": {
+    "trail_k": null,
+    "target_r": 4.0,
+    "be_r": null,
+    "htf_rule": "240min",
+    "htf_len": 0,
+    "session": "us",
+    "er_min": 0.15,
+    "move_atr": 6.0,
+    "pb_ema": 9,
+    "last_entry": 750,
+    "stop_k": 1.0
+   },
+   "is": {
+    "trades": 12,
+    "days": 46,
+    "win_rate": 33.3,
+    "profit_factor": 2.22,
+    "net": 1432.0,
+    "max_dd": 663.0,
+    "eod_dd": 483.0,
+    "avg_r": 0.614,
+    "avg_trade": 119.3,
+    "sharpe": 2.31,
+    "trades_per_week": 1.3,
+    "ret_dd": 2.16,
+    "best_day": 1143.0,
+    "worst_day": -483.0,
+    "lucid_attempts": 0,
+    "lucid_pass_pct": null,
+    "lucid_fail_pct": null,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 14,
+    "days": 31,
+    "win_rate": 14.3,
+    "profit_factor": 0.61,
+    "net": -850.0,
+    "max_dd": 1619.0,
+    "eod_dd": 1441.0,
+    "avg_r": -0.31,
+    "avg_trade": -60.7,
+    "sharpe": -2.57,
+    "trades_per_week": 2.26,
+    "ret_dd": -0.53,
+    "best_day": 319.0,
+    "worst_day": -549.0,
+    "lucid_attempts": 0,
+    "lucid_pass_pct": null,
+    "lucid_fail_pct": null,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 26,
+    "days": 77,
+    "win_rate": 23.1,
+    "profit_factor": 1.17,
+    "net": 581.0,
+    "max_dd": 1619.0,
+    "eod_dd": 1441.0,
+    "avg_r": 0.117,
+    "avg_trade": 22.4,
+    "sharpe": 0.6,
+    "trades_per_week": 1.69,
+    "ret_dd": 0.36,
+    "best_day": 1143.0,
+    "worst_day": -549.0,
+    "lucid_attempts": 18,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": null,
+   "top10": [
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 4.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 2.22,
+     "oos_pf": 0.61,
+     "is_net": 1432.0,
+     "oos_net": -850.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "trail_k": 3.0,
+      "target_r": 4.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 2.09,
+     "oos_pf": 0.32,
+     "is_net": 1202.0,
+     "oos_net": -1204.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "trail_k": 2.5,
+      "target_r": null,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 2.0,
+     "oos_pf": 0.41,
+     "is_net": 1052.0,
+     "oos_net": -1209.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.74,
+     "oos_pf": 0.68,
+     "is_net": 1024.0,
+     "oos_net": -664.0,
+     "oos_trades": 15
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.52,
+     "oos_pf": 0.57,
+     "is_net": 974.0,
+     "oos_net": -1057.0,
+     "oos_trades": 20
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.47,
+     "oos_pf": 0.7,
+     "is_net": 907.0,
+     "oos_net": -702.0,
+     "oos_trades": 18
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": null,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.25,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 5.68,
+     "oos_pf": 0.0,
+     "is_net": 842.0,
+     "oos_net": 0.0,
+     "oos_trades": 0
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.25,
+      "move_atr": 6.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 5.37,
+     "oos_pf": 0.0,
+     "is_net": 786.0,
+     "oos_net": 0.0,
+     "oos_trades": 0
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": 3.0,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.25,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 5.32,
+     "oos_pf": 0.0,
+     "is_net": 778.0,
+     "oos_net": 0.0,
+     "oos_trades": 0
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.25,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 5.32,
+     "oos_pf": 0.0,
+     "is_net": 778.0,
+     "oos_net": 0.0,
+     "oos_trades": 0
+    }
+   ],
+   "equity": [
+    [
+     "2026-05-27T14:15:00-04:00",
+     683.3
+    ],
+    [
+     "2026-06-04T09:10:00-04:00",
+     522.3
+    ],
+    [
+     "2026-06-04T11:00:00-04:00",
+     364.5
+    ],
+    [
+     "2026-06-04T11:40:00-04:00",
+     200.0
+    ],
+    [
+     "2026-06-16T10:05:00-04:00",
+     20.1
+    ],
+    [
+     "2026-06-16T11:30:00-04:00",
+     651.3
+    ],
+    [
+     "2026-06-16T12:30:00-04:00",
+     1343.4
+    ],
+    [
+     "2026-06-22T11:10:00-04:00",
+     1945.7
+    ],
+    [
+     "2026-06-22T11:25:00-04:00",
+     1773.2
+    ],
+    [
+     "2026-06-22T12:35:00-04:00",
+     1604.0
+    ],
+    [
+     "2026-06-26T09:15:00-04:00",
+     1433.3
+    ],
+    [
+     "2026-06-26T16:30:00-04:00",
+     1431.8
+    ],
+    [
+     "2026-07-23T09:15:00-04:00",
+     1242.4
+    ],
+    [
+     "2026-07-23T09:30:00-04:00",
+     1074.3
+    ],
+    [
+     "2026-07-23T13:40:00-04:00",
+     1702.8
+    ],
+    [
+     "2026-07-24T09:50:00-04:00",
+     1522.3
+    ],
+    [
+     "2026-07-24T11:15:00-04:00",
+     2200.5
+    ],
+    [
+     "2026-07-24T13:30:00-04:00",
+     2022.2
+    ],
+    [
+     "2026-07-29T09:20:00-04:00",
+     1842.7
+    ],
+    [
+     "2026-07-29T15:15:00-04:00",
+     1658.7
+    ],
+    [
+     "2026-08-20T09:45:00-04:00",
+     1477.6
+    ],
+    [
+     "2026-08-20T10:10:00-04:00",
+     1295.6
+    ],
+    [
+     "2026-08-20T10:55:00-04:00",
+     1130.0
+    ],
+    [
+     "2026-08-25T09:15:00-04:00",
+     941.4
+    ],
+    [
+     "2026-08-25T10:00:00-04:00",
+     769.7
+    ],
+    [
+     "2026-08-25T10:15:00-04:00",
+     581.4
+    ]
+   ],
+   "id": "overnight_cont@5min#it2",
+   "iteration": 2,
+   "created": "2026-10-05T15:29:36+00:00"
+  },
+  {
+   "family": "overnight_cont",
+   "description": "If Globex (18:00 to 08:59 ET) trended cleanly (high efficiency ratio, big net move vs ATR), join that direction on the first pullback-and-resume after the 09:00 open. ATR trail exit.",
+   "tf": "10min",
+   "configs_tested": 400,
+   "split_day": "2026-07-14",
+   "data_start": "2026-05-11",
+   "data_end": "2026-08-25",
+   "params": {
+    "trail_k": null,
+    "target_r": 1.5,
+    "be_r": 1.5,
+    "htf_rule": "60min",
+    "htf_len": 50,
+    "session": "us",
+    "er_min": 0.15,
+    "move_atr": 2.0,
+    "pb_ema": 9,
+    "last_entry": 750,
+    "stop_k": 1.0
+   },
+   "is": {
+    "trades": 42,
+    "days": 46,
+    "win_rate": 50.0,
+    "profit_factor": 1.4,
+    "net": 1481.0,
+    "max_dd": 813.0,
+    "eod_dd": 379.0,
+    "avg_r": 0.188,
+    "avg_trade": 35.3,
+    "sharpe": 3.46,
+    "trades_per_week": 4.57,
+    "ret_dd": 1.82,
+    "best_day": 761.0,
+    "worst_day": -245.0,
+    "lucid_attempts": 0,
+    "lucid_pass_pct": null,
+    "lucid_fail_pct": null,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 25,
+    "days": 31,
+    "win_rate": 40.0,
+    "profit_factor": 0.81,
+    "net": -492.0,
+    "max_dd": 833.0,
+    "eod_dd": 833.0,
+    "avg_r": -0.089,
+    "avg_trade": -19.7,
+    "sharpe": -1.56,
+    "trades_per_week": 4.03,
+    "ret_dd": -0.59,
+    "best_day": 320.0,
+    "worst_day": -516.0,
+    "lucid_attempts": 0,
+    "lucid_pass_pct": null,
+    "lucid_fail_pct": null,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 67,
+    "days": 77,
+    "win_rate": 46.3,
+    "profit_factor": 1.16,
+    "net": 989.0,
+    "max_dd": 1102.0,
+    "eod_dd": 833.0,
+    "avg_r": 0.085,
+    "avg_trade": 14.8,
+    "sharpe": 1.32,
+    "trades_per_week": 4.35,
+    "ret_dd": 0.9,
+    "best_day": 761.0,
+    "worst_day": -516.0,
+    "lucid_attempts": 18,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": 0.73,
+   "top10": [
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.4,
+     "oos_pf": 0.81,
+     "is_net": 1481.0,
+     "oos_net": -492.0,
+     "oos_trades": 25
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.34,
+     "oos_pf": 0.73,
+     "is_net": 1171.0,
+     "oos_net": -657.0,
+     "oos_trades": 21
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": 2.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.38,
+     "oos_pf": 0.89,
+     "is_net": 1195.0,
+     "oos_net": -250.0,
+     "oos_trades": 26
+    },
+    {
+     "params": {
+      "trail_k": 1.5,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "60min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.37,
+     "oos_pf": 0.54,
+     "is_net": 1076.0,
+     "oos_net": -880.0,
+     "oos_trades": 21
+    },
+    {
+     "params": {
+      "trail_k": 2.0,
+      "target_r": 3.0,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 750,
+      "stop_k": 1.0
+     },
+     "is_pf": 1.27,
+     "oos_pf": 0.67,
+     "is_net": 817.0,
+     "oos_net": -633.0,
+     "oos_trades": 22
+    },
+    {
+     "params": {
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.0
+     },
+     "is_pf": 3.39,
+     "oos_pf": 0.35,
+     "is_net": 2782.0,
+     "oos_net": -863.0,
+     "oos_trades": 10
+    },
+    {
+     "params": {
+      "trail_k": 3.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.0
+     },
+     "is_pf": 3.01,
+     "oos_pf": 1.03,
+     "is_net": 2634.0,
+     "oos_net": 34.0,
+     "oos_trades": 12
+    },
+    {
+     "params": {
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 4.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.0
+     },
+     "is_pf": 2.47,
+     "oos_pf": 1.05,
+     "is_net": 1972.0,
+     "oos_net": 64.0,
+     "oos_trades": 14
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 4.0,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 2.0,
+      "pb_ema": 9,
+      "last_entry": 660,
+      "stop_k": 1.5
+     },
+     "is_pf": 4.51,
+     "oos_pf": 0.09,
+     "is_net": 1843.0,
+     "oos_net": -996.0,
+     "oos_trades": 9
+    },
+    {
+     "params": {
+      "trail_k": 4.0,
+      "target_r": 3.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "session": "us",
+      "er_min": 0.15,
+      "move_atr": 4.0,
+      "pb_ema": 20,
+      "last_entry": 750,
+      "stop_k": 1.5
+     },
+     "is_pf": 7.68,
+     "oos_pf": 0.05,
+     "is_net": 1775.0,
+     "oos_net": -1158.0,
+     "oos_trades": 9
+    }
+   ],
+   "equity": [
+    [
+     "2026-05-12T09:30:00-04:00",
+     239.0
+    ],
+    [
+     "2026-05-12T11:20:00-04:00",
+     485.3
+    ],
+    [
+     "2026-05-12T11:30:00-04:00",
+     307.1
+    ],
+    [
+     "2026-05-12T13:10:00-04:00",
+     136.5
+    ],
+    [
+     "2026-05-20T09:20:00-04:00",
+     -11.5
+    ],
+    [
+     "2026-05-20T11:10:00-04:00",
+     202.3
+    ],
+    [
+     "2026-05-20T11:20:00-04:00",
+     12.5
+    ],
+    [
+     "2026-05-20T12:50:00-04:00",
+     295.4
+    ],
+    [
+     "2026-05-27T09:50:00-04:00",
+     117.4
+    ],
+    [
+     "2026-05-27T11:40:00-04:00",
+     -62.9
+    ],
+    [
+     "2026-05-27T14:10:00-04:00",
+     197.9
+    ],
+    [
+     "2026-06-03T11:00:00-04:00",
+     47.1
+    ],
+    [
+     "2026-06-03T11:10:00-04:00",
+     -109.6
+    ],
+    [
+     "2026-06-03T11:30:00-04:00",
+     125.4
+    ],
+    [
+     "2026-06-03T13:00:00-04:00",
+     -47.5
+    ],
+    [
+     "2026-06-04T09:10:00-04:00",
+     -201.6
+    ],
+    [
+     "2026-06-04T10:10:00-04:00",
+     15.2
+    ],
+    [
+     "2026-06-04T10:20:00-04:00",
+     -139.4
+    ],
+    [
+     "2026-06-04T11:40:00-04:00",
+     -327.8
+    ],
+    [
+     "2026-06-04T13:10:00-04:00",
+     -83.5
+    ],
+    [
+     "2026-06-09T09:40:00-04:00",
+     142.1
+    ],
+    [
+     "2026-06-09T11:50:00-04:00",
+     412.0
+    ],
+    [
+     "2026-06-09T12:10:00-04:00",
+     677.3
+    ],
+    [
+     "2026-06-16T09:30:00-04:00",
+     510.6
+    ],
+    [
+     "2026-06-16T10:30:00-04:00",
+     768.8
+    ],
+    [
+     "2026-06-16T11:30:00-04:00",
+     992.3
+    ],
+    [
+     "2026-06-16T11:50:00-04:00",
+     1222.9
+    ],
+    [
+     "2026-06-22T09:30:00-04:00",
+     1468.9
+    ],
+    [
+     "2026-06-22T10:30:00-04:00",
+     1282.3
+    ],
+    [
+     "2026-06-22T11:10:00-04:00",
+     1540.8
+    ],
+    [
+     "2026-06-22T11:20:00-04:00",
+     1350.5
+    ],
+    [
+     "2026-06-22T12:30:00-04:00",
+     1159.4
+    ],
+    [
+     "2026-06-24T09:30:00-04:00",
+     1413.5
+    ],
+    [
+     "2026-06-24T11:30:00-04:00",
+     1246.0
+    ],
+    [
+     "2026-06-26T10:00:00-04:00",
+     1492.7
+    ],
+    [
+     "2026-06-26T11:00:00-04:00",
+     1749.8
+    ],
+    [
+     "2026-06-26T11:40:00-04:00",
+     1561.6
+    ],
+    [
+     "2026-06-26T12:50:00-04:00",
+     1378.1
+    ],
+    [
+     "2026-07-01T09:50:00-04:00",
+     1189.0
+    ],
+    [
+     "2026-07-01T10:40:00-04:00",
+     1439.9
+    ],
+    [
+     "2026-07-01T12:00:00-04:00",
+     1662.3
+    ],
+    [
+     "2026-07-01T12:50:00-04:00",
+     1480.8
+    ],
+    [
+     "2026-07-22T09:10:00-04:00",
+     1298.1
+    ],
+    [
+     "2026-07-22T10:40:00-04:00",
+     1151.0
+    ],
+    [
+     "2026-07-22T11:20:00-04:00",
+     965.3
+    ],
+    [
+     "2026-07-23T09:10:00-04:00",
+     817.6
+    ],
+    [
+     "2026-07-23T09:50:00-04:00",
+     1039.3
+    ],
+    [
+     "2026-07-23T10:10:00-04:00",
+     884.7
+    ],
+    [
+     "2026-07-23T11:20:00-04:00",
+     1116.0
+    ],
+    [
+     "2026-07-23T11:40:00-04:00",
+     949.8
+    ],
+    [
+     "2026-07-23T13:40:00-04:00",
+     1190.8
+    ],
+    [
+     "2026-07-24T13:50:00-04:00",
+     1013.3
+    ],
+    [
+     "2026-07-29T10:50:00-04:00",
+     1226.5
+    ],
+    [
+     "2026-07-29T11:10:00-04:00",
+     1031.3
+    ],
+    [
+     "2026-07-29T11:20:00-04:00",
+     838.2
+    ],
+    [
+     "2026-07-29T12:20:00-04:00",
+     647.8
+    ],
+    [
+     "2026-08-04T11:30:00-04:00",
+     882.4
+    ],
+    [
+     "2026-08-04T12:10:00-04:00",
+     704.4
+    ],
+    [
+     "2026-08-04T16:10:00-04:00",
+     929.8
+    ],
+    [
+     "2026-08-13T09:30:00-04:00",
+     763.7
+    ],
+    [
+     "2026-08-13T09:50:00-04:00",
+     990.2
+    ],
+    [
+     "2026-08-13T10:10:00-04:00",
+     1249.4
+    ],
+    [
+     "2026-08-20T11:40:00-04:00",
+     1516.8
+    ],
+    [
+     "2026-08-20T12:40:00-04:00",
+     1331.4
+    ],
+    [
+     "2026-08-25T09:20:00-04:00",
+     1138.0
+    ],
+    [
+     "2026-08-25T10:00:00-04:00",
+     970.5
+    ],
+    [
+     "2026-08-25T11:20:00-04:00",
+     989.3
+    ]
+   ],
+   "id": "overnight_cont@10min#it2",
+   "iteration": 2,
+   "created": "2026-10-05T15:29:47+00:00"
+  },
+  {
+   "family": "hull_turn",
+   "description": "Enter when a Hull MA turns up (down) while ADX is above threshold and price is beyond a slow EMA. Exit when the Hull turns back.",
+   "tf": "15min",
+   "configs_tested": 400,
+   "split_day": "2026-04-17",
+   "data_start": "2025-10-01",
+   "data_end": "2026-08-25",
+   "params": {
+    "session": "us",
+    "trail_k": null,
+    "target_r": 1.5,
+    "be_r": 1.5,
+    "htf_rule": "60min",
+    "htf_len": 20,
+    "hma_n": 24,
+    "slow": 200,
+    "adx_min": 25,
+    "stop_k": 1.5,
+    "exit_turn": true
+   },
+   "is": {
+    "trades": 51,
+    "days": 139,
+    "win_rate": 43.1,
+    "profit_factor": 1.24,
+    "net": 790.0,
+    "max_dd": 834.0,
+    "eod_dd": 834.0,
+    "avg_r": 0.093,
+    "avg_trade": 15.5,
+    "sharpe": 0.9,
+    "trades_per_week": 1.83,
+    "ret_dd": 0.95,
+    "best_day": 297.0,
+    "worst_day": -385.0,
+    "lucid_attempts": 80,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos": {
+    "trades": 39,
+    "days": 93,
+    "win_rate": 25.6,
+    "profit_factor": 0.49,
+    "net": -1618.0,
+    "max_dd": 1705.0,
+    "eod_dd": 1705.0,
+    "avg_r": -0.278,
+    "avg_trade": -41.5,
+    "sharpe": -2.97,
+    "trades_per_week": 2.1,
+    "ret_dd": -0.95,
+    "best_day": 275.0,
+    "worst_day": -252.0,
+    "lucid_attempts": 34,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "full": {
+    "trades": 90,
+    "days": 232,
+    "win_rate": 35.6,
+    "profit_factor": 0.87,
+    "net": -827.0,
+    "max_dd": 1711.0,
+    "eod_dd": 1711.0,
+    "avg_r": -0.068,
+    "avg_trade": -9.2,
+    "sharpe": -0.58,
+    "trades_per_week": 1.94,
+    "ret_dd": -0.48,
+    "best_day": 297.0,
+    "worst_day": -385.0,
+    "lucid_attempts": 173,
+    "lucid_pass_pct": 0.0,
+    "lucid_fail_pct": 0.0,
+    "lucid_median_days": null
+   },
+   "oos_pf_top10_median": 0.72,
+   "top10": [
+    {
+     "params": {
+      "session": "us",
+      "trail_k": null,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 20,
+      "hma_n": 24,
+      "slow": 200,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": true
+     },
+     "is_pf": 1.24,
+     "oos_pf": 0.49,
+     "is_net": 790.0,
+     "oos_net": -1618.0,
+     "oos_trades": 39
+    },
+    {
+     "params": {
+      "session": "all",
+      "trail_k": 4.0,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "hma_n": 24,
+      "slow": 100,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.09,
+     "oos_pf": 1.05,
+     "is_net": 1039.0,
+     "oos_net": 450.0,
+     "oos_trades": 100
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": null,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "hma_n": 24,
+      "slow": 100,
+      "adx_min": 25,
+      "stop_k": 2.0,
+      "exit_turn": true
+     },
+     "is_pf": 1.35,
+     "oos_pf": 0.95,
+     "is_net": 620.0,
+     "oos_net": -67.0,
+     "oos_trades": 27
+    },
+    {
+     "params": {
+      "session": "all",
+      "trail_k": 2.5,
+      "target_r": null,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "hma_n": 16,
+      "slow": 200,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.05,
+     "oos_pf": 0.76,
+     "is_net": 886.0,
+     "oos_net": -3253.0,
+     "oos_trades": 162
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 4.0,
+      "target_r": 2.0,
+      "be_r": null,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "hma_n": 16,
+      "slow": 100,
+      "adx_min": 25,
+      "stop_k": 1.0,
+      "exit_turn": false
+     },
+     "is_pf": 1.05,
+     "oos_pf": 0.36,
+     "is_net": 373.0,
+     "oos_net": -4967.0,
+     "oos_trades": 58
+    },
+    {
+     "params": {
+      "session": "us",
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "60min",
+      "htf_len": 0,
+      "hma_n": 36,
+      "slow": 200,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.12,
+     "oos_pf": 0.63,
+     "is_net": 305.0,
+     "oos_net": -553.0,
+     "oos_trades": 19
+    },
+    {
+     "params": {
+      "session": "all",
+      "trail_k": null,
+      "target_r": 2.0,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 50,
+      "hma_n": 24,
+      "slow": 200,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.03,
+     "oos_pf": 0.85,
+     "is_net": 418.0,
+     "oos_net": -1582.0,
+     "oos_trades": 113
+    },
+    {
+     "params": {
+      "session": "all",
+      "trail_k": 4.0,
+      "target_r": null,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "hma_n": 24,
+      "slow": 200,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": true
+     },
+     "is_pf": 1.01,
+     "oos_pf": 0.68,
+     "is_net": 121.0,
+     "oos_net": -3248.0,
+     "oos_trades": 143
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 2.5,
+      "target_r": 1.5,
+      "be_r": 1.5,
+      "htf_rule": "240min",
+      "htf_len": 0,
+      "hma_n": 24,
+      "slow": 100,
+      "adx_min": 25,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.02,
+     "oos_pf": 1.0,
+     "is_net": 52.0,
+     "oos_net": 6.0,
+     "oos_trades": 28
+    },
+    {
+     "params": {
+      "session": "ny",
+      "trail_k": 4.0,
+      "target_r": null,
+      "be_r": 1.0,
+      "htf_rule": "240min",
+      "htf_len": 20,
+      "hma_n": 55,
+      "slow": 200,
+      "adx_min": 0,
+      "stop_k": 1.5,
+      "exit_turn": false
+     },
+     "is_pf": 1.01,
+     "oos_pf": 0.5,
+     "is_net": 43.0,
+     "oos_net": -1778.0,
+     "oos_trades": 49
+    }
+   ],
+   "equity": [
+    [
+     "2025-10-01T09:30:00-04:00",
+     223.0
+    ],
+    [
+     "2025-10-09T09:00:00-04:00",
+     466.9
+    ],
+    [
+     "2025-10-14T12:00:00-04:00",
+     346.0
+    ],
+    [
+     "2025-10-21T08:45:00-04:00",
+     160.8
+    ],
+    [
+     "2025-10-21T12:30:00-04:00",
+     386.6
+    ],
+    [
+     "2025-10-24T10:15:00-04:00",
+     210.8
+    ],
+    [
+     "2025-10-31T11:45:00-04:00",
+     21.2
+    ],
+    [
+     "2025-11-04T09:00:00-05:00",
+     -168.3
+    ],
+    [
+     "2025-11-04T16:30:00-05:00",
+     -55.7
+    ],
+    [
+     "2025-11-05T15:45:00-05:00",
+     7.3
+    ],
+    [
+     "2025-11-11T09:45:00-05:00",
+     232.8
+    ],
+    [
+     "2025-11-12T14:15:00-05:00",
+     147.3
+    ],
+    [
+     "2025-11-17T09:15:00-05:00",
+     -25.6
+    ],
+    [
+     "2025-11-27T13:00:00-05:00",
+     201.8
+    ],
+    [
+     "2025-11-28T11:30:00-05:00",
+     435.1
+    ],
+    [
+     "2025-12-01T11:15:00-05:00",
+     258.3
+    ],
+    [
+     "2025-12-03T11:30:00-05:00",
+     91.7
+    ],
+    [
+     "2025-12-03T12:15:00-05:00",
+     -70.1
+    ],
+    [
+     "2025-12-03T13:30:00-05:00",
+     -126.3
+    ],
+    [
+     "2025-12-05T13:15:00-05:00",
+     -187.8
+    ],
+    [
+     "2025-12-08T09:45:00-05:00",
+     -366.8
+    ],
+    [
+     "2025-12-11T09:15:00-05:00",
+     -147.2
+    ],
+    [
+     "2025-12-15T10:30:00-05:00",
+     89.4
+    ],
+    [
+     "2025-12-16T09:45:00-05:00",
+     318.4
+    ],
+    [
+     "2025-12-16T16:30:00-05:00",
+     386.7
+    ],
+    [
+     "2025-12-22T16:15:00-05:00",
+     378.1
+    ],
+    [
+     "2025-12-29T10:30:00-05:00",
+     341.4
+    ],
+    [
+     "2025-12-29T11:45:00-05:00",
+     219.5
+    ],
+    [
+     "2025-12-31T09:00:00-05:00",
+     34.7
+    ],
+    [
+     "2026-01-05T11:45:00-05:00",
+     -150.1
+    ],
+    [
+     "2026-01-05T16:30:00-05:00",
+     -151.6
+    ],
+    [
+     "2026-01-08T13:30:00-05:00",
+     78.6
+    ],
+    [
+     "2026-01-13T09:45:00-05:00",
+     -79.4
+    ],
+    [
+     "2026-01-13T14:15:00-05:00",
+     -120.3
+    ],
+    [
+     "2026-01-22T11:00:00-05:00",
+     -251.5
+    ],
+    [
+     "2026-01-22T14:30:00-05:00",
+     -252.7
+    ],
+    [
+     "2026-01-23T16:30:00-05:00",
+     -224.2
+    ],
+    [
+     "2026-01-27T16:30:00-05:00",
+     -205.4
+    ],
+    [
+     "2026-01-29T08:45:00-05:00",
+     61.4
+    ],
+    [
+     "2026-02-09T11:45:00-05:00",
+     297.5
+    ],
+    [
+     "2026-02-18T12:00:00-05:00",
+     534.3
+    ],
+    [
+     "2026-02-19T13:15:00-05:00",
+     524.6
+    ],
+    [
+     "2026-02-24T15:15:00-05:00",
+     335.3
+    ],
+    [
+     "2026-02-27T16:30:00-05:00",
+     534.3
+    ],
+    [
+     "2026-03-02T15:00:00-05:00",
+     778.3
+    ],
+    [
+     "2026-03-03T11:30:00-05:00",
+     707.0
+    ],
+    [
+     "2026-04-06T14:15:00-04:00",
+     558.9
+    ],
+    [
+     "2026-04-09T10:30:00-04:00",
+     715.1
+    ],
+    [
+     "2026-04-13T12:15:00-04:00",
+     599.9
+    ],
+    [
+     "2026-04-13T14:45:00-04:00",
+     796.6
+    ],
+    [
+     "2026-04-14T15:45:00-04:00",
+     790.4
+    ],
+    [
+     "2026-04-24T14:30:00-04:00",
+     714.2
+    ],
+    [
+     "2026-04-27T09:15:00-04:00",
+     570.1
+    ],
+    [
+     "2026-04-29T09:00:00-04:00",
+     413.0
+    ],
+    [
+     "2026-05-01T12:15:00-04:00",
+     283.8
+    ],
+    [
+     "2026-05-11T10:30:00-04:00",
+     181.6
+    ],
+    [
+     "2026-05-12T12:00:00-04:00",
+     169.1
+    ],
+    [
+     "2026-05-13T10:00:00-04:00",
+     409.4
+    ],
+    [
+     "2026-05-20T09:15:00-04:00",
+     244.0
+    ],
+    [
+     "2026-05-27T09:00:00-04:00",
+     63.0
+    ],
+    [
+     "2026-06-01T09:45:00-04:00",
+     207.1
+    ],
+    [
+     "2026-06-04T14:15:00-04:00",
+     49.0
+    ],
+    [
+     "2026-06-08T15:30:00-04:00",
+     58.5
+    ],
+    [
+     "2026-06-09T09:45:00-04:00",
+     333.2
+    ],
+    [
+     "2026-06-11T09:30:00-04:00",
+     153.8
+    ],
+    [
+     "2026-06-11T10:30:00-04:00",
+     120.6
+    ],
+    [
+     "2026-06-12T14:00:00-04:00",
+     85.4
+    ],
+    [
+     "2026-06-16T11:30:00-04:00",
+     335.7
+    ],
+    [
+     "2026-06-22T14:15:00-04:00",
+     257.0
+    ],
+    [
+     "2026-06-25T16:30:00-04:00",
+     244.3
+    ],
+    [
+     "2026-06-26T09:15:00-04:00",
+     53.1
+    ],
+    [
+     "2026-06-26T12:45:00-04:00",
+     88.3
+    ],
+    [
+     "2026-07-01T09:00:00-04:00",
+     -78.5
+    ],
+    [
+     "2026-07-01T10:00:00-04:00",
+     -163.4
+    ],
+    [
+     "2026-07-03T12:45:00-04:00",
+     -174.6
+    ],
+    [
+     "2026-07-07T14:00:00-04:00",
+     -267.6
+    ],
+    [
+     "2026-07-14T14:00:00-04:00",
+     -317.8
+    ],
+    [
+     "2026-07-14T16:30:00-04:00",
+     -218.3
+    ],
+    [
+     "2026-07-23T14:45:00-04:00",
+     -304.8
+    ],
+    [
+     "2026-07-24T09:00:00-04:00",
+     -472.3
+    ],
+    [
+     "2026-07-30T09:00:00-04:00",
+     -632.9
+    ],
+    [
+     "2026-07-31T11:30:00-04:00",
+     -713.4
+    ],
+    [
+     "2026-08-04T12:30:00-04:00",
+     -782.7
+    ],
+    [
+     "2026-08-04T14:45:00-04:00",
+     -765.1
+    ],
+    [
+     "2026-08-05T14:15:00-04:00",
+     -914.7
+    ],
+    [
+     "2026-08-06T11:45:00-04:00",
+     -661.0
+    ],
+    [
+     "2026-08-07T08:30:00-04:00",
+     -816.2
+    ],
+    [
+     "2026-08-07T09:30:00-04:00",
+     -873.9
+    ],
+    [
+     "2026-08-13T09:45:00-04:00",
+     -642.4
+    ],
+    [
+     "2026-08-20T12:45:00-04:00",
+     -827.5
+    ]
+   ],
+   "id": "hull_turn@15min#it2",
+   "iteration": 2,
+   "created": "2026-10-05T15:30:14+00:00"
   }
  ],
  "iterations": [

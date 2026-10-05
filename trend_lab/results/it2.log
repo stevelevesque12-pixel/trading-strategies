@@ -1,3 +1,7 @@
 trend_dip_rsi@15min#it2            IS pf= 1.34 net=  608.0 | OOS pf= 2.41 wr= 76.2 net= 1001.0 dd= 219.0 n=  21 lucid=0.0 top10med=1.78 (21s)
 trend_dip_rsi@5min#it2             IS pf= 1.63 net= 8636.0 | OOS pf= 1.11 wr= 43.0 net= 1162.0 dd=1875.0 n= 114 lucid=100.0 top10med=1.06 (15s)
 trend_dip_rsi@10min#it2            IS pf= 1.65 net= 4671.0 | OOS pf= 0.51 wr= 21.4 net=-2665.0 dd=2836.0 n=  42 lucid=0.0 top10med=0.75 (9s)
+overnight_cont@15min#it2           IS pf= 1.39 net=  453.0 | OOS pf= 3.32 wr= 66.7 net=  636.0 dd= 147.0 n=   6 lucid=0.0 top10med=None (20s)
+overnight_cont@5min#it2            IS pf= 2.22 net= 1432.0 | OOS pf= 0.61 wr= 14.3 net= -850.0 dd=1619.0 n=  14 lucid=None top10med=None (15s)
+overnight_cont@10min#it2           IS pf=  1.4 net= 1481.0 | OOS pf= 0.81 wr= 40.0 net= -492.0 dd= 833.0 n=  25 lucid=None top10med=0.73 (10s)
+hull_turn@15min#it2                IS pf= 1.24 net=  790.0 | OOS pf= 0.49 wr= 25.6 net=-1618.0 dd=1705.0 n=  39 lucid=0.0 top10med=0.72 (27s)

@@ -10,6 +10,7 @@ aligned to the bars, evaluated on each bar's CLOSE:
   trail_dist        float  optional chandelier trail distance (points)
   target_r          float  optional fixed target in R (None = no target)
   be_r              float  optional: move stop to breakeven after +be_r R
+  max_bars          int    optional time stop: exit at next open after holding this many bars
 
 Fills: entries/exit-signals fill at the NEXT bar's open, plus slippage.
 Stops/targets are checked on each bar's high/low; if both are inside one
@@ -98,6 +99,7 @@ def simulate(df: pd.DataFrame, sig: Dict, cfg: SimConfig) -> List[Trade]:
     trail = _arr(sig, "trail_dist", n, np.nan)
     target_r = sig.get("target_r")
     be_r = sig.get("be_r")
+    max_bars = sig.get("max_bars")
 
     s = SESSIONS[cfg.session]
     in_window = (close_mod >= s["start"]) & (close_mod <= s["end"]) & ~((mod >= 16 * 60) & (mod < 18 * 60))
@@ -181,7 +183,8 @@ def simulate(df: pd.DataFrame, sig: Dict, cfg: SimConfig) -> List[Trade]:
             if not np.isnan(trail[i]):
                 t = best - pos * trail[i]
                 stop = max(stop, t) if pos == 1 else min(stop, t)
-            if (pos == 1 and exit_long[i]) or (pos == -1 and exit_short[i]):
+            if (pos == 1 and exit_long[i]) or (pos == -1 and exit_short[i]) or \
+                    (max_bars and i - entry_i + 1 >= max_bars):
                 pending_exit = True
 
         if pos == 0 and i + 1 < n and in_window[i] and day_trades < cfg.max_trades_day \
