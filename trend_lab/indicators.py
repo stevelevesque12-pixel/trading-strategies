@@ -109,7 +109,10 @@ def htf(df: pd.DataFrame, rule: str, fn) -> pd.Series:
     closed, i.e. at the close of the base bar that ends at/after it.
     """
     agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    h = df[list(agg)].resample(rule, label="left", closed="left").agg(agg).dropna()
+    # Align multi-hour bars to the CME 18:00 ET session open, as TradingView does for futures
+    # (4h bars at 18/22/02/06/10/14 ET, not midnight-aligned).
+    offset = pd.Timedelta(hours=18) % pd.Timedelta(rule)
+    h = df[list(agg)].resample(rule, label="left", closed="left", offset=offset).agg(agg).dropna()
     vals = fn(h)
     close_time = h.index + pd.Timedelta(rule)
     base_tf = df.index.to_series().diff().median()

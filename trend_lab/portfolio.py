@@ -37,14 +37,18 @@ def member_trades(fam, windows, risk, df):
     return out
 
 
-def merge(trade_lists, daily_loss_stop):
+def merge(trade_lists, daily_loss_stop, exclusive=False):
+    """exclusive=True: one position at a time (first signal wins), as a single Pine strategy trades."""
     allt = sorted((t for ts in trade_lists for t in ts), key=lambda t: t.entry_time)
-    kept, day, day_pnl = [], None, 0.0
+    kept, day, day_pnl, busy_until = [], None, 0.0, None
     for t in allt:
         if t.trade_day != day:
             day, day_pnl = t.trade_day, 0.0
         if -day_pnl >= daily_loss_stop:
             continue
+        if exclusive and busy_until is not None and t.entry_time < busy_until:
+            continue
+        busy_until = t.exit_time
         kept.append(t)
         day_pnl += t.pnl
     return sorted(kept, key=lambda t: t.exit_time)
@@ -55,6 +59,7 @@ def main():
     ap.add_argument("--families", required=True)
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--select", default="best")
+    ap.add_argument("--exclusive", action="store_true", help="one position at a time across members")
     args = ap.parse_args()
     names = args.families.split(",")
     df = load_bars("15min")
@@ -69,7 +74,7 @@ def main():
     sweep = []
     for risk in RISKS:
         members = {n: member_trades(ALL_FAMILIES[n], wins[n], risk, df) for n in names}
-        merged = merge(members.values(), daily_loss_stop=2.25 * risk)
+        merged = merge(members.values(), daily_loss_stop=2.25 * risk, exclusive=args.exclusive)
         m = compute(merged, test_days)
         row = {"risk": risk, **{k: m.get(k) for k in ("trades", "win_rate", "profit_factor", "net", "max_dd",
                                                        "eod_dd", "trades_per_week", "lucid_attempts",
@@ -79,7 +84,7 @@ def main():
         sweep.append((row, merged))
         print(f"risk ${risk}: {row}", flush=True)
 
-    tag = "portfolio:" + "+".join(names)
+    tag = "portfolio:" + "+".join(names) + ("|exclusive" if args.exclusive else "")
     best_row, best_trades = max(sweep, key=lambda x: ((x[0]["lucid_pass_pct"] or 0) - 2 * (x[0]["lucid_fail_pct"] or 0)))
     reg = load_registry()
     reg.setdefault("validations", {})[tag] = {

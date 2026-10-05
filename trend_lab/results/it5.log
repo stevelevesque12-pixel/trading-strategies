@@ -1,0 +1,2 @@
+nr_break@15min#it5r                IS pf= 1.03 net=  367.0 | OOS pf= 0.76 wr= 32.0 net=-2098.0 dd=2323.0 n= 100 lucid=0.0 top10med=0.81 (122s)
+impulse_retrace@15min#it5r         IS pf= 1.44 net= 2376.0 | OOS pf= 0.88 wr= 33.3 net= -411.0 dd=1078.0 n=  54 lucid=0.0 top10med=0.74 (81s)
