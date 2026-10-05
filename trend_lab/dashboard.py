@@ -92,7 +92,7 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 <div class="tablewrap"><table id="wf"><thead><tr><th>Family · mode</th><th>Trades</th><th>Win %</th><th>PF</th><th>Net</th><th>Max DD</th><th>Neighbors PF&gt;1</th><th>Best Lucid risk</th><th>Lucid pass</th><th>Lucid fail</th></tr></thead><tbody></tbody></table></div>
 <div class="grid" id="wfcards" style="margin-top:12px"></div>
 <h2>Lucid 50K Monte Carlo <span style="color:var(--muted);font-weight:400;font-size:12px">— MCL Trend Dip (exclusive), block-bootstrapped walk-forward daily P&amp;L, 10,000 paths per risk level</span></h2>
-<div class="tablewrap"><table id="mc"><thead><tr><th>Risk / trade</th><th>Avg day</th><th>Eval pass</th><th>Eval fail</th><th>Still running at 120d</th><th>Pass within 30d</th><th>Median days to pass</th><th>Funded: +$2k before breach</th><th>Funded: breach first</th></tr></thead><tbody></tbody></table></div>
+<div class="tablewrap"><table id="mc"><thead><tr><th>Sizing</th><th>Avg day</th><th>Eval pass</th><th>Eval fail</th><th>Still running at 120d</th><th>Pass within 30d</th><th>Median days to pass</th><th>Funded: +$2k before breach</th><th>Funded: breach first</th></tr></thead><tbody></tbody></table></div>
 <h2>Cross-market robustness <span style="color:var(--muted);font-weight:400;font-size:12px">— frozen MCL Trend Dip settings, no refitting, equal risk per trade (R-terms)</span></h2>
 <div class="tablewrap"><table id="xm"><thead><tr><th>Market</th><th>Data</th><th>Trades</th><th>Win %</th><th>PF (R)</th><th>Avg R</th><th>Verdict</th></tr></thead><tbody></tbody></table></div>
 <h2>Cross-market screener <span style="color:var(--muted);font-weight:400;font-size:12px">— each family optimized on 2016–2022 GC/ES/NQ/SI in R-terms; tested on 2023–2026 of those markets and on all of MCL (never used to select)</span></h2>
@@ -226,8 +226,8 @@ function renderXS(){
     : '<tr><td colspan="12" style="text-align:left;color:var(--text2)">Running…</td></tr>';
 }
 function renderMC(){
-  const rs = MC && MC.rows ? MC.rows : [];
-  $('#mc tbody').innerHTML = rs.length ? rs.map(r=>`<tr><td>$${r.risk}</td><td>${fmt$(r.mean_day)}</td><td>${pct(r.eval_pass_pct)}</td><td>${pct(r.eval_fail_pct)}</td><td>${pct(r.eval_timeout_pct)}</td><td>${pct(r.eval_pass_within_30d_pct)}</td><td>${r.eval_median_days??'–'}</td><td>${pct(r.funded_reach_2k_pct)}</td><td>${pct(r.funded_blow_pct)}</td></tr>`).join('')
+  const rs = MC && MC.rows ? MC.rows.concat((MC.dynamic||[]).map(d=>Object.assign({label:d.rule},d))) : [];
+  $('#mc tbody').innerHTML = rs.length ? rs.map(r=>`<tr><td>${r.label||('Fixed $'+r.risk)}</td><td>${r.mean_day!=null?fmt$(r.mean_day):'varies'}</td><td>${pct(r.eval_pass_pct)}</td><td>${pct(r.eval_fail_pct)}</td><td>${pct(r.eval_timeout_pct)}</td><td>${pct(r.eval_pass_within_30d_pct)}</td><td>${r.eval_median_days??'–'}</td><td>${pct(r.funded_reach_2k_pct)}</td><td>${pct(r.funded_blow_pct)}</td></tr>`).join('')
     : '<tr><td colspan="9" style="text-align:left;color:var(--text2)">Not run yet.</td></tr>';
 }
 kpis(); render(); renderWF(); renderXM(); renderXS(); renderMC();
