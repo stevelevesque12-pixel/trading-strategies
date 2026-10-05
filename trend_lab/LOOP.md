@@ -33,6 +33,6 @@ Loop window: **2026-10-05 15:20 UTC → 2026-10-06 15:20 UTC.**
 The MCL Trend Dip winner (walk-forward PF ~1.5 on MCL) does **not** generalize:
 with frozen settings it is negative on 10-year GC/SI/ES/NQ and on most
 micros (see "Cross-market robustness" on the dashboard). So from here on, new
-families are screened with `python -m trend_lab.xm_screen`: optimize in R-terms on
+families are screened with `python -m trend_lab.xm_screen` (add `--with-mcl` to make MCL's first 60% a 5th training market): optimize in R-terms on
 the 10-year GC/ES/NQ/SI histories (2016-2022), test on 2023-2026 for those
 markets AND on all of MCL. A family only counts if it holds up on both.

@@ -34,6 +34,8 @@ from .strategies import ALL_FAMILIES
 
 TRAIN_MKTS = ("gc", "es", "nq", "si")
 SPLIT = date(2023, 1, 1)
+MCL_SPLIT = date(2026, 4, 17)  # same 60/40 split as trend_lab.optimize on the MCL 15m file
+WITH_MCL = False               # --with-mcl: MCL's first 60% is a 5th training market
 RISK = 1000.0
 
 
@@ -60,16 +62,18 @@ def r_stats(trades):
 
 
 def eval_config(args):
-    name, p = args
+    name, p, with_mcl = args
     fam = ALL_FAMILIES[name]
     out = {"params": p, "train": {}, "test": {}}
-    for sym in TRAIN_MKTS:
+    mkts = TRAIN_MKTS + (("mcl",) if with_mcl else ())
+    for sym in mkts:
         tr = _sim(sym, fam, p)
-        out["train"][sym] = r_stats([t for t in tr if t.trade_day < SPLIT])
-        out["test"][sym] = r_stats([t for t in tr if t.trade_day >= SPLIT])
-    ts = [out["train"][s]["t"] for s in TRAIN_MKTS]
-    neg = any(out["train"][s]["avg_r"] <= 0 for s in TRAIN_MKTS)
-    few = any(out["train"][s]["n"] < 100 for s in TRAIN_MKTS)
+        split = MCL_SPLIT if sym == "mcl" else SPLIT
+        out["train"][sym] = r_stats([t for t in tr if t.trade_day < split])
+        out["test"][sym] = r_stats([t for t in tr if t.trade_day >= split])
+    ts = [out["train"][s]["t"] for s in mkts]
+    neg = any(out["train"][s]["avg_r"] <= 0 for s in mkts)
+    few = any(out["train"][s]["n"] < (40 if s == "mcl" else 100) for s in mkts)
     out["score"] = -99.0 if few else (float(np.median(ts)) - (5.0 if neg else 0.0))
     return out
 
@@ -86,7 +90,7 @@ def mcl_check(name, p):
     return m, trades, days
 
 
-def screen(name, n, procs, seed=0):
+def screen(name, n, procs, seed=0, with_mcl=False):
     fam = ALL_FAMILIES[name]
     rng = random.Random(seed)
     cands, seen = [], set()
@@ -99,14 +103,14 @@ def screen(name, n, procs, seed=0):
             seen.add(k)
             cands.append(p)
     with ProcessPoolExecutor(procs) as ex:
-        res = list(ex.map(eval_config, [(name, p) for p in cands], chunksize=2))
+        res = list(ex.map(eval_config, [(name, p, with_mcl) for p in cands], chunksize=2))
     res.sort(key=lambda r: -r["score"])
     best = res[0]
     top = res[:10]
     test_t = {s: float(np.median([r["test"][s]["t"] for r in top])) for s in TRAIN_MKTS}
     m, trades, days = mcl_check(name, best["params"])
     return {
-        "family": name, "description": fam.description, "configs": len(res), "params": best["params"],
+        "family": name, "with_mcl": with_mcl, "description": fam.description, "configs": len(res), "params": best["params"],
         "train_score": round(best["score"], 2), "train": best["train"], "test": best["test"],
         "top10_test_t_median": {k: round(v, 2) for k, v in test_t.items()},
         "mcl": {k: m.get(k) for k in ("trades", "win_rate", "profit_factor", "net", "max_dd", "r_avg_r", "r_pf_r",
@@ -121,15 +125,18 @@ def main():
     ap.add_argument("--families", required=True)
     ap.add_argument("--n", type=int, default=80)
     ap.add_argument("--procs", type=int, default=3)
+    ap.add_argument("--with-mcl", action="store_true", help="MCL first 60%% joins the training markets")
     args = ap.parse_args()
     names = list(ALL_FAMILIES) if args.families == "all" else args.families.split(",")
     for name in names:
-        r = screen(name, args.n, args.procs)
+        r = screen(name, args.n, args.procs, with_mcl=args.with_mcl)
         reg = load_registry()
-        reg.setdefault("xm_runs", {})[name] = r
+        reg.setdefault("xm_runs", {})[name + ("+mcl" if args.with_mcl else "")] = r
         save_registry(reg)
         te = " ".join(f"{s}:{r['test'][s]['avg_r']:+.3f}/{r['test'][s]['pf_r']}" for s in TRAIN_MKTS)
         mc = r["mcl"]
+        if args.with_mcl:
+            te += f" mclOOS:{r['test']['mcl']['avg_r']:+.3f}/{r['test']['mcl']['pf_r']} n{r['test']['mcl']['n']}"
         print(f"{name:<24} train {r['train_score']:>6} | test avgR/PF {te} | MCL pf {mc['profit_factor']} "
               f"R {mc['r_avg_r']} n {mc['trades']} lucid {mc['lucid_pass_pct']}", flush=True)
 

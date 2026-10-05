@@ -18,3 +18,5 @@ impulse_retrace          train  -4.79 | test avgR/PF gc:-0.107/0.78 es:-0.043/0.
 ribbon_trend             train  -6.06 | test avgR/PF gc:+0.041/1.09 es:-0.164/0.71 nq:-0.232/0.63 si:-0.177/0.65 | MCL pf 1.2 R 0.076 n 111 lucid 14.3
 intraday_mom             train   1.14 | test avgR/PF gc:+0.080/1.2 es:+0.287/1.68 nq:+0.002/1.0 si:+0.180/1.44 | MCL pf 0.1 R -0.506 n 12 lucid 0.0
 trend_dip_stoch          train   -5.2 | test avgR/PF gc:-0.078/0.85 es:-0.108/0.81 nq:-0.065/0.9 si:-0.059/0.88 | MCL pf 0.59 R -0.2 n 41 lucid 0.0
+fib_pullback             train  -5.67 | test avgR/PF gc:+0.019/1.05 es:-0.142/0.75 nq:-0.055/0.9 si:-0.163/0.65 | MCL pf 0.84 R -0.065 n 77 lucid 0.0
+trend_dip_atr_daygate    train  -4.68 | test avgR/PF gc:-0.097/0.79 es:-0.023/0.95 nq:+0.247/1.53 si:-0.313/0.31 | MCL pf 0.71 R -0.103 n 43 lucid 0.0
