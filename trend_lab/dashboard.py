@@ -77,6 +77,7 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 </style></head><body><main>
 <h1>MCL Trend Lab</h1>
 <p class="sub">Trend-following research on Micro WTI Crude (MCL) for a Lucid 50K Flex account. Every strategy is optimized on the first 60% of trading days only; <b>out-of-sample (OOS)</b> numbers come from the untouched last 40%. Costs: $1.24 RT commission + 1 tick slippage per side. Size = $200 risk/trade. Updated <span id="upd"></span>.</p>
+<div id="rec"></div>
 <div class="kpis" id="kpis"></div>
 <div class="note">Read OOS columns, not IS. With thousands of configs tried, in-sample results are inflated by selection. "Top-10 med" = median OOS profit factor of the 10 best in-sample configs: if that is below 1, the winner is probably luck. Lucid % = share of simulated evals (one started every trading day) that hit +$3,000 with the 50% consistency rule before breaching the $2,000 EOD trailing drawdown.</div>
 <h2>Leaderboard</h2>
@@ -103,6 +104,7 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 const DATA = __DATA__;
 const ITER = __ITER__;
 const WF = __WF__;
+const REC = __REC__;
 const XM = __XM__;
 const XS = __XS__;
 const MC = __MC__;
@@ -123,7 +125,7 @@ function kpis(){
   const k = [
     ['Strategies logged', n, `${cfgs.toLocaleString()} configs backtested`],
     ['Candidates', cand, 'OOS PF ≥ 1.25, ≥ 25 trades, robust top-10'],
-    ['Best OOS profit factor', best?f2(best.oos.profit_factor):'–', best?`${best.id} · ${best.oos.trades} trades`:''],
+    ['Best single-split OOS PF (see walk-forward)', best?f2(best.oos.profit_factor):'–', best?`${best.id} · ${best.oos.trades} trades`:''],
     ['Best Lucid pass rate (OOS)', luc?pct(luc.oos.lucid_pass_pct):'–', luc?`${luc.id} · ${luc.oos.lucid_attempts} simulated evals`:'needs ≥ 15 OOS sims (15m data)'],
   ];
   $('#kpis').innerHTML = k.map(([l,v,d])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join('');
@@ -174,7 +176,7 @@ lucid (full, includes in-sample): ${f.lucid_attempts} sims, pass ${pct(f.lucid_p
 }
 function chart(r){
   const svg = document.getElementById('s-'+css(r.id)); if(!svg) return;
-  const pts = [[r.start+'T00:00:00',0]].concat(r.equity); const W=360,H=150,L=44,R=6,T=8,B=20;
+  const pts = [[r.start+'T00:00:00',0]].concat(r.equity); const vb=svg.viewBox.baseVal, W=vb.width||360, H=vb.height||150, L=44,R=6,T=8,B=20;
   const t = pts.map(p=>Date.parse(p[0])), y = pts.map(p=>p[1]);
   const t0=Date.parse(r.start), t1=Date.parse(r.end)+864e5, ts=Date.parse(r.split);
   let lo=Math.min(0,...y), hi=Math.max(0,...y); if(hi-lo<100){hi+=50;lo-=50}
@@ -232,7 +234,20 @@ function renderMC(){
   $('#mc tbody').innerHTML = rs.length ? rs.map(r=>`<tr><td>${r.label||('Fixed $'+r.risk)}</td><td>${r.mean_day!=null?fmt$(r.mean_day):'varies'}</td><td>${pct(r.eval_pass_pct)}</td><td>${pct(r.eval_fail_pct)}</td><td>${pct(r.eval_timeout_pct)}</td><td>${pct(r.eval_pass_within_30d_pct)}</td><td>${r.eval_median_days??'–'}</td><td>${pct(r.funded_reach_2k_pct)}</td><td>${pct(r.funded_blow_pct)}</td></tr>`).join('')
     : '<tr><td colspan="9" style="text-align:left;color:var(--text2)">Not run yet.</td></tr>';
 }
-kpis(); render(); renderWF(); renderXM(); renderXS(); renderMC();
+function renderRec(){
+  if(!REC || !REC.full) return;
+  const u=REC.unseen, f=REC.full, a=REC.engines[0][1], b=REC.engines[1][1];
+  $('#rec').innerHTML = `<div class="card" style="margin-bottom:16px"><h3><span>Recommended: ${REC.name}</span><span class="badge watch">◐ forward-test first</span></h3>
+  <div class="desc">Engine A: ATR dip under a rising 1h EMA${a.htf_len} (EMA${a.fast} − ${a.dip_k}·ATR within ${a.dip_bars} bars), stop under ${a.swing_lb}-bar low, ${a.target_r}R target, breakeven at ${a.be_r}R, ${a.trail_k}·ATR trail, entries 08:00–14:30 ET.
+  Engine B: RSI(${b.rsi_n}) back above ${b.rsi_lo} under the 4h EMA${b.htf_len}, ${b.target_r}R target, exit RSI&gt;${b.exit_rsi}, ${b.trail_k}·ATR trail, entries 09:00–13:30 ET.
+  One position at a time; equity-curve kill switch; cushion sizing 25% ($200–$600). Curve: ${REC.sizing_note}, Pine-parity simulation.</div>
+  <svg id="s-rec" viewBox="0 0 1000 220" role="img" aria-label="Recommended strategy equity curve"></svg>
+  <div class="m"><div>Unseen PF<b>${f2(u.profit_factor)}</b></div><div>Unseen win<b>${pct(u.win_rate)}</b></div><div>Unseen net<b>${fmt$(u.net)}</b></div><div>Unseen DD<b>${fmt$(u.max_dd)}</b></div>
+  <div>Full-yr PF<b>${f2(f.profit_factor)}</b></div><div>Full-yr win<b>${pct(f.win_rate)}</b></div><div>Trades/wk<b>${f2(f.trades_per_week)}</b></div><div>Full-yr DD<b>${fmt$(f.max_dd)}</b></div></div>
+  <div class="desc" style="margin-top:8px">Caveats: ~5 months of unseen data; not profitable on other markets with these settings (see Cross-market); data vendor unconfirmed; Lucid rules from third-party summaries.</div></div>`;
+  chart({id:'rec',start:REC.start,end:REC.end,split:REC.split,equity:REC.equity});
+}
+kpis(); render(); renderWF(); renderXM(); renderXS(); renderMC(); renderRec();
 </script></body></html>"""
 
 
@@ -243,6 +258,7 @@ def build():
         "__ITER__", json.dumps(reg["iterations"], default=str)).replace(
         "__WF__", json.dumps(reg.get("validations", {}), default=str)).replace(
         "__XM__", json.dumps(reg.get("cross_market", {}), default=str)).replace(
+        "__REC__", json.dumps(reg.get("recommended", {}), default=str)).replace(
         "__MC__", json.dumps(reg.get("montecarlo", {}), default=str)).replace(
         "__MCF__", json.dumps(reg.get("montecarlo_full", {}), default=str)).replace(
         "__XS__", json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "mcl_equity"}

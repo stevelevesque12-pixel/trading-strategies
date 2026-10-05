@@ -163,6 +163,30 @@ def run(df, risk_fixed=300.0, cushion=None, ecf_len=None, slip_ticks=1.0, comm_r
     return trades, live
 
 
+def save_recommended():
+    """Store the recommended configuration's Pine-parity results for the dashboard hero section."""
+    import datetime as dt
+    from datetime import datetime, timezone
+    from .metrics import equity_points
+    from .optimize import load_registry, save_registry
+    df = load_bars("15min")
+    days = sorted(set(df["trade_day"]))
+    split = dt.date(2026, 3, 20)
+    _, live = run(df, ecf_len=20)
+    seg = lambda f: compute([t for t in live if f(t.trade_day)], [d for d in days if f(d)])
+    reg = load_registry()
+    mc = {r.get("rule"): r for r in reg.get("montecarlo_full", {}).get("dynamic", [])}
+    reg["recommended"] = {
+        "name": "MCL Trend Dip (15m) — tradingview/mcl_trend_dip.pine",
+        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "engines": [ENGINE_A, ENGINE_B], "split": str(split), "start": str(days[0]), "end": str(days[-1]),
+        "full": seg(lambda d: True), "fit": seg(lambda d: d < split), "unseen": seg(lambda d: d >= split),
+        "equity": equity_points(live), "sizing_note": "fixed $300 risk with the kill switch on",
+        "montecarlo_full": reg.get("montecarlo_full", {}),
+    }
+    save_registry(reg)
+
+
 def main():
     import datetime as dt
     df = load_bars("15min")
@@ -180,3 +204,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    save_recommended()
