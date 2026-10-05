@@ -9,3 +9,4 @@ sample_data/real_*.csv
 research/loop.log
 research/results.jsonl
 research/dashboard.html
+research/validation/
