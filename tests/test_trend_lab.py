@@ -1,0 +1,61 @@
+import numpy as np
+import pandas as pd
+
+from trend_lab import indicators as ind
+from trend_lab.metrics import lucid_eval
+from trend_lab.sim import SimConfig, simulate
+
+
+def _bars(closes, start="2026-08-03 09:00", freq="5min"):
+    idx = pd.date_range(start, periods=len(closes), freq=freq, tz="America/New_York")
+    c = np.asarray(closes, dtype=float)
+    df = pd.DataFrame({"open": c, "high": c + 0.02, "low": c - 0.02, "close": c, "volume": 100.0}, index=idx)
+    df["trade_day"] = (df.index + pd.Timedelta(hours=7)).date
+    return df
+
+
+def test_entry_fills_next_open_and_stop_hits():
+    closes = [70.0] * 5 + [70.0, 70.10, 70.20, 69.50, 69.40]
+    df = _bars(closes)
+    long = np.zeros(len(df), bool)
+    long[5] = True
+    sig = {"long": long, "short": np.zeros(len(df), bool), "stop_dist": np.full(len(df), 0.30)}
+    cfg = SimConfig(session="all", eia_filter=False, slippage_ticks=1)
+    trades = simulate(df, sig, cfg)
+    assert len(trades) == 1
+    t = trades[0]
+    assert t.entry == 70.10 + 0.01            # next bar's open + 1 tick
+    assert t.reason == "stop"
+    assert abs(t.stop0 - (70.11 - 0.30)) < 1e-9
+    assert t.pnl < 0
+    assert t.contracts == int(200 // (0.30 * 100 + 1.24 + 2))
+
+
+def test_flatten_at_session_cutoff():
+    df = _bars([70.0 + 0.01 * i for i in range(60)], start="2026-08-03 12:00")
+    long = np.zeros(len(df), bool)
+    long[2] = True
+    sig = {"long": long, "short": np.zeros(len(df), bool), "stop_dist": np.full(len(df), 0.5)}
+    trades = simulate(df, sig, SimConfig(session="ny", eia_filter=False))
+    assert trades[0].reason == "flatten"
+    assert trades[0].exit_time.hour * 60 + trades[0].exit_time.minute == 14 * 60 + 30
+
+
+def test_htf_mapping_has_no_lookahead():
+    df = _bars(list(range(1, 49)), start="2026-08-03 09:00")
+    s = ind.htf(df, "60min", lambda h: h["close"])
+    # the 09:00-10:00 hourly bar closes at 10:00 -> first visible on the 09:55 base bar (closes 10:00)
+    assert np.isnan(s.iloc[10])
+    assert s.iloc[11] == df["close"].iloc[11]
+    assert s.iloc[12] == df["close"].iloc[11]
+
+
+def test_lucid_eval_pass_and_fail():
+    good = pd.Series([400.0] * 80)
+    r = lucid_eval(good)
+    assert r["lucid_pass_pct"] == 100.0 and r["lucid_median_days"] == 8
+    bad = pd.Series([-300.0] * 80)
+    assert lucid_eval(bad)["lucid_fail_pct"] == 100.0
+    # one huge day breaks the 50% consistency rule until more profit accrues
+    lumpy = pd.Series([3000.0] + [100.0] * 79)
+    assert lucid_eval(lumpy)["lucid_median_days"] > 1
