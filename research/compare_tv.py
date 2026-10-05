@@ -25,8 +25,13 @@ OUT = Path(__file__).resolve().parent / "compare"
 
 
 def python_trades(start, end):
-    m = load("mes_15m").slice(start=start, end=end)
+    # run on the whole file so indicators are warmed up like TradingView's, then keep the
+    # trades entered inside [start, end)
+    m = load("mes_15m")
     tr = backtest(m, LIVE, LucidRules())
+    t_in = m.index[tr[:, engine.T_ENTRY_I].astype(int)]
+    keep = (t_in >= pd.Timestamp(start, tz=m.index.tz)) & (t_in < pd.Timestamp(end, tz=m.index.tz))
+    tr = tr[np.asarray(keep)]
     df = pd.DataFrame({
         "entry_time": m.index[tr[:, engine.T_ENTRY_I].astype(int)],
         "exit_time": m.index[tr[:, engine.T_EXIT_I].astype(int)] + pd.Timedelta(minutes=m.tf_min),
