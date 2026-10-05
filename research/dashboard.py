@@ -192,8 +192,8 @@ R.forEach(r => r._score = score(r));
     ["Strategies logged", R.length.toLocaleString(), `${f15.length} on 10-year 15m`],
     ["Configurations backtested", tried.toLocaleString(), "in-sample optimisation"],
     ["Robust (IS + OOS)", rob.length.toLocaleString(), R.length ? pct(rob.length / R.length) + " of logged" : ""],
-    ["Best OOS profit factor", best ? f2(best.oos?.profit_factor) : "–", best ? best.name : ""],
-    ["Best OOS Lucid pass", best ? pct(best.oos?.pass) : "–", best ? `bust ${pct(best.oos?.bust)}` : ""],
+    ["Top-ranked: OOS profit factor", best ? f2(best.oos?.profit_factor) : "–", best ? best.name : ""],
+    ["Top-ranked: OOS Lucid pass", best ? pct(best.oos?.pass) : "–", best ? `bust ${pct(best.oos?.bust)}` : ""],
   ];
   $("#tiles").innerHTML = tiles.map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
 })();
