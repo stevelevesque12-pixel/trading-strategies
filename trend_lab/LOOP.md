@@ -85,3 +85,11 @@ profitable, PF 1.04-1.72. Oct-Mar: only the fitted EMA definition is clearly pos
 0.85-1.18. => dip-buying in trend worked broadly in spring-summer 2026 crude; Oct-Mar result is partly fit.
 Regime-dependent edge -> the kill switch matters more than the exact trend indicator. Base EMA100 filter
 helps in 7/8 comparisons.
+
+## Iteration 17: regime diagnostics (descriptive, nothing fitted)
+
+Full-year trades by prior 20-day avg daily range (terciles): low vol PF 1.96, mid 1.60, high 1.17.
+By prior 20-day daily return: against it PF 1.99 (76 trades), with it PF 1.31 (115).
+=> edge is a short-horizon (1h/4h) dip-in-trend effect that degrades in high volatility; consistent
+with the 1.5-pt max-stop filter carrying part of the edge. Not adding a vol threshold (would be fit on
+the same data); a daily-trend filter would hurt.
