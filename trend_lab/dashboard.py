@@ -93,6 +93,8 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 <div class="grid" id="wfcards" style="margin-top:12px"></div>
 <h2>Cross-market robustness <span style="color:var(--muted);font-weight:400;font-size:12px">— frozen MCL Trend Dip settings, no refitting, equal risk per trade (R-terms)</span></h2>
 <div class="tablewrap"><table id="xm"><thead><tr><th>Market</th><th>Data</th><th>Trades</th><th>Win %</th><th>PF (R)</th><th>Avg R</th><th>Verdict</th></tr></thead><tbody></tbody></table></div>
+<h2>Cross-market screener <span style="color:var(--muted);font-weight:400;font-size:12px">— each family optimized on 2016–2022 GC/ES/NQ/SI in R-terms; tested on 2023–2026 of those markets and on all of MCL (never used to select)</span></h2>
+<div class="tablewrap"><table id="xs"><thead><tr><th>Family</th><th>Train score</th><th>GC test PF</th><th>ES test PF</th><th>NQ test PF</th><th>SI test PF</th><th>Markets &gt;1</th><th>MCL PF ($300)</th><th>MCL win %</th><th>MCL trades</th><th>MCL Lucid pass</th></tr></thead><tbody></tbody></table></div>
 <h2>Iteration log</h2><ul class="log" id="log"></ul>
 </main><div class="tip" id="tip"></div>
 <script>
@@ -100,6 +102,7 @@ const DATA = __DATA__;
 const ITER = __ITER__;
 const WF = __WF__;
 const XM = __XM__;
+const XS = __XS__;
 const $ = s => document.querySelector(s);
 const fmt$ = v => v==null?'–':(v<0?'−$':'$')+Math.abs(Math.round(v)).toLocaleString();
 const f2 = v => v==null?'–':(+v).toFixed(2);
@@ -213,7 +216,13 @@ function renderXM(){
     return `<tr><td>${s.toUpperCase()}</td><td>${v.start} → ${v.end}</td><td>${m.trades}</td><td>${pct(m.win_rate)}</td><td>${f2(m.profit_factor)}</td><td>${f2(m.avg_r)}</td><td><span class="badge ${ok}">${ICON[ok]} ${ok==='candidate'?'edge':ok==='watch'?'flat':'no edge'}</span></td></tr>`}).join('')
     : '<tr><td colspan="7" style="text-align:left;color:var(--text2)">Not run yet.</td></tr>';
 }
-kpis(); render(); renderWF(); renderXM();
+function renderXS(){
+  const rs = Object.values(XS).sort((a,b)=>b.train_score-a.train_score);
+  $('#xs tbody').innerHTML = rs.length ? rs.map(r=>{const t=r.test, mk=['gc','es','nq','si'], up=mk.filter(m=>t[m].pf_r>1).length, mc=r.mcl;
+    return `<tr><td>${r.family}</td><td>${f2(r.train_score)}</td>${mk.map(m=>`<td>${f2(t[m].pf_r)}</td>`).join('')}<td>${up}/4</td><td>${f2(mc.profit_factor)}</td><td>${pct(mc.win_rate)}</td><td>${mc.trades}</td><td>${pct(mc.lucid_pass_pct)}</td></tr>`}).join('')
+    : '<tr><td colspan="11" style="text-align:left;color:var(--text2)">Running…</td></tr>';
+}
+kpis(); render(); renderWF(); renderXM(); renderXS();
 </script></body></html>"""
 
 
@@ -223,7 +232,9 @@ def build():
     html = TEMPLATE.replace("__DATA__", json.dumps(data, default=str)).replace(
         "__ITER__", json.dumps(reg["iterations"], default=str)).replace(
         "__WF__", json.dumps(reg.get("validations", {}), default=str)).replace(
-        "__XM__", json.dumps(reg.get("cross_market", {}), default=str))
+        "__XM__", json.dumps(reg.get("cross_market", {}), default=str)).replace(
+        "__XS__", json.dumps({k: {kk: vv for kk, vv in v.items() if kk != "mcl_equity"}
+                              for k, v in reg.get("xm_runs", {}).items()}, default=str))
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(html)
     return OUT
