@@ -53,6 +53,8 @@ class SimConfig:
     session: str = "us"
     eia_filter: bool = True           # no entries Wed 10:15-10:45 ET (EIA crude inventories)
     max_stop_dist: float = 1.50       # skip signals with absurd stops (points)
+    point_value: float = POINT_VALUE  # override for cross-market robustness tests
+    tick: float = TICK
 
 
 @dataclass
@@ -109,6 +111,7 @@ def simulate(df: pd.DataFrame, sig: Dict, cfg: SimConfig) -> List[Trade]:
         in_window &= ~((wday == 2) & (close_mod >= 10 * 60 + 15) & (close_mod <= 10 * 60 + 45))
     past_flatten = (mod >= s["flatten"]) & (mod < 18 * 60)
 
+    POINT_VALUE, TICK = cfg.point_value, cfg.tick
     slip = cfg.slippage_ticks * TICK
     cost_pc = cfg.commission_rt + 2 * slip * POINT_VALUE  # dollars per contract per round trip
 

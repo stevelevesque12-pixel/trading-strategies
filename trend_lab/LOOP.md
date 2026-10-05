@@ -27,3 +27,12 @@ Loop window: **2026-10-05 15:20 UTC → 2026-10-06 15:20 UTC.**
 - Late in the loop: re-validate the best candidates with a walk-forward
   (rolling re-optimization) and parameter-neighborhood checks before calling one "the" strategy,
   then port the winner to Pine (`tradingview/`) with TradersPost alerts.
+
+## Finding at iteration 6 (2026-10-05 ~16:00 UTC) — method change
+
+The MCL Trend Dip winner (walk-forward PF ~1.5 on MCL) does **not** generalize:
+with frozen settings it is negative on 10-year GC/SI/ES/NQ and on most
+micros (see "Cross-market robustness" on the dashboard). So from here on, new
+families are screened with `python -m trend_lab.xm_screen`: optimize in R-terms on
+the 10-year GC/ES/NQ/SI histories (2016-2022), test on 2023-2026 for those
+markets AND on all of MCL. A family only counts if it holds up on both.

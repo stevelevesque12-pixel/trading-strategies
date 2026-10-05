@@ -64,7 +64,7 @@ tr.sel td{background:var(--oos)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
 @media (max-width:420px){.grid{grid-template-columns:1fr}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
-.card h3{font-size:14px;margin:0;display:flex;justify-content:space-between;gap:8px}
+.card h3{font-size:14px;margin:0;display:flex;justify-content:space-between;gap:8px;overflow-wrap:anywhere;min-width:0}
 .card .desc{color:var(--text2);font-size:12px;margin:4px 0 8px}
 .m{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
 .m div{font-size:11px;color:var(--text2)}.m b{display:block;font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
@@ -91,12 +91,15 @@ pre{font-size:11px;white-space:pre-wrap;color:var(--text2);margin:6px 0 0}
 <h2>Walk-forward validation <span style="color:var(--muted);font-weight:400;font-size:12px">— re-optimized every 20 trading days, trades only the following unseen window. The strictest test here.</span></h2>
 <div class="tablewrap"><table id="wf"><thead><tr><th>Family · mode</th><th>Trades</th><th>Win %</th><th>PF</th><th>Net</th><th>Max DD</th><th>Neighbors PF&gt;1</th><th>Best Lucid risk</th><th>Lucid pass</th><th>Lucid fail</th></tr></thead><tbody></tbody></table></div>
 <div class="grid" id="wfcards" style="margin-top:12px"></div>
+<h2>Cross-market robustness <span style="color:var(--muted);font-weight:400;font-size:12px">— frozen MCL Trend Dip settings, no refitting, equal risk per trade (R-terms)</span></h2>
+<div class="tablewrap"><table id="xm"><thead><tr><th>Market</th><th>Data</th><th>Trades</th><th>Win %</th><th>PF (R)</th><th>Avg R</th><th>Verdict</th></tr></thead><tbody></tbody></table></div>
 <h2>Iteration log</h2><ul class="log" id="log"></ul>
 </main><div class="tip" id="tip"></div>
 <script>
 const DATA = __DATA__;
 const ITER = __ITER__;
 const WF = __WF__;
+const XM = __XM__;
 const $ = s => document.querySelector(s);
 const fmt$ = v => v==null?'–':(v<0?'−$':'$')+Math.abs(Math.round(v)).toLocaleString();
 const f2 = v => v==null?'–':(+v).toFixed(2);
@@ -204,7 +207,13 @@ function renderWF(){
     return `<div class="card"><h3><span>${v.tag||v.family}</span></h3><div class="desc">Walk-forward stitched test windows only (all out-of-sample). $200 risk/trade.</div><svg id="s-${css(r.id)}" viewBox="0 0 360 150" role="img" aria-label="Walk-forward equity"></svg></div>`}).join('');
   vs.forEach(v=>chart({id:'wf-'+(v.tag||v.family),start:v.start,end:v.end,split:v.start,equity:v.equity}));
 }
-kpis(); render(); renderWF();
+function renderXM(){
+  const rs = XM && XM.results ? Object.entries(XM.results) : [];
+  $('#xm tbody').innerHTML = rs.length ? rs.map(([s,v])=>{const m=v.metrics, ok=m.profit_factor>=1.1?'candidate':m.profit_factor>=1?'watch':'reject';
+    return `<tr><td>${s.toUpperCase()}</td><td>${v.start} → ${v.end}</td><td>${m.trades}</td><td>${pct(m.win_rate)}</td><td>${f2(m.profit_factor)}</td><td>${f2(m.avg_r)}</td><td><span class="badge ${ok}">${ICON[ok]} ${ok==='candidate'?'edge':ok==='watch'?'flat':'no edge'}</span></td></tr>`}).join('')
+    : '<tr><td colspan="7" style="text-align:left;color:var(--text2)">Not run yet.</td></tr>';
+}
+kpis(); render(); renderWF(); renderXM();
 </script></body></html>"""
 
 
@@ -213,7 +222,8 @@ def build():
     data = [slim(r) for r in reg["runs"]]
     html = TEMPLATE.replace("__DATA__", json.dumps(data, default=str)).replace(
         "__ITER__", json.dumps(reg["iterations"], default=str)).replace(
-        "__WF__", json.dumps(reg.get("validations", {}), default=str))
+        "__WF__", json.dumps(reg.get("validations", {}), default=str)).replace(
+        "__XM__", json.dumps(reg.get("cross_market", {}), default=str))
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(html)
     return OUT

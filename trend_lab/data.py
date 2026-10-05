@@ -17,8 +17,17 @@ NATIVE_FILES = {
 }
 
 
+def native_file(symbol: str, tf: str) -> str:
+    """Native parquet for any symbol in sample_data/real_multi_instrument (e.g. ('mgc', '15min'))."""
+    tag = {"1min": "1m", "5min": "5m", "15min": "15m"}[tf]
+    hits = sorted(DATA_DIR.glob(f"real_{symbol.lower()}_{tag}_*.parquet"))
+    if not hits:
+        raise FileNotFoundError(f"no {tf} data for {symbol}")
+    return hits[0].name
+
+
 @lru_cache(maxsize=None)
-def load_bars(tf: str, source_tf: str = None) -> pd.DataFrame:
+def load_bars(tf: str, source_tf: str = None, symbol: str = "mcl") -> pd.DataFrame:
     """
     Bars at `tf`, built from the native file `source_tf` (default: the native
     file for `tf`). E.g. load_bars("3min", "1min") or load_bars("10min", "5min").
@@ -28,7 +37,8 @@ def load_bars(tf: str, source_tf: str = None) -> pd.DataFrame:
     Lucid's end-of-day drawdown is evaluated on (17:00 ET close).
     """
     source_tf = source_tf or tf
-    df = load_1m_csv(str(DATA_DIR / NATIVE_FILES[source_tf]))
+    fname = NATIVE_FILES[source_tf] if symbol == "mcl" else native_file(symbol, source_tf)
+    df = load_1m_csv(str(DATA_DIR / fname))
     if tf != source_tf:
         df = resample_ohlc(df, tf)
     df = df.copy()
