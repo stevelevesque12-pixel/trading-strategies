@@ -40,7 +40,17 @@ def build():
                 recs.append(_slim(json.loads(line)))
             except (json.JSONDecodeError, KeyError):
                 continue
-    payload = json.dumps({"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "records": recs}, separators=(",", ":"))
+    val = {}
+    for f in sorted((HERE / "validation").glob("*.json")):
+        try:
+            v = json.loads(f.read_text())
+            val[v["id"]] = {k: v[k] for k in ("yearly_net", "losing_years", "cost_stress_oos",
+                                              "neighbours_profitable_share", "mc_lucid_oos")} | {
+                "n_neigh": len(v.get("neighbours_oos", []))}
+        except (json.JSONDecodeError, KeyError):
+            continue
+    payload = json.dumps({"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "records": recs, "validation": val},
+                         separators=(",", ":"))
     OUT.write_text(TEMPLATE.replace("/*__DATA__*/null", payload))
     return OUT
 
@@ -160,6 +170,7 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
 <script>
 const DATA = /*__DATA__*/null;
 const R = DATA.records;
+const VAL = DATA.validation || {};
 const VMAX = Math.max(1, ...R.map(r => r.v || 1));
 const $ = s => document.querySelector(s);
 const fmt$ = v => v == null ? "–" : (v < 0 ? "−$" : "$") + Math.abs(Math.round(v)).toLocaleString();
@@ -189,7 +200,7 @@ R.forEach(r => r._score = score(r));
 const COLS = [
   ["Strategy", r => r.name, r => `${r.name} <span class="note">${r.tf}m · v${r.v}</span>`, "l"],
   ["Equity (full)", null, r => spark(r.eq), "l"],
-  ["Robust", r => r.robust ? 1 : 0, r => r.robust ? '<span class="badge ok">✓ robust</span>' : '<span class="badge">– no</span>', "l"],
+  ["Robust", r => (r.robust ? 1 : 0) + (VAL[r.id] ? 2 : 0), r => (r.robust ? '<span class="badge ok">✓ robust</span>' : '<span class="badge">– no</span>') + (VAL[r.id] ? ' <span class="badge ok">✓ validated</span>' : ""), "l"],
   ["IS PF", r => r.is?.profit_factor, r => f2(r.is?.profit_factor)],
   ["OOS PF", r => r.oos?.profit_factor, r => f2(r.oos?.profit_factor)],
   ["OOS win %", r => r.oos?.win_rate, r => pct(r.oos?.win_rate)],
@@ -273,9 +284,29 @@ function select(id, scroll = true) {
         <tr><td>Size buckets (full)</td><td>full-size trades ${pct(r.full?.pct_full_size)} · P&L full ${fmt$(r.full?.pnl_full_size)} · reduced ${fmt$(r.full?.pnl_small_size)}</td></tr>
         <tr><td>Exits (full)</td><td>${r.full?.exit_mix ? Object.entries(r.full.exit_mix).map(([k, v]) => `${k} ${v}`).join(" · ") : "–"}</td></tr>
       </table>
-    </div>`;
+    </div>
+    ${valBlock(r)}`;
   drawEquity(r);
   if (scroll) d.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function valBlock(r) {
+  const v = VAL[r.id]; if (!v) return "";
+  const ys = Object.entries(v.yearly_net), mx = Math.max(1, ...ys.map(([, x]) => Math.abs(x)));
+  const W = 560, H = 120, bw = W / ys.length, z = H / 2;
+  const bars = ys.map(([y, x], i) => { const hgt = Math.abs(x) / mx * (H / 2 - 14), yy = x >= 0 ? z - hgt : z;
+    return `<g><title>${y}: ${fmt$(x)}</title><rect x="${i * bw + 3}" y="${yy}" width="${bw - 6}" height="${Math.max(1, hgt)}" rx="2" fill="${x >= 0 ? "var(--good)" : "var(--bad)"}"/>
+      <text x="${i * bw + bw / 2}" y="${H - 1}" text-anchor="middle" font-size="10" fill="var(--muted)">${y.slice(2)}</text></g>`; }).join("");
+  const st = v.cost_stress_oos, mc = v.mc_lucid_oos || {};
+  return `<h2 style="margin-top:18px">Validation</h2>
+    <div class="cols"><div>
+      <div class="note">Net P&L by year (full period; ${r.split.slice(0, 4)} onward is out-of-sample). ${v.losing_years} losing year(s).</div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Yearly net P&L"><line x1="0" x2="${W}" y1="${z}" y2="${z}" stroke="var(--grid)"/>${bars}</svg>
+    </div>
+    <table class="kv">
+      <tr><td>Monte Carlo Lucid (OOS blocks)</td><td>pass ${pct(mc.pass)} · bust ${pct(mc.bust)} · open ${pct(mc.timeout)}</td></tr>
+      <tr><td>Parameter neighbours</td><td>${pct(v.neighbours_profitable_share)} of ${v.n_neigh} one-step variants stay PF &gt; 1 OOS</td></tr>
+      <tr><td>Cost stress (OOS PF)</td><td>base ${f2(st.base.pf)} · fees ×1.5 ${f2(st["fees_x1.5"].pf)} · 2-tick slip ${f2(st.slip_2ticks.pf)} · both ${f2(st.both.pf)}</td></tr>
+    </table></div>`;
 }
 function drawEquity(r) {
   const svg = $("#eqsvg"), tip = $("#tip"), eq = r.eq;

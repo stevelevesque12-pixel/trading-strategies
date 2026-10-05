@@ -12,7 +12,7 @@ import random
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from research import dashboard
+from research import dashboard, validate
 from research.search import all_families, append, done_families, optimise_family
 
 
@@ -61,6 +61,11 @@ def main():
                     continue
                 append(rec)
                 jobs_done += 1
+                if rec["robust"] and rec["track"] == "15m_full":
+                    try:
+                        validate.save(rec)  # auto stress-test every robust 10-year result
+                    except Exception as e:
+                        print("validate failed", rec["id"], repr(e), flush=True)
                 print(f"[{time.strftime('%H:%M:%S')}] {rec['track']:<10} {rec['name']:<45} "
                       f"IS PF {rec['is']['profit_factor']:.2f} OOS PF {rec['oos']['profit_factor']:.2f} "
                       f"OOS pass {rec['oos']['lucid']['pass_rate']:.0%} robust={rec['robust']}", flush=True)
