@@ -14,7 +14,8 @@ from research.validate import mc_lucid, neighbours
 from trend.data import load
 from trend.strategy import FEE_RT, LucidRules, Spec, backtest, daily_series, lucid_sim, metrics
 
-FAMILY = "orb+daily_ema+fast_ema|er"
+import sys
+FAMILY = sys.argv[1] if len(sys.argv) > 1 else "orb+daily_ema+fast_ema|er"
 PV = {"es_15m": 5.0, "nq_15m": 2.0, "mes_15m": 5.0}
 
 
