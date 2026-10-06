@@ -309,3 +309,68 @@ def conf_overnight(m):
 
 
 CONFIRM["session_move"] = (lambda m, atr_buf: TREND["rth_open"][0](m, atr_buf), {"atr_buf": [0.0, 0.5]})
+
+
+# ------------------------------------------------------------------ batch 5: prior-day levels / opening-range width
+def _pdhl_py(h, l, c, day, om, rth_start, rth_end):
+    """+1 after a close above the prior session's RTH high, -1 below its RTH low (latest break wins)."""
+    out = np.zeros(len(c), np.int8)
+    cur = -1
+    ph, pl = np.nan, np.nan  # prior RTH high/low
+    th, tl = -np.inf, np.inf  # today's running RTH high/low
+    d = 0
+    for i in range(len(c)):
+        if day[i] != cur:
+            if cur != -1 and th > -np.inf:
+                ph, pl = th, tl
+            cur, th, tl, d = day[i], -np.inf, np.inf, 0
+        if rth_start <= om[i] < rth_end:
+            if ph == ph:
+                if c[i] > ph:
+                    d = 1
+                elif c[i] < pl:
+                    d = -1
+                out[i] = d
+            th, tl = max(th, h[i]), min(tl, l[i])
+    return out
+
+
+_pdhl = njit(cache=True)(_pdhl_py)
+
+
+@_reg(TREND, "pdhl", {})
+def trend_pdhl(m):
+    return _pdhl(m.h, m.l, m.c, m.day_id, _bar_open_minute(m), 9 * 60 + 30, 16 * 60)
+
+
+def _or_width_py(h, l, day, om, start, minutes):
+    out = np.full(len(h), np.nan)
+    cur, hi, lo = -1, -np.inf, np.inf
+    for i in range(len(h)):
+        if day[i] != cur:
+            cur, hi, lo = day[i], -np.inf, np.inf
+        if start <= om[i] < start + minutes:
+            hi, lo = max(hi, h[i]), min(lo, l[i])
+        elif om[i] >= start + minutes and om[i] < 17 * 60 and hi > -np.inf:
+            out[i] = hi - lo
+    return out
+
+
+_or_width = njit(cache=True)(_or_width_py)
+
+
+@_reg(REGIME, "or_width", {"minutes": [30, 60], "lo": [0.3, 0.4], "hi": [0.6, 0.8]})
+def reg_or_width(m, minutes, lo, hi):
+    """Opening-range width vs the prior 20-session average daily range: a narrow opening range leaves room
+    to trend. width/avg <= hi -> trending (1), <= lo -> strong (2), wider -> 0 (range already spent)."""
+    w = _or_width(m.h, m.l, m.day_id, _bar_open_minute(m), 9 * 60 + 30, minutes)
+    first = np.r_[True, m.day_id[1:] != m.day_id[:-1]]
+    starts = np.flatnonzero(first)
+    ends = np.r_[starts[1:], len(m.c)]
+    rng = np.array([m.h[a:b].max() - m.l[a:b].min() for a, b in zip(starts, ends)])
+    avg = ind.sma(rng, 20)
+    sess = np.cumsum(first) - 1
+    prev_avg = np.full(len(m.c), np.nan)
+    ok = sess >= 1
+    prev_avg[ok] = avg[sess[ok] - 1]
+    return _bucket(w / prev_avg, lo, hi, higher_is_trend=False)
