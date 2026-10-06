@@ -1,0 +1,141 @@
+{
+ "id": "15m_full:rth_open+overnight+vwap|adx:79893827",
+ "name": "rth_open+overnight+vwap|adx",
+ "spec": {
+  "trend": "rth_open",
+  "trend_p": {
+   "atr_buf": 1.0
+  },
+  "conf1": "overnight",
+  "conf1_p": {},
+  "conf2": "vwap",
+  "conf2_p": {},
+  "regime": "adx",
+  "regime_p": {
+   "n": 14,
+   "lo": 22,
+   "hi": 28
+  },
+  "atr_n": 10,
+  "sl_k": 1.0,
+  "tp_k": 8.0,
+  "trigger": "pullback",
+  "pb_n": 50,
+  "exit_on_flip": true,
+  "window": "all_rth",
+  "risk_usd": 650,
+  "small_mult": 0.33,
+  "daily_loss_limit": 900,
+  "daily_profit_cap": 900,
+  "trail_k": 2.0,
+  "cushion_sizing": true
+ },
+ "yearly_net": {
+  "2016": 1685.0,
+  "2017": -2538.75,
+  "2018": 2576.25,
+  "2019": 708.75,
+  "2020": 5365.41,
+  "2021": -2320.0,
+  "2022": 705.0,
+  "2023": -213.75,
+  "2024": 2472.5,
+  "2025": -616.25,
+  "2026": 5070.14
+ },
+ "losing_years": 4,
+ "cost_stress_oos": {
+  "base": {
+   "pf": 1.3324941175501837,
+   "net": 6712.640615691271,
+   "pass": 0.0055248618784530384,
+   "bust": 0.0
+  },
+  "fees_x1.5": {
+   "pf": 1.2489468747344077,
+   "net": 5063.890615691271,
+   "pass": 0.0055248618784530384,
+   "bust": 0.0
+  },
+  "slip_2ticks": {
+   "pf": 1.1682083663417981,
+   "net": 3472.2412022105673,
+   "pass": 0.0055248618784530384,
+   "bust": 0.0
+  },
+  "both": {
+   "pf": 1.1088853999981072,
+   "net": 2268.4912022105673,
+   "pass": 0.0,
+   "bust": 0.0
+  }
+ },
+ "neighbours_oos": [
+  {
+   "change": "trend.atr_buf=0.5",
+   "pf": 1.3199467862183556,
+   "net": 9676.390615691384,
+   "trades": 169
+  },
+  {
+   "change": "regime.n=20",
+   "pf": 1.2449980124552802,
+   "net": 2311.25,
+   "trades": 68
+  },
+  {
+   "change": "regime.lo=20",
+   "pf": 1.366027254706863,
+   "net": 8267.64061569127,
+   "trades": 138
+  },
+  {
+   "change": "regime.lo=25",
+   "pf": 1.3490815406383838,
+   "net": 5600.140615691271,
+   "trades": 67
+  },
+  {
+   "change": "regime.hi=30",
+   "pf": 1.2052618854923747,
+   "net": 3656.997067403522,
+   "trades": 107
+  },
+  {
+   "change": "atr_n=14",
+   "pf": 1.272195240354898,
+   "net": 5587.147552334727,
+   "trades": 110
+  },
+  {
+   "change": "sl_k=1.5",
+   "pf": 1.1408900879701172,
+   "net": 2179.3935482877487,
+   "trades": 103
+  },
+  {
+   "change": "tp_k=6.0",
+   "pf": 1.341158368642443,
+   "net": 6887.561014930125,
+   "trades": 107
+  },
+  {
+   "change": "trail_k=1.5",
+   "pf": 1.2508627131448018,
+   "net": 4402.640615691271,
+   "trades": 110
+  },
+  {
+   "change": "trail_k=3.0",
+   "pf": 1.2939295735663263,
+   "net": 6675.140615691271,
+   "trades": 104
+  }
+ ],
+ "neighbours_profitable_share": 1.0,
+ "mc_lucid_oos": {
+  "pass": 0.1465,
+  "bust": 0.057,
+  "timeout": 0.7965
+ }
+}
