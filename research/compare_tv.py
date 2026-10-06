@@ -82,7 +82,7 @@ def main():
     ap.add_argument("--tv")
     ap.add_argument("--start", default="2025-10-05")
     ap.add_argument("--end", default="2026-08-25")
-    ap.add_argument("--strategy", default="live", choices=["live", "orb"])
+    ap.add_argument("--strategy", default="live", choices=["live", "orb", "orb_vwap"])
     a = ap.parse_args()
     OUT.mkdir(exist_ok=True)
     py = python_trades(a.start, a.end, a.strategy)

@@ -31,7 +31,17 @@ ORB = Spec(
     risk_usd=500, small_mult=0.66, daily_loss_limit=300, daily_profit_cap=900, cushion_sizing=True,
 )
 
-CANDIDATES = {"live": (LIVE, "es_15m", "★ LIVE "), "orb": (ORB, "es_15m", "★ ORB "), "orb_mnq": (ORB, "nq_15m", "★ ORB (MNQ) ")}
+# VWAP / choppiness sibling: consensus of 19 joint runs (tradingview/orb_vwap_mes.pine)
+ORB_VWAP = Spec(
+    trend="orb", trend_p={"minutes": 60},
+    conf1="daily_ema", conf1_p={"n": 20},
+    conf2="vwap", conf2_p={},
+    regime="chop", regime_p={"n": 30, "lo": 42, "hi": 50},
+    atr_n=14, sl_k=2.5, tp_k=8.0, trail_k=0.0, trigger="fresh", exit_on_flip=True, window="ny_am",
+    risk_usd=400, small_mult=0.33, daily_loss_limit=300, daily_profit_cap=900, cushion_sizing=True,
+)
+
+CANDIDATES = {"orb_vwap": (ORB_VWAP, "es_15m", "★ ORB-VWAP "), "live": (LIVE, "es_15m", "★ LIVE "), "orb": (ORB, "es_15m", "★ ORB "), "orb_mnq": (ORB, "nq_15m", "★ ORB (MNQ) ")}
 
 
 def main(which=("orb", "orb_mnq")):

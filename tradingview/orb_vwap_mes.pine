@@ -1,0 +1,199 @@
+//@version=6
+// Opening-range trend follower, VWAP/choppiness variant -- the MES-leaning sibling of orb_trend.pine.
+// Family "orb + daily_ema + vwap | chop": consensus (modal) parameters of 19 independent optimisation runs,
+// each fit on ES *and* NQ 2016-2022; 79% of the runs passed every out-of-sample check (most consistent
+// family in the search). See research/experiments/orb_consensus.py.
+//
+//   Trend direction : opening-range breakout -- after the first 60 minutes of RTH (09:30-10:30 ET),
+//                     a close above the range high = up day, below the range low = down day
+//                     (the latest break wins; resets every session)
+//   Confirmation 1  : close vs yesterday's 20-day EMA of session closes (multi-day trend)
+//   Confirmation 2  : close vs session VWAP (resets at the 18:00 ET CME open)
+//   Chop filter     : Choppiness Index CHOP(30):
+//                       CHOP >  50 -> sideways, no new trades
+//                       42..50     -> trending, reduced size (x0.33)
+//                       CHOP <= 42 -> strong trend, full size
+//   Entry           : the first bar where all of the above line up; signal bars closing 09:45-12:00 ET;
+//                     market order at the next open
+//   Stop / target   : ATR(14) bands: stop 2.5 x ATR, take-profit 8 x ATR (broker bracket, fixed)
+//   Also exits      : opening-range direction flips; session flatten 15:55 ET / last bar of session
+//   Day guards      : no new entries after -$300 or +$900 realised on the day
+//   Sizing          : contracts = risk$ x regime mult x cushion / (stop distance x point value + costs)
+//
+// Python engine (TradingView fill rules, whole-tick stops, $2.50 RT + 1 tick slippage), $400 risk:
+//   ES 2016-22  PF 1.16 win 46%   |  ES 2023-26  PF 1.32 win 51%
+//   NQ 2016-22  PF 1.23 win 50%   |  NQ 2023-26  PF 1.39 win 53%
+//   real MES 2025-09..2026-08: PF 2.52, 56 trades, win 50%
+//   fees x1.5 + 2 ticks slippage, 2023-26: ES PF 1.25, NQ PF 1.31; 92% of one-step parameter
+//   neighbours profitable on ES 2016-22, ES 2023-26 and NQ 2023-26
+// ~1 trade per week per market. Running it on both MES and MNQ (two charts, half risk each) roughly
+// doubles the trade rate. Point value: MES = 5, MNQ = 2.
+//
+// Alerts: TradersPost, same as the other scripts -- one alert per chart, condition "Any alert() function
+// call", webhook URL = your TradersPost strategy URL. Entries carry a fixed stop + take-profit bracket.
+
+strategy("ORB Trend VWAP (ORB+dEMA+VWAP | CHOP) - 15m", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1,
+     pyramiding=0, margin_long=0, margin_short=0)
+// margin 0%: Pine v6 defaults to 100% (full contract notional), which blocks multi-contract micro orders.
+
+// ---- Inputs ----
+gS = "Signal"
+orMinutes = input.int(60, "Opening range (minutes from 09:30)", group=gS)
+dEmaLen   = input.int(20, "Daily EMA length (session closes)", group=gS)
+chopLen   = input.int(30, "Choppiness length", group=gS)
+chopHi    = input.float(50, "CHOP: trending at/below", step=0.1, group=gS)
+chopLo    = input.float(42, "CHOP: strong trend at/below", step=0.1, group=gS)
+exitFlip  = input.bool(true, "Exit when the opening-range direction flips", group=gS)
+
+gX = "ATR bands"
+atrLen = input.int(14, "ATR length", group=gX)
+stopK  = input.float(2.5, "Stop (x ATR)", step=0.25, group=gX)
+tpK    = input.float(8.0, "Take-profit (x ATR)", step=0.25, group=gX)
+
+gT = "Session (America/New_York)"
+entryFrom = input.int(945, "Signal bar CLOSES at/after (HHMM)", group=gT)
+entryTo   = input.int(1200, "Signal bar CLOSES at/before (HHMM)", group=gT)
+flatAt    = input.int(1555, "Flatten on the bar closing at/after (HHMM)", group=gT)
+
+gR = "Risk (Lucid 50K)"
+riskUsd    = input.float(400, "Risk per trade at full size ($)", group=gR)
+smallMult  = input.float(0.33, "Size multiplier in weak trend", step=0.01, group=gR)
+dayLossLim = input.float(300, "Stop for the day after realised loss ($)", group=gR)
+dayProfCap = input.float(900, "Stop for the day after realised profit ($)", group=gR)
+useCushion = input.bool(true, "Scale size with drawdown cushion", group=gR)
+evalStart  = input.time(timestamp("2026-10-06T00:00:00-04:00"), "Eval start (for cushion tracking)", group=gR)
+maxLoss    = input.float(2000, "Max loss limit (EOD trailing)", group=gR)
+mllLockAt  = input.float(100, "MLL locks at start + ($)", group=gR)
+maxQty     = input.int(40, "Max contracts (Lucid 50K = 40 micros)", group=gR)
+pointValue = input.float(5.0, "Point value ($/pt): MES = 5, MNQ = 2", group=gR)
+costPerCt  = input.float(5.0, "Round-turn cost per contract incl. slippage ($)", group=gR)
+
+// ---- Time helpers ----
+closeHHMM = hour(time_close, "America/New_York") * 100 + minute(time_close, "America/New_York")
+openMin   = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+inEntry   = closeHHMM >= entryFrom and closeHHMM <= entryTo
+inFlat    = closeHHMM >= flatAt and closeHHMM < 1800
+tday = dayofmonth(time + 6 * 3600 * 1000, "America/New_York")  // CME session rolls at 18:00 ET
+newSession = ta.change(tday) != 0
+
+// ---- Opening-range direction ----
+orStart = 9 * 60 + 30
+orEnd   = orStart + orMinutes
+var float orHi = na
+var float orLo = na
+var int orDir = 0
+if newSession
+    orHi := na
+    orLo := na
+    orDir := 0
+if openMin >= orStart and openMin < orEnd
+    orHi := na(orHi) ? high : math.max(orHi, high)
+    orLo := na(orLo) ? low : math.min(orLo, low)
+else if openMin >= orEnd and openMin < 17 * 60 and not na(orHi)
+    if close > orHi
+        orDir := 1
+    else if close < orLo
+        orDir := -1
+trend = openMin >= orEnd and openMin < 17 * 60 ? orDir : 0
+
+// ---- Daily EMA of session closes (yesterday's value, no lookahead) ----
+var float dEma = na
+if newSession
+    prevClose = close[1]  // last bar of the previous session
+    dEma := na(dEma) ? prevClose : dEma + 2.0 / (dEmaLen + 1) * (prevClose - dEma)
+c1 = na(dEma) ? 0 : close > dEma ? 1 : close < dEma ? -1 : 0
+
+// ---- Session VWAP (anchored at the 18:00 ET session open, hlc3, volume-weighted) ----
+var float pvSum = 0.0
+var float vSum = 0.0
+if newSession
+    pvSum := 0.0
+    vSum := 0.0
+w = volume > 0 ? volume : 1.0
+pvSum += hlc3 * w
+vSum += w
+vwapS = pvSum / vSum
+c2 = close > vwapS ? 1 : close < vwapS ? -1 : 0
+
+// ---- Chop filter: Choppiness Index ----
+rngC = ta.highest(high, chopLen) - ta.lowest(low, chopLen)
+chop = rngC > 0 ? 100 * math.log10(math.sum(ta.tr(true), chopLen) / rngC) / math.log10(chopLen) : 100
+regime = chop <= chopLo ? 2 : chop <= chopHi ? 1 : 0
+
+atr = ta.atr(atrLen)
+
+longAligned  = trend == 1 and c1 == 1 and c2 == 1 and regime > 0
+shortAligned = trend == -1 and c1 == -1 and c2 == -1 and regime > 0
+longSig  = longAligned and not longAligned[1]
+shortSig = shortAligned and not shortAligned[1]
+
+// ---- Day P&L guards ----
+var float dayStartProfit = 0.0
+if newSession
+    dayStartProfit := strategy.netprofit
+dayPnl = strategy.netprofit - dayStartProfit
+dayLocked = dayPnl <= -dayLossLim or dayPnl >= dayProfCap
+
+// ---- Lucid EOD trailing MLL tracking (from eval start) ----
+var float evalBase = na
+var float peakEod = 0.0
+var float mll = -maxLoss
+if time >= evalStart and na(evalBase)
+    evalBase := strategy.netprofit
+evalPnl = na(evalBase) ? 0.0 : strategy.netprofit - evalBase
+if newSession and not na(evalBase) and evalPnl > peakEod
+    peakEod := evalPnl
+    mll := math.min(peakEod - maxLoss, mllLockAt)
+cushionF = useCushion ? math.max(0.25, math.min(1.0, math.floor((evalPnl - mll) / maxLoss * 4) / 4)) : 1.0
+
+// ---- Sizing ----
+mult = regime >= 2 ? 1.0 : smallMult
+stopPts = math.floor(stopK * atr / syminfo.mintick) * syminfo.mintick  // whole ticks, like the Python engine
+tpPts = tpK * atr
+perCt = stopK * atr * pointValue + costPerCt
+qty = perCt > 0 ? math.min(maxQty, math.floor(riskUsd * mult * cushionF / perCt)) : 0
+
+// ---- Entries ----
+flat = strategy.position_size == 0
+canEnter = flat and inEntry and not inFlat and not dayLocked and qty >= 1
+
+if canEnter and longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("L x", from_entry="L", stop=close - stopPts, limit=close + tpPts)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close - stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close + tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+if canEnter and shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("S x", from_entry="S", stop=close + stopPts, limit=close - tpPts)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close + stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close - tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+// ---- Discretionary exits: opening-range flip, session flatten ----
+exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+if strategy.position_size > 0 and exitFlip and trend == -1
+    strategy.close("L", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if strategy.position_size < 0 and exitFlip and trend == 1
+    strategy.close("S", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if (inFlat or session.islastbar or newSession) and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(orHi, "OR high", color=color.new(color.teal, 30), style=plot.style_linebr)
+plot(orLo, "OR low", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(dEma, "Daily EMA", color=color.new(color.orange, 0), linewidth=2, style=plot.style_stepline)
+plot(vwapS, "Session VWAP", color=color.new(color.purple, 20))
+bgcolor(regime == 0 ? color.new(color.gray, 90) : na, title="Sideways (no trades)")
+plotshape(canEnter and longSig, "Long", shape.triangleup, location.belowbar, color.new(color.teal, 0), size=size.tiny)
+plotshape(canEnter and shortSig, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.tiny)
