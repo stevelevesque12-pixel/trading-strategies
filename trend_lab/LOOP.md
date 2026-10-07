@@ -102,3 +102,14 @@ Oct-Mar PF 1.33 -> 1.58, DD $1,645 -> $838; Mar-Aug PF 1.71 -> 1.52, DD $1,314 -
 Full-year Monte Carlo, 25% cushion $200-$600: eval pass 63.5% -> 71.1%, fail 9.9% -> 2.2%,
 funded breach 8.6% -> 2.1%, median days 47 -> 53. Now the Pine default (input "A: scale out half at R").
 Entry webhooks now carry only a protective stop (no broker TP); partial exit sent as exit+quantity.
+
+## TradingView parity check (2026-10-07, user's trade-list export)
+
+User's TradingView run (365d to Oct 7): PF 1.10, +$2,092, DD $3,402 vs simulator PF 1.38.
+`python -m trend_lab.tv_compare <csv>`: entry prices identical on all 164 matched trades (data is the
+same). Two Pine bugs, both fixed:
+1. Default 100% margin -> TradingView silently rejected every order above $50k notional: 41/41 such
+   sim trades missing (the tight-stop, highest-qty trades; +$4.7k). Fix: margin_long/short = 5.
+2. Scale-out never filled: exit orders get the position in creation order and the full exit (XL/XS)
+   was created on the signal bar before the partial. Fix: create PL/PS first; cancel stale partials when flat.
+Aug 26 - Oct 7 (never seen by the research): 26 trades, PF 1.32, +$939 in TradingView.
