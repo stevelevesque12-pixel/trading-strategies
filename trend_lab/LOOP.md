@@ -155,3 +155,11 @@ accounts blown/yr (cheap there: $159/month, no activation). Half edge: median +$
 
 Pine-parity sim, half at +1R, fixed $300: default Oct-Mar PF 1.27 / Mar-Aug 1.53; time stop 12 bars:
 1.37 / 1.45; 16: 1.30 / 1.54; 24: 1.28 / 1.53. No consistent gain -> stays opt-in, off.
+
+## Iteration 22 (2026-10-07 21:25 UTC): neighborhood check of the FINAL config (half at +1R, fixed $300)
+
+Engine A, each of 9 parameters one step either way (18 neighbors), Pine-parity sim:
+base Oct-Mar PF 1.27 / Mar-Aug 1.53. Neighbors: 100% profitable in BOTH halves, median 1.25 / 1.50,
+worst 1.07 / 1.24 (fast EMA 9, dip_k 0.75). Plateau, not a spike. No parameter change (some neighbors look
+slightly better in both halves, e.g. fast 21, slope 16, trail 3.0 -- not adopted: that would be picking the
+best of 18 on the same data).
