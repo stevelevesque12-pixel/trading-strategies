@@ -374,3 +374,10 @@ def reg_or_width(m, minutes, lo, hi):
     ok = sess >= 1
     prev_avg[ok] = avg[sess[ok] - 1]
     return _bucket(w / prev_avg, lo, hi, higher_is_trend=False)
+
+
+# ------------------------------------------------------------------ batch 6: London-session opening range
+@_reg(TREND, "orb_lon", {"minutes": [30, 60, 90]})
+def trend_orb_lon(m, minutes):
+    """Opening-range breakout from the London open (03:00 ET): a second, earlier daily setup per market."""
+    return _orb(m.h, m.l, m.c, m.day_id, _bar_open_minute(m), 3 * 60, minutes)

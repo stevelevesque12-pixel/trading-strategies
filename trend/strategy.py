@@ -232,6 +232,8 @@ INSTRUMENT = {  # dataset prefix -> (micro point value, tick)
     "es": (5.0, 0.25), "mes": (5.0, 0.25),  # MES
     "nq": (2.0, 0.25), "mnq": (2.0, 0.25),  # MNQ
     "gc": (10.0, 0.1),  # MGC
+    "mym": (0.5, 1.0),  # micro Dow
+    "m2k": (5.0, 0.1),  # micro Russell 2000
 }
 
 

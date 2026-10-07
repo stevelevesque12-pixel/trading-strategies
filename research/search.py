@@ -49,7 +49,7 @@ VERSION = 6  # (15m_fast track added in v6 as well)
 # v6: + whole-tick stop/trail distances (matches TradingView trade-for-trade); 15m_joint track added
 TRIGGERS = ["fresh", "any", "pullback", "pullback"]
 PB_N = [9, 20, 34, 50]
-WINDOW_CHOICES = ["rth", "ny_am", "ext", "pm", "late", "all_rth"]
+WINDOW_CHOICES = ["rth", "ny_am", "ext", "pm", "late", "all_rth", "london", "lon_ny"]
 SMALL = [0.33, 0.5, 0.66]
 DLL = [300, 450, 600, 900]
 CAP = [900, 1200, 1400, 99999]
