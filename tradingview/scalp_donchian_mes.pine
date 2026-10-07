@@ -1,0 +1,161 @@
+//@version=6
+// 5-minute MES scalper -- "donchian + prev_close + vwap | atr_rank", FORWARD-TEST ONLY.
+// Consensus of 22 optimisation runs on the research loop's 5m scalping track (research/scalp.py).
+//
+//   Trend direction : Donchian(200) breakout -- after a 5m close above the prior 200-bar high the trend is up,
+//                     below the prior 200-bar low it is down (the latest break wins)
+//   Confirmation 1  : close vs the previous session's final close
+//   Confirmation 2  : close vs session VWAP (anchored at the 18:00 ET CME open)
+//   Volatility filter: percentile rank of ATR(14)/close over the last 1000 bars:
+//                       < 50% -> quiet, no trades;  50-80% -> half size;  >= 80% -> full size
+//   Entry           : first bar where all of the above line up, signal bars closing 09:45-15:45 ET,
+//                     market order at the next open
+//   Stop / target   : ATR(20) bands: stop 1.0 x ATR, take-profit 2.0 x ATR (broker bracket, fixed)
+//   Exits           : bracket, or session flatten 15:55 ET / last bar of session
+//   Day guards      : no new entries after -$450 or +$900 realised on the day
+//   Sizing          : $400 risk at full size, scaled down with the Lucid drawdown cushion
+//
+// Evidence (Python engine, $2.50 RT + 1 tick slippage), ~1.5 trades per day:
+//   MES 5m 2026-05-10..08-15 (fit):         PF 1.35, win 42%, 119 trades
+//   MES 5m 2026-08-15..10-07 (not fit):     PF 1.25, win 41%,  54 trades  (fees x1.5 + 2-tick slip: PF 1.13)
+//   MNQ 5m fit period PF 1.18 | M2K 5m PF 1.10 | MYM 5m PF 0.77 (loses)
+//   Lucid MC, pass within 42 sessions on the not-fit MES period: ~42% pass, ~8% bust
+// BUT: only ~5 months of 5m data exist for this test, drawdowns ran $2.3k-3k at $400 risk, and the same idea
+// translated to 15m bars LOSES in every year 2016-2026 on ES and NQ. Treat it as unproven. Run it on a sim /
+// paper account for at least 1-2 months and compare with these numbers before risking an eval on it.
+
+strategy("Scalp Donchian (DC+PrevClose+VWAP | ATR rank) - MES 5m", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1,
+     pyramiding=0, margin_long=0, margin_short=0)
+
+gS = "Signal"
+dcLen    = input.int(200, "Donchian length (bars)", group=gS)
+rankAtr  = input.int(14, "Volatility ATR length", group=gS)
+rankLook = input.int(1000, "Volatility rank lookback (bars)", group=gS)
+rankLo   = input.float(0.50, "Trade when ATR rank >=", step=0.05, group=gS)
+rankHi   = input.float(0.80, "Full size when ATR rank >=", step=0.05, group=gS)
+
+gX = "ATR bands"
+atrLen = input.int(20, "ATR length", group=gX)
+stopK  = input.float(1.0, "Stop (x ATR)", step=0.25, group=gX)
+tpK    = input.float(2.0, "Take-profit (x ATR)", step=0.25, group=gX)
+
+gT = "Session (America/New_York)"
+entryFrom = input.int(945, "Signal bar CLOSES at/after (HHMM)", group=gT)
+entryTo   = input.int(1545, "Signal bar CLOSES at/before (HHMM)", group=gT)
+flatAt    = input.int(1555, "Flatten on the bar closing at/after (HHMM)", group=gT)
+
+gR = "Risk (Lucid 50K)"
+riskUsd    = input.float(400, "Risk per trade at full size ($)", group=gR)
+smallMult  = input.float(0.5, "Size multiplier at medium volatility", step=0.05, group=gR)
+dayLossLim = input.float(450, "Stop for the day after realised loss ($)", group=gR)
+dayProfCap = input.float(900, "Stop for the day after realised profit ($)", group=gR)
+useCushion = input.bool(true, "Scale size with drawdown cushion", group=gR)
+evalStart  = input.time(timestamp("2026-10-06T00:00:00-04:00"), "Eval start (for cushion tracking)", group=gR)
+maxLoss    = input.float(2000, "Max loss limit (EOD trailing)", group=gR)
+mllLockAt  = input.float(100, "MLL locks at start + ($)", group=gR)
+maxQty     = input.int(40, "Max contracts (Lucid 50K = 40 micros)", group=gR)
+costPerCt  = input.float(5.0, "Round-turn cost per contract incl. slippage ($)", group=gR)
+pointValue = syminfo.pointvalue
+
+// ---- Time ----
+closeHHMM = hour(time_close, "America/New_York") * 100 + minute(time_close, "America/New_York")
+inEntry   = closeHHMM >= entryFrom and closeHHMM <= entryTo
+inFlat    = closeHHMM >= flatAt and closeHHMM < 1800
+tday = dayofmonth(time + 6 * 3600 * 1000, "America/New_York")
+newSession = ta.change(tday) != 0
+
+// ---- Donchian breakout direction (persisting) ----
+dcHi = ta.highest(high, dcLen)[1]
+dcLo = ta.lowest(low, dcLen)[1]
+var int trend = 0
+if close > dcHi
+    trend := 1
+else if close < dcLo
+    trend := -1
+
+// ---- Previous session close ----
+var float prevSessClose = na
+if newSession
+    prevSessClose := close[1]
+c1 = na(prevSessClose) ? 0 : close > prevSessClose ? 1 : close < prevSessClose ? -1 : 0
+
+// ---- Session VWAP ----
+var float pvSum = 0.0
+var float vSum = 0.0
+if newSession
+    pvSum := 0.0
+    vSum := 0.0
+w = volume > 0 ? volume : 1.0
+pvSum += hlc3 * w
+vSum += w
+vwapS = pvSum / vSum
+c2 = close > vwapS ? 1 : close < vwapS ? -1 : 0
+
+// ---- Volatility rank filter ----
+volRank = ta.percentrank(ta.atr(rankAtr) / close, rankLook) / 100
+regime = volRank >= rankHi ? 2 : volRank >= rankLo ? 1 : 0
+
+atr = ta.atr(atrLen)
+longAligned  = trend == 1 and c1 == 1 and c2 == 1 and regime > 0
+shortAligned = trend == -1 and c1 == -1 and c2 == -1 and regime > 0
+longSig  = longAligned and not longAligned[1]
+shortSig = shortAligned and not shortAligned[1]
+
+// ---- Day guards ----
+var float dayStartProfit = 0.0
+if newSession
+    dayStartProfit := strategy.netprofit
+dayPnl = strategy.netprofit - dayStartProfit
+dayLocked = dayPnl <= -dayLossLim or dayPnl >= dayProfCap
+
+// ---- Lucid drawdown cushion ----
+var float evalBase = na
+var float peakEod = 0.0
+var float mll = -maxLoss
+if time >= evalStart and na(evalBase)
+    evalBase := strategy.netprofit
+evalPnl = na(evalBase) ? 0.0 : strategy.netprofit - evalBase
+if newSession and not na(evalBase) and evalPnl > peakEod
+    peakEod := evalPnl
+    mll := math.min(peakEod - maxLoss, mllLockAt)
+cushionF = useCushion ? math.max(0.25, math.min(1.0, math.floor((evalPnl - mll) / maxLoss * 4) / 4)) : 1.0
+
+// ---- Sizing ----
+mult = regime >= 2 ? 1.0 : smallMult
+stopPts = math.floor(stopK * atr / syminfo.mintick) * syminfo.mintick
+tpPts = tpK * atr
+perCt = stopK * atr * pointValue + costPerCt
+qty = perCt > 0 ? math.min(maxQty, math.floor(riskUsd * mult * cushionF / perCt)) : 0
+
+flat = strategy.position_size == 0
+canEnter = flat and inEntry and not inFlat and not dayLocked and qty >= 1
+
+if canEnter and longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("L x", from_entry="L", stop=close - stopPts, limit=close + tpPts)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close - stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close + tpPts)) + '}}', alert.freq_once_per_bar_close)
+
+if canEnter and shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("S x", from_entry="S", stop=close + stopPts, limit=close - tpPts)
+    alert('{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close + stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close - tpPts)) + '}}', alert.freq_once_per_bar_close)
+
+if (inFlat or session.islastbar or newSession) and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+plot(dcHi, "Donchian high", color=color.new(color.teal, 50))
+plot(dcLo, "Donchian low", color=color.new(color.red, 50))
+plot(vwapS, "Session VWAP", color=color.new(color.purple, 20))
+plot(prevSessClose, "Prev session close", color=color.new(color.orange, 30), style=plot.style_stepline)
+bgcolor(regime == 0 ? color.new(color.gray, 90) : na, title="Quiet (no trades)")
+plotshape(canEnter and longSig, "Long", shape.triangleup, location.belowbar, color.new(color.teal, 0), size=size.tiny)
+plotshape(canEnter and shortSig, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.tiny)
