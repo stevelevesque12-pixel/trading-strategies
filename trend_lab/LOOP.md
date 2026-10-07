@@ -121,3 +121,11 @@ trades matched (entry time+price identical); per-trade P&L matches the NO-scale-
 -> margin fix confirmed, but the +1R partial still never filled (creating PL before strategy.entry did not
 help). Fixed with explicit quantities on both exits (PL = half, XL = rest until PL fills, detected vs the
 entered qty). Aug 26 - Oct 7: 30 trades, PF 1.27, +$1,005.
+
+## TradingView run 3 (explicit-qty scale-out) -- parity reached
+
+PL/PS exits now fill (103 + 95). Per-trade P&L matches the scale-out simulation on 208/213 overlap trades.
+365d: +$7,258, PF 1.336, max DD $2,033 (vs no-scale run: +$7,700, 1.355, $2,491). TradingView's tester
+counts shadow trades (kill switch only gates webhooks) and uses fixed $300 before "Account start".
+By period (TradingView positions): Oct-Mar PF 1.26 (+$2,707), Mar 20-Aug 25 PF 1.53 (+$3,916),
+Aug 26-Oct 7 (new data) PF 1.17 (+$630, 30 trades).
