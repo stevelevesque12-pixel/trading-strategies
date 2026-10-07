@@ -1,0 +1,218 @@
+//@version=6
+// ORB Trend -- combined MNQ + MES script. Put the SAME script on two 15-minute charts (MNQ1! and MES1!);
+// it detects the symbol and switches to that market's validated settings automatically.
+//
+//   Both:  trend = 60-minute opening-range breakout (09:30-10:30 ET; latest break wins, resets daily)
+//          confirmation 1 = close vs yesterday's daily EMA of session closes
+//          stop 2.5 x ATR, take-profit 8 x ATR (fixed broker bracket), exit if the OR direction flips,
+//          flat by 15:55 ET, signal bars closing 09:45-12:00 ET, first aligned bar only,
+//          no new entries after -$300 / +$900 realised on the day
+//   MNQ (orb_trend.pine):     daily EMA 50, confirmation 2 = close vs EMA(20),
+//                             chop filter = efficiency ratio ER(30) (<0.30 off, 0.30-0.40 x0.66, >=0.40 full),
+//                             ATR(30), $500 risk at full size
+//   MES (orb_vwap_mes.pine):  daily EMA 20, confirmation 2 = close vs session VWAP (from 18:00 ET),
+//                             chop filter = Choppiness CHOP(30) (>50 off, 42-50 x0.33, <=42 full),
+//                             ATR(14), $400 risk at full size
+//
+// Python backtest (TradingView fill rules, whole-tick stops, $2.50 RT + 1 tick slippage), profit factor:
+//   MNQ settings on NQ:  2016-22 1.41   2023-26 1.92
+//   MES settings on ES:  2016-22 1.16   2023-26 1.32   real MES Sep 2025-Aug 2026: 2.52 (56 trades)
+//   Both together, Lucid 50K sim (2023-26): ~56% of evals pass within a year, ~0% bust, median ~88 sessions.
+//
+// Cushion sizing: each chart only sees its OWN trades, so with two charts each one tracks half the
+// account. Leave "Scale size with drawdown cushion" on; it still cuts size after that chart's losses.
+//
+// Alerts (TradersPost): one alert per chart, condition "Any alert() function call", webhook URL =
+// your TradersPost strategy URL. Strategy properties: margin is set to 0% here -- check it stuck.
+
+strategy("ORB Trend combined (MNQ + MES) - 15m", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.25, slippage=1,
+     pyramiding=0, margin_long=0, margin_short=0)
+
+// ---- Mode ----
+modeIn = input.string("Auto (by symbol)", "Settings", options=["Auto (by symbol)", "MNQ: EMA + ER", "MES: VWAP + CHOP"])
+isNQ = syminfo.root == "MNQ" or syminfo.root == "NQ"
+nqMode = modeIn == "MNQ: EMA + ER" or (modeIn == "Auto (by symbol)" and isNQ)
+
+// ---- Shared inputs ----
+gS = "Signal (shared)"
+orMinutes = input.int(60, "Opening range (minutes from 09:30)", group=gS)
+exitFlip  = input.bool(true, "Exit when the opening-range direction flips", group=gS)
+stopK     = input.float(2.5, "Stop (x ATR)", step=0.25, group=gS)
+tpK       = input.float(8.0, "Take-profit (x ATR)", step=0.25, group=gS)
+
+gT = "Session (America/New_York)"
+entryFrom = input.int(945, "Signal bar CLOSES at/after (HHMM)", group=gT)
+entryTo   = input.int(1200, "Signal bar CLOSES at/before (HHMM)", group=gT)
+flatAt    = input.int(1555, "Flatten on the bar closing at/after (HHMM)", group=gT)
+
+gN = "MNQ settings"
+nqDEma   = input.int(50, "Daily EMA length", group=gN)
+nqFast   = input.int(20, "Fast EMA length", group=gN)
+nqErLen  = input.int(30, "Efficiency ratio length", group=gN)
+nqErLo   = input.float(0.30, "ER: trending above", step=0.01, group=gN)
+nqErHi   = input.float(0.40, "ER: strong trend above", step=0.01, group=gN)
+nqAtr    = input.int(30, "ATR length", group=gN)
+nqRisk   = input.float(500, "Risk per trade at full size ($)", group=gN)
+nqSmall  = input.float(0.66, "Size multiplier in weak trend", step=0.01, group=gN)
+
+gM = "MES settings"
+esDEma   = input.int(20, "Daily EMA length", group=gM)
+esChop   = input.int(30, "Choppiness length", group=gM)
+esChopHi = input.float(50, "CHOP: trending at/below", step=0.1, group=gM)
+esChopLo = input.float(42, "CHOP: strong trend at/below", step=0.1, group=gM)
+esAtr    = input.int(14, "ATR length", group=gM)
+esRisk   = input.float(400, "Risk per trade at full size ($)", group=gM)
+esSmall  = input.float(0.33, "Size multiplier in weak trend", step=0.01, group=gM)
+
+gR = "Risk (Lucid 50K)"
+dayLossLim = input.float(300, "Stop for the day after realised loss ($)", group=gR)
+dayProfCap = input.float(900, "Stop for the day after realised profit ($)", group=gR)
+useCushion = input.bool(true, "Scale size with drawdown cushion", group=gR)
+evalStart  = input.time(timestamp("2026-10-06T00:00:00-04:00"), "Eval start (for cushion tracking)", group=gR)
+maxLoss    = input.float(2000, "Max loss limit (EOD trailing)", group=gR)
+mllLockAt  = input.float(100, "MLL locks at start + ($)", group=gR)
+maxQty     = input.int(40, "Max contracts (Lucid 50K = 40 micros)", group=gR)
+costPerCt  = input.float(5.0, "Round-turn cost per contract incl. slippage ($)", group=gR)
+
+// ---- Active parameters ----
+dEmaLen   = nqMode ? nqDEma : esDEma
+atrLen    = nqMode ? nqAtr : esAtr
+riskUsd   = nqMode ? nqRisk : esRisk
+smallMult = nqMode ? nqSmall : esSmall
+pointValue = syminfo.pointvalue  // MNQ = 2, MES = 5
+
+// ---- Time helpers ----
+closeHHMM = hour(time_close, "America/New_York") * 100 + minute(time_close, "America/New_York")
+openMin   = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+inEntry   = closeHHMM >= entryFrom and closeHHMM <= entryTo
+inFlat    = closeHHMM >= flatAt and closeHHMM < 1800
+tday = dayofmonth(time + 6 * 3600 * 1000, "America/New_York")  // CME session rolls at 18:00 ET
+newSession = ta.change(tday) != 0
+
+// ---- Opening-range direction ----
+orStart = 9 * 60 + 30
+orEnd   = orStart + orMinutes
+var float orHi = na
+var float orLo = na
+var int orDir = 0
+if newSession
+    orHi := na
+    orLo := na
+    orDir := 0
+if openMin >= orStart and openMin < orEnd
+    orHi := na(orHi) ? high : math.max(orHi, high)
+    orLo := na(orLo) ? low : math.min(orLo, low)
+else if openMin >= orEnd and openMin < 17 * 60 and not na(orHi)
+    if close > orHi
+        orDir := 1
+    else if close < orLo
+        orDir := -1
+trend = openMin >= orEnd and openMin < 17 * 60 ? orDir : 0
+
+// ---- Daily EMA of session closes (yesterday's value, no lookahead) ----
+var float dEma = na
+if newSession
+    prevClose = close[1]
+    dEma := na(dEma) ? prevClose : dEma + 2.0 / (dEmaLen + 1) * (prevClose - dEma)
+c1 = na(dEma) ? 0 : close > dEma ? 1 : close < dEma ? -1 : 0
+
+// ---- Confirmation 2: fast EMA (MNQ) or session VWAP (MES) ----
+fast = ta.ema(close, nqFast)
+var float pvSum = 0.0
+var float vSum = 0.0
+if newSession
+    pvSum := 0.0
+    vSum := 0.0
+w = volume > 0 ? volume : 1.0
+pvSum += hlc3 * w
+vSum += w
+vwapS = pvSum / vSum
+ref2 = nqMode ? fast : vwapS
+c2 = close > ref2 ? 1 : close < ref2 ? -1 : 0
+
+// ---- Chop filter: efficiency ratio (MNQ) or choppiness index (MES) ----
+path = math.sum(math.abs(ta.change(close)), nqErLen)
+er = path > 0 ? math.abs(close - close[nqErLen]) / path : 0
+regimeNQ = er >= nqErHi ? 2 : er >= nqErLo ? 1 : 0
+rngC = ta.highest(high, esChop) - ta.lowest(low, esChop)
+chop = rngC > 0 ? 100 * math.log10(math.sum(ta.tr(true), esChop) / rngC) / math.log10(esChop) : 100
+regimeES = chop <= esChopLo ? 2 : chop <= esChopHi ? 1 : 0
+regime = nqMode ? regimeNQ : regimeES
+
+atr = ta.atr(atrLen)
+
+longAligned  = trend == 1 and c1 == 1 and c2 == 1 and regime > 0
+shortAligned = trend == -1 and c1 == -1 and c2 == -1 and regime > 0
+longSig  = longAligned and not longAligned[1]
+shortSig = shortAligned and not shortAligned[1]
+
+// ---- Day P&L guards ----
+var float dayStartProfit = 0.0
+if newSession
+    dayStartProfit := strategy.netprofit
+dayPnl = strategy.netprofit - dayStartProfit
+dayLocked = dayPnl <= -dayLossLim or dayPnl >= dayProfCap
+
+// ---- Lucid EOD trailing MLL tracking (from eval start) ----
+var float evalBase = na
+var float peakEod = 0.0
+var float mll = -maxLoss
+if time >= evalStart and na(evalBase)
+    evalBase := strategy.netprofit
+evalPnl = na(evalBase) ? 0.0 : strategy.netprofit - evalBase
+if newSession and not na(evalBase) and evalPnl > peakEod
+    peakEod := evalPnl
+    mll := math.min(peakEod - maxLoss, mllLockAt)
+cushionF = useCushion ? math.max(0.25, math.min(1.0, math.floor((evalPnl - mll) / maxLoss * 4) / 4)) : 1.0
+
+// ---- Sizing ----
+mult = regime >= 2 ? 1.0 : smallMult
+stopPts = math.floor(stopK * atr / syminfo.mintick) * syminfo.mintick  // whole ticks, like the Python engine
+tpPts = tpK * atr
+perCt = stopK * atr * pointValue + costPerCt
+qty = perCt > 0 ? math.min(maxQty, math.floor(riskUsd * mult * cushionF / perCt)) : 0
+
+// ---- Entries ----
+flat = strategy.position_size == 0
+canEnter = flat and inEntry and not inFlat and not dayLocked and qty >= 1
+
+if canEnter and longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("L x", from_entry="L", stop=close - stopPts, limit=close + tpPts)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close - stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close + tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+if canEnter and shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("S x", from_entry="S", stop=close + stopPts, limit=close - tpPts)
+    msg = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market","quantity":' + str.tostring(qty) +
+         ',"signalPrice":' + str.tostring(close) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(close + stopPts)) + '}' +
+         ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(close - tpPts)) + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+// ---- Exits: opening-range flip, session flatten ----
+exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+if strategy.position_size > 0 and exitFlip and trend == -1
+    strategy.close("L", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if strategy.position_size < 0 and exitFlip and trend == 1
+    strategy.close("S", comment="trend_flip")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+if (inFlat or session.islastbar or newSession) and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+    alert(exitMsg, alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(orHi, "OR high", color=color.new(color.teal, 30), style=plot.style_linebr)
+plot(orLo, "OR low", color=color.new(color.red, 30), style=plot.style_linebr)
+plot(dEma, "Daily EMA", color=color.new(color.orange, 0), linewidth=2, style=plot.style_stepline)
+plot(ref2, "Confirmation 2 line (EMA on MNQ, VWAP on MES)", color=color.new(nqMode ? color.gray : color.purple, 30))
+bgcolor(regime == 0 ? color.new(color.gray, 90) : na, title="Sideways (no trades)")
+plotshape(canEnter and longSig, "Long", shape.triangleup, location.belowbar, color.new(color.teal, 0), size=size.tiny)
+plotshape(canEnter and shortSig, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0), size=size.tiny)
