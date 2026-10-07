@@ -140,3 +140,13 @@ Aug 26-Oct 7 (new data) PF 1.17 (+$630, 30 trades).
   than MCL alone. => optional aggressive variant, not the default.
 - Funded-phase sizing grid: more aggressive (30-40%, up to $800-$1,200) raises the mean year but not
   P(profit), multiplies funded failures, and lowers the median if the edge halves. Keep 25% / $200-$600.
+
+## Iteration 20 (2026-10-07): stop-order entry for Engine A -- rejected
+
+Buy/sell-stop at the prior bar's high/low (fills on the break) vs current close-confirmed market entry,
+same exits incl. +1R half, $300 fixed (trend_lab/experiments/stop_entry_vs_market.py):
+market: 200 trades, PF 1.47, +$7,411, DD $1,639 | stop: 272 trades, PF 1.29, +$7,297, DD $1,954.
+Close confirmation filters false breaks; keep the market entry.
+
+Also: Tradeify yearly sim at FIXED $500 risk: median +$4,281, P(profit) 85%, ~2.1 evals bought, 0.63 funded
+accounts blown/yr (cheap there: $159/month, no activation). Half edge: median +$318, 54%.
