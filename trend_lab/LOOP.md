@@ -163,3 +163,9 @@ base Oct-Mar PF 1.27 / Mar-Aug 1.53. Neighbors: 100% profitable in BOTH halves, 
 worst 1.07 / 1.24 (fast EMA 9, dip_k 0.75). Plateau, not a spike. No parameter change (some neighbors look
 slightly better in both halves, e.g. fast 21, slope 16, trail 3.0 -- not adopted: that would be picking the
 best of 18 on the same data).
+
+## Iteration 23 (2026-10-07 23:25 UTC): Engine B neighborhood check
+
+8 parameters one step either way (16 neighbors), A frozen, half at +1R, fixed $300: 100% profitable in both
+halves, median 1.27 / 1.53, worst 1.10 / 1.48 (rsi_n 2, rsi_lo 35). Most B params barely move the result
+(B adds ~1 trade/week). Both engines sit on plateaus. No change.
