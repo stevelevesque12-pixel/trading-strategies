@@ -129,3 +129,14 @@ PL/PS exits now fill (103 + 95). Per-trade P&L matches the scale-out simulation 
 counts shadow trades (kill switch only gates webhooks) and uses fixed $300 before "Account start".
 By period (TradingView positions): Oct-Mar PF 1.26 (+$2,707), Mar 20-Aug 25 PF 1.53 (+$3,916),
 Aug 26-Oct 7 (new data) PF 1.17 (+$630, 30 trades).
+
+## Iteration 19 (2026-10-07): prop-firm yearly sim, second market, funded sizing
+
+- `python -m trend_lab.propsim`: Tradeify Select Flex 50K, one account, 1 year, 10k paths. Edge as last year:
+  median +$3,046 (mean +$3,579), P(profit) 79%, ~4.9 payouts. Half edge: median -$721, P(profit) 39%.
+- MGC (micro gold) with the FROZEN MCL settings (never fitted on gold): PF 1.15 (Oct-Mar) / 1.34 (Mar-Aug),
+  daily correlation with MCL 0.04, days >= $150: 22% -> 34%. Tradeify sim MCL+MGC at $200 base each: median
+  +$4,068, P(profit) 83%, 6.6 payouts, but funded failures 0.31/yr vs 0.05. Scaled down to $140 each: worse
+  than MCL alone. => optional aggressive variant, not the default.
+- Funded-phase sizing grid: more aggressive (30-40%, up to $800-$1,200) raises the mean year but not
+  P(profit), multiplies funded failures, and lowers the median if the edge halves. Keep 25% / $200-$600.
