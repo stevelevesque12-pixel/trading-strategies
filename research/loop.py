@@ -79,7 +79,7 @@ def main():
     with ProcessPoolExecutor(args.workers) as ex:
         while time.time() < deadline:
             batch = []
-            for track, k in (("15m_fast", args.workers * 2), ("15m_joint", max(1, args.workers // 2))):
+            for track, k in (("5m_scalp", args.workers * 2), ("15m_fast", max(1, args.workers // 2))):
                 batch += [(f, track, rng.randrange(10**9)) for f in plan(track, k, rng)]
             futs = [ex.submit(_job, b) for b in batch]
             for fu in as_completed(futs):

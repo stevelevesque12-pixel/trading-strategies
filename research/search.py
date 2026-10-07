@@ -112,6 +112,9 @@ def prop_score(r):
 
 
 def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=None):
+    if track == "5m_scalp":
+        from research import scalp
+        return scalp.optimise(family, seed=seed)
     rng = random.Random(seed)
     ds, split, _ = TRACKS[track]
     full = load(ds)

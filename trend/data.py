@@ -32,6 +32,11 @@ DATASETS = {
     "gc_15m": ("real_gc_15m_2016-05-26_2026-08-25.parquet", 15),
     "si_15m": ("real_si_15m_2016-05-26_2026-08-25.parquet", 15),
     "mym_15m": ("real_mym_15m_2025-09-30_2026-08-25.parquet", 15),
+    # 5-minute (scalping track): MES merged with the user's TradingView exports; others May-Aug 2026
+    "mes_5m_m": ("real_mes_5m_2026-05-10_2026-10-07_merged.parquet", 5),
+    "mnq_5m": ("real_mnq_5m_2026-05-10_2026-08-25.parquet", 5),
+    "mym_5m": ("real_mym_5m_2026-05-10_2026-08-25.parquet", 5),
+    "m2k_5m": ("real_m2k_5m_2026-05-10_2026-08-25.parquet", 5),
     "m2k_15m": ("real_m2k_15m_2025-09-30_2026-08-25.parquet", 15),
 }
 

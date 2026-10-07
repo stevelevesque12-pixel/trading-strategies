@@ -149,7 +149,7 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
   <div class="card">
     <h2>Every strategy tested</h2>
     <div class="filters">
-      <select id="f-track"><option value="">All tracks</option><option value="15m_fast">15m, ES + NQ, sized to pass in 2 months</option><option value="15m_joint">15m, ES + NQ joint (10y)</option><option value="15m_full">15m, ES only (10y)</option><option value="5m_recent">5m, recent MES</option></select>
+      <select id="f-track"><option value="">All tracks</option><option value="5m_scalp">5m scalping (MES/MNQ, 5 months)</option><option value="15m_fast">15m, ES + NQ, sized to pass in 2 months</option><option value="15m_joint">15m, ES + NQ joint (10y)</option><option value="15m_full">15m, ES only (10y)</option><option value="5m_recent">5m, recent MES</option></select>
       <label class="chk"><input type="checkbox" id="f-robust"> Robust only</label>
       <label class="chk"><input type="checkbox" id="f-latest" checked> Latest engine only</label>
       <input type="search" id="f-q" placeholder="Filter by component…">
@@ -263,7 +263,7 @@ function select(id, scroll = true) {
   const s = r.spec, p = o => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(", ") || "–";
   const per = (lab, m) => m ? `<tr><td>${lab}</td><td>${m.trades} trades · win ${pct(m.win_rate)} · PF ${f2(m.profit_factor)} · net ${fmt$(m.net)} · DD ${fmt$(m.max_dd)} · Sharpe ${f2(m.sharpe)} · Lucid pass ${pct(m.pass)} / bust ${pct(m.bust)}${m.days ? ` · ${m.days} sessions to pass` : ""}</td></tr>` : "";
   d.innerHTML = `
-    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : r.track === "15m_joint" ? "fit on ES + NQ jointly, 2016–2022" : r.track === "15m_fast" ? "ES + NQ joint fit, sized to pass in ≤ 42 sessions" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
+    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : r.track === "15m_joint" ? "fit on ES + NQ jointly, 2016–2022" : r.track === "15m_fast" ? "ES + NQ joint fit, sized to pass in ≤ 42 sessions" : r.track === "5m_scalp" ? "5m scalp: fit MES+MNQ May–Aug 15 2026, OOS MES Aug 15–Oct 7" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
     <div class="detail-grid">
       ${tile("OOS win rate", pct(r.oos?.win_rate), `IS ${pct(r.is?.win_rate)}`)}
       ${tile("OOS profit factor", f2(r.oos?.profit_factor), `IS ${f2(r.is?.profit_factor)}`)}
