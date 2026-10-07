@@ -113,3 +113,11 @@ same). Two Pine bugs, both fixed:
 2. Scale-out never filled: exit orders get the position in creation order and the full exit (XL/XS)
    was created on the signal bar before the partial. Fix: create PL/PS first; cancel stale partials when flat.
 Aug 26 - Oct 7 (never seen by the research): 26 trades, PF 1.32, +$939 in TradingView.
+
+## TradingView re-run after the margin fix (2026-10-07)
+
+365d to Oct 7: +$7,700, PF 1.355, max DD $2,491 (was +$2,092 / 1.10 / $3,402). tv_compare: all 213 overlap
+trades matched (entry time+price identical); per-trade P&L matches the NO-scale-out simulation on 209/213
+-> margin fix confirmed, but the +1R partial still never filled (creating PL before strategy.entry did not
+help). Fixed with explicit quantities on both exits (PL = half, XL = rest until PL fills, detected vs the
+entered qty). Aug 26 - Oct 7: 30 trades, PF 1.27, +$1,005.

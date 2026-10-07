@@ -196,6 +196,7 @@ var float bestPx   = na
 var float pendDist = na
 var int   entryBar = na
 var int   partQty = 0
+var int   entryQty = 0
 var float partPx = na
 
 // Equity-curve kill switch: closed-trade equity history
@@ -206,6 +207,7 @@ ecfLive = not useEcf or array.size(eqHist) < ecfLen or
      array.get(eqHist, array.size(eqHist) - 1) >= array.avg(array.slice(eqHist, array.size(eqHist) - ecfLen, array.size(eqHist)))
 var int   pendEngine = 0
 var int   pendPart = 0
+var int   pendQty = 0
 
 exitMsgLive = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
 // shadow trades (kill switch off when the entry was placed) send an empty message; set TradersPost to ignore/blank payloads
@@ -221,6 +223,7 @@ if strategy.position_size != 0 and strategy.position_size[1] == 0
     bestPx := strategy.position_avg_price
     entryBar := bar_index
     partQty := posEngine == 1 ? pendPart : 0
+    entryQty := pendQty
     partPx := strategy.position_avg_price + dir * riskPts * aScaleR
 
 // End-of-bar management: breakeven, chandelier trail, signal exits, flatten
@@ -232,15 +235,18 @@ if strategy.position_size != 0
         stopPx := dir > 0 ? math.max(stopPx, be) : math.min(stopPx, be)
     trail = bestPx - dir * (posEngine == 1 ? aTrail : bTrail) * atr
     stopPx := dir > 0 ? math.max(stopPx, trail) : math.min(stopPx, trail)
+    // the partial has filled once the position is smaller than what was entered (also on the entry bar)
+    if partQty > 0 and math.abs(strategy.position_size) < entryQty
+        partQty := 0
+    // explicit quantities on BOTH exits: the partial gets partQty, the main exit the rest
+    // (do not rely on Pine's order-creation allocation)
+    mainQty = math.abs(strategy.position_size) - partQty
     if partQty > 0
         partMsg = liveTrade ? '{"ticker":"' + syminfo.ticker + '","action":"exit","quantity":' + str.tostring(partQty) + '}' : ""
         strategy.exit("PL", from_entry="L", qty=partQty, stop=stopPx, limit=partPx, alert_message=partMsg)
         strategy.exit("PS", from_entry="S", qty=partQty, stop=stopPx, limit=partPx, alert_message=partMsg)
-        // once the partial has filled, the position is smaller: stop managing it
-        if math.abs(strategy.position_size) < math.abs(strategy.position_size[1]) and strategy.position_size[1] != 0
-            partQty := 0
-    strategy.exit("XL", from_entry="L", stop=stopPx, limit=targetPx, alert_message=exitMsg)
-    strategy.exit("XS", from_entry="S", stop=stopPx, limit=targetPx, alert_message=exitMsg)
+    strategy.exit("XL", from_entry="L", qty=mainQty, stop=stopPx, limit=targetPx, alert_message=exitMsg)
+    strategy.exit("XS", from_entry="S", qty=mainQty, stop=stopPx, limit=targetPx, alert_message=exitMsg)
     rsiExit = posEngine == 2 and ((dir > 0 and rsi > bRsiExit) or (dir < 0 and rsi < 100 - bRsiExit))
     if rsiExit
         strategy.close_all(comment="rsi_exit", alert_message=exitMsg)
@@ -275,6 +281,7 @@ if canEnter and dirSig != 0 and dist <= maxStopPts and qty >= 1
     pendDist := dist
     pendEngine := eng
     pendPart := eng == 1 and aScaleR > 0 and qty >= 2 ? int(math.floor(qty / 2)) : 0
+    pendQty := int(qty)
     dayTrades += 1
     liveTrade := ecfLive
     // provisional bracket from the signal close; re-anchored to the fill on the next bar
@@ -283,20 +290,20 @@ if canEnter and dirSig != 0 and dist <= maxStopPts and qty >= 1
     msg = '{"ticker":"' + syminfo.ticker + '","action":"' + (dirSig > 0 ? "buy" : "sell") + '","orderType":"market"' +
          ',"quantity":' + str.tostring(qty) +
          (sendBracket ? ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sp, format.mintick) + '}' : '') + '}'
-    // Pine hands a position to exit orders in creation order, so the partial ("PL"/"PS") must be
-    // created BEFORE the full exit ("XL"/"XS"), otherwise the full exit takes every contract.
+    // explicit quantities: partial ("PL"/"PS") = pendPart, main exit ("XL"/"XS") = the rest
     pp = close + dirSig * dist * aScaleR
+    mq = int(qty) - pendPart
     ppMsg = ecfLive ? '{"ticker":"' + syminfo.ticker + '","action":"exit","quantity":' + str.tostring(pendPart) + '}' : ""
     if dirSig > 0
+        strategy.entry("L", strategy.long, qty=qty, comment=(eng == 1 ? "A long" : "B long") + (ecfLive ? "" : " (shadow)"), alert_message=ecfLive ? msg : "")
         if pendPart > 0
             strategy.exit("PL", from_entry="L", qty=pendPart, stop=sp, limit=pp, alert_message=ppMsg)
-        strategy.entry("L", strategy.long, qty=qty, comment=(eng == 1 ? "A long" : "B long") + (ecfLive ? "" : " (shadow)"), alert_message=ecfLive ? msg : "")
-        strategy.exit("XL", from_entry="L", stop=sp, limit=tp, alert_message=ecfLive ? exitMsgLive : "")
+        strategy.exit("XL", from_entry="L", qty=mq, stop=sp, limit=tp, alert_message=ecfLive ? exitMsgLive : "")
     else
+        strategy.entry("S", strategy.short, qty=qty, comment=(eng == 1 ? "A short" : "B short") + (ecfLive ? "" : " (shadow)"), alert_message=ecfLive ? msg : "")
         if pendPart > 0
             strategy.exit("PS", from_entry="S", qty=pendPart, stop=sp, limit=pp, alert_message=ppMsg)
-        strategy.entry("S", strategy.short, qty=qty, comment=(eng == 1 ? "A short" : "B short") + (ecfLive ? "" : " (shadow)"), alert_message=ecfLive ? msg : "")
-        strategy.exit("XS", from_entry="S", stop=sp, limit=tp, alert_message=ecfLive ? exitMsgLive : "")
+        strategy.exit("XS", from_entry="S", qty=mq, stop=sp, limit=tp, alert_message=ecfLive ? exitMsgLive : "")
 
 // ---------------- Plots ----------------
 plot(aHtf, "1h EMA50", color=color.new(color.blue, 0), linewidth=2)
