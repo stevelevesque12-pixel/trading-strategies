@@ -150,3 +150,8 @@ Close confirmation filters false breaks; keep the market entry.
 
 Also: Tradeify yearly sim at FIXED $500 risk: median +$4,281, P(profit) 85%, ~2.1 evals bought, 0.63 funded
 accounts blown/yr (cheap there: $159/month, no activation). Half edge: median +$318, 54%.
+
+## Iteration 21 (2026-10-07 19:50 UTC): time stop re-test with the scale-out on
+
+Pine-parity sim, half at +1R, fixed $300: default Oct-Mar PF 1.27 / Mar-Aug 1.53; time stop 12 bars:
+1.37 / 1.45; 16: 1.30 / 1.54; 24: 1.28 / 1.53. No consistent gain -> stays opt-in, off.
