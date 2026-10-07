@@ -21,8 +21,9 @@ from . import indicators as ind
 
 def run(df, risk_fixed=300.0, cushion=None, ecf_len=None, slip_ticks=1.0, comm_rt=1.24,
         daily_loss_mult=2.25, profit_lock=1200.0, max_trades=6, max_stop=1.5, max_contracts=20,
-        eia_filter=True, a_max_bars=None):
+        eia_filter=True, a_max_bars=None, a_scale_r=None):
     """
+    a_scale_r: Engine A scale-out -- take half the contracts off at +a_scale_r R (rest keeps the normal exits).
     cushion: None for fixed risk, else (frac, lo, hi) of (balance - Lucid max-loss line) of LIVE trades.
     ecf_len: None = always live; N = live only while closed equity >= mean of its last N values.
     Returns (all_trades, live_trades).
@@ -74,21 +75,33 @@ def run(df, risk_fixed=300.0, cushion=None, ecf_len=None, slip_ticks=1.0, comm_r
     pending = None
     day, day_pnl, day_trades = -1, 0.0, 0
     risk_now = risk_fixed
+    part_qty, part_px, part_pnl, contracts0 = 0, 0.0, 0.0, 0
 
     def close(i, px, reason):
-        nonlocal pos, day_pnl, net_all, live_net
+        nonlocal pos, day_pnl, net_all, live_net, part_qty, part_pnl
         pnl = (px - entry) * pos * POINT_VALUE * contracts - comm_rt * contracts
-        r = pnl / (risk_pts * POINT_VALUE * contracts + cost_pc * contracts)
-        t = Trade(idx[entry_i], idx[i], tvals[entry_i], pos, entry, px, entry - pos * risk_pts, contracts, pnl, r,
+        day_pnl += pnl
+        pnl += part_pnl                     # realized scale-out leg, if any (already in day_pnl)
+        r = pnl / (risk_pts * POINT_VALUE * contracts0 + cost_pc * contracts0)
+        t = Trade(idx[entry_i], idx[i], tvals[entry_i], pos, entry, px, entry - pos * risk_pts, contracts0, pnl, r,
                   reason)
+        part_qty, part_pnl = 0, 0.0
         trades.append(t)
         if is_live:
             live.append(t)
             live_net += pnl
-        day_pnl += pnl
         net_all += pnl
         eq_hist.append(net_all)
         pos = 0
+
+    def scale_out(i):
+        nonlocal part_qty, part_pnl, contracts, day_pnl
+        if part_qty and ((pos == 1 and h[i] >= part_px) or (pos == -1 and lo[i] <= part_px)):
+            leg = (part_px - entry) * pos * POINT_VALUE * part_qty - comm_rt * part_qty
+            part_pnl += leg
+            day_pnl += leg
+            contracts -= part_qty
+            part_qty = 0
 
     for i in range(n):
         if tday[i] != day:
@@ -106,6 +119,10 @@ def run(df, risk_fixed=300.0, cushion=None, ecf_len=None, slip_ticks=1.0, comm_r
                 stop = entry - pos * risk_pts
                 tgt = entry + pos * risk_pts * eng_cfg[e]["target"] if eng_cfg[e]["target"] else np.nan
                 entry_i, best = i, entry
+                contracts0 = contracts
+                if a_scale_r and e == 1 and contracts >= 2:
+                    part_qty = contracts // 2
+                    part_px = entry + pos * risk_pts * a_scale_r
         pending = None
         cfg = eng_cfg.get(eng)
 
@@ -115,14 +132,18 @@ def run(df, risk_fixed=300.0, cushion=None, ecf_len=None, slip_ticks=1.0, comm_r
                     close(i, o[i] - slip, "stop")
                 elif lo[i] <= stop:
                     close(i, stop - slip, "stop")
-                elif cfg["target"] and h[i] >= tgt:
+                else:
+                    scale_out(i)
+                if pos != 0 and cfg["target"] and h[i] >= tgt:
                     close(i, tgt, "target")
             else:
                 if o[i] >= stop:
                     close(i, o[i] + slip, "stop")
                 elif h[i] >= stop:
                     close(i, stop + slip, "stop")
-                elif cfg["target"] and lo[i] <= tgt:
+                else:
+                    scale_out(i)
+                if pos != 0 and cfg["target"] and lo[i] <= tgt:
                     close(i, tgt, "target")
 
         if pos != 0:
@@ -172,7 +193,7 @@ def save_recommended():
     df = load_bars("15min")
     days = sorted(set(df["trade_day"]))
     split = dt.date(2026, 3, 20)
-    _, live = run(df, ecf_len=20)
+    _, live = run(df, ecf_len=20, a_scale_r=1.0)
     seg = lambda f: compute([t for t in live if f(t.trade_day)], [d for d in days if f(d)])
     reg = load_registry()
     mc = {r.get("rule"): r for r in reg.get("montecarlo_full", {}).get("dynamic", [])}
@@ -181,7 +202,7 @@ def save_recommended():
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "engines": [ENGINE_A, ENGINE_B], "split": str(split), "start": str(days[0]), "end": str(days[-1]),
         "full": seg(lambda d: True), "fit": seg(lambda d: d < split), "unseen": seg(lambda d: d >= split),
-        "equity": equity_points(live), "sizing_note": "fixed $300 risk with the kill switch on",
+        "equity": equity_points(live), "sizing_note": "fixed $300 risk, kill switch on, Engine A half off at +1R",
         "montecarlo_full": reg.get("montecarlo_full", {}),
     }
     save_registry(reg)

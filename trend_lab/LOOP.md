@@ -4,7 +4,7 @@ Goal: a trend-following MCL strategy (1m–15m) that can pass and survive a
 **Lucid 50K Flex** account ($3,000 target, $2,000 EOD trailing drawdown,
 50% consistency in eval, optional $1,200 daily loss limit).
 
-Loop window: **2026-10-05 15:20 UTC → 2026-10-06 15:20 UTC.**
+Loop windows: 2026-10-05 15:20 → 10-06 15:20 UTC (ended after it17, session idle); 2026-10-07 14:35 → **2026-10-08 14:35 UTC**.
 
 ## Each iteration
 
@@ -93,3 +93,12 @@ By prior 20-day daily return: against it PF 1.99 (76 trades), with it PF 1.31 (1
 => edge is a short-horizon (1h/4h) dip-in-trend effect that degrades in high volatility; consistent
 with the 1.5-pt max-stop filter carrying part of the edge. Not adding a vol threshold (would be fit on
 the same data); a daily-trend filter would hurt.
+
+## Iteration 18 (2026-10-07): Engine A scale-out (untuned: half off at +1R)
+
+Engine A alone, identical entries: max DD $1,645 -> $785 (Oct-Mar) and $1,540 -> $821 (Mar-Aug), win rate
+~40% -> ~58%, PF 1.44 -> 1.59 / 1.53 -> 1.51. Full A+B with kill switch (Pine-parity sim):
+Oct-Mar PF 1.33 -> 1.58, DD $1,645 -> $838; Mar-Aug PF 1.71 -> 1.52, DD $1,314 -> $1,144.
+Full-year Monte Carlo, 25% cushion $200-$600: eval pass 63.5% -> 71.1%, fail 9.9% -> 2.2%,
+funded breach 8.6% -> 2.1%, median days 47 -> 53. Now the Pine default (input "A: scale out half at R").
+Entry webhooks now carry only a protective stop (no broker TP); partial exit sent as exit+quantity.

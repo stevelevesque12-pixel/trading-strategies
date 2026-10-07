@@ -4,7 +4,7 @@
 // engines on one account, one position at a time (ATR-dip engine has priority
 // when both fire on the same bar):
 //
-//   A) ATR dip   (python: trend_dip_atr, session "us")
+//   A) ATR dip   (python: trend_dip_atr, session "us") -- half off at +1R (scale-out), rest below
 //      trend : close > 1h EMA50, 1h EMA50 rising over 12 chart bars, close > EMA100
 //      dip   : some low in the last 6 bars <= EMA13 - 1.0*ATR14
 //      entry : close > previous bar's high          (shorts: exact mirror)
@@ -40,10 +40,12 @@
 // alert on this strategy, condition "Order fills only", and set the alert's
 // Message box to exactly:  {{strategy.order.alert_message}}
 // Webhook URL = your TradersPost strategy webhook. See ../TRADINGVIEW_WEBHOOK.md.
-// Entries send a market order with a broker-side bracket (initial stop +
-// target) as a safety net; the trailing stop, breakeven, RSI exit and session
-// flatten are managed here and sent as "exit" when they fill. Verify in
-// TradersPost that "exit" also cancels the remaining bracket orders.
+// Entries send a market order with a broker-side protective stop (initial stop)
+// as a safety net. Everything else -- the +1R scale-out (an "exit" with a
+// "quantity"), target, breakeven, trailing stop, RSI exit and session flatten --
+// is managed here and sent as an exit when it fills. In TradersPost, verify
+// that (1) partial exits by quantity are allowed and (2) an exit also cancels or
+// resizes the broker-side stop. If not, turn off "Attach broker-side stop".
 // Not compiled in the build environment (no TradingView access) -- if the
 // editor flags anything, it is syntax, not logic; the logic mirrors
 // trend_lab/strategies/families_v2.py (TrendDipRSI) and families_v3.py (TrendDipATR).
@@ -73,6 +75,8 @@ maxTradesDay   = input.int(6, "Max trades per day", minval=1, group="Risk (Lucid
 costPerContract = input.float(3.24, "Cost per contract RT incl. slippage (sizing only)", group="Risk (Lucid 50K)")
 maxStopPts     = input.float(1.50, "Skip signals with stop wider than (points)", group="Risk (Lucid 50K)")
 eiaFilter      = input.bool(true, "No entries Wed 10:15-10:45 ET (EIA)", group="Risk (Lucid 50K)")
+sendBracket    = input.bool(true, "Attach broker-side stop to entries", group="Alerts",
+     tooltip="Entry webhooks carry a protective stop at the initial stop price (safety net if TradingView/TradersPost is down). No broker-side take-profit is sent: targets, the scale-out, breakeven, trailing and flatten are all sent from here as exits.")
 useA           = input.bool(true, "Engine A: ATR dip", group="Engines")
 useB           = input.bool(true, "Engine B: RSI dip", group="Engines")
 pointValue     = 100.0  // MCL: $1 per 0.01
@@ -89,6 +93,8 @@ aSwing   = input.int(8, "A: swing stop lookback", group="Engine A")
 aTarget  = input.float(2.0, "A: target R", group="Engine A")
 aBE      = input.float(1.0, "A: breakeven at R", group="Engine A")
 aTrail   = input.float(2.5, "A: trail ATR", group="Engine A")
+aScaleR  = input.float(1.0, "A: scale out half at R (0 = off)", minval=0, group="Engine A",
+     tooltip="Take half the contracts off at +1R, the rest keeps the normal exits. Untuned textbook rule. Full-year Monte Carlo (kill switch on, 25% cushion): eval fail 9.9% -> 2.2%, pass 63.5% -> 71.1%, funded breach 8.6% -> 2.1%.")
 aMaxBars = input.int(0, "A: time stop (bars, 0 = off)", minval=0, group="Engine A",
      tooltip="Walk-forward (iteration 9) chose a 12-bar time stop with a 3R target and no breakeven in every window; modest evidence, so off by default.")
 
@@ -186,6 +192,8 @@ var float targetPx = na
 var float bestPx   = na
 var float pendDist = na
 var int   entryBar = na
+var int   partQty = 0
+var float partPx = na
 
 // Equity-curve kill switch: closed-trade equity history
 var array<float> eqHist = array.new_float()
@@ -208,6 +216,8 @@ if strategy.position_size != 0 and strategy.position_size[1] == 0
     targetPx := strategy.position_avg_price + dir * riskPts * (posEngine == 1 ? aTarget : bTarget)
     bestPx := strategy.position_avg_price
     entryBar := bar_index
+    partQty := posEngine == 1 and aScaleR > 0 and math.abs(strategy.position_size) >= 2 ? int(math.floor(math.abs(strategy.position_size) / 2)) : 0
+    partPx := strategy.position_avg_price + dir * riskPts * aScaleR
 
 // End-of-bar management: breakeven, chandelier trail, signal exits, flatten
 if strategy.position_size != 0
@@ -218,6 +228,13 @@ if strategy.position_size != 0
         stopPx := dir > 0 ? math.max(stopPx, be) : math.min(stopPx, be)
     trail = bestPx - dir * (posEngine == 1 ? aTrail : bTrail) * atr
     stopPx := dir > 0 ? math.max(stopPx, trail) : math.min(stopPx, trail)
+    if partQty > 0
+        partMsg = liveTrade ? '{"ticker":"' + syminfo.ticker + '","action":"exit","quantity":' + str.tostring(partQty) + '}' : ""
+        strategy.exit("PL", from_entry="L", qty=partQty, stop=stopPx, limit=partPx, alert_message=partMsg)
+        strategy.exit("PS", from_entry="S", qty=partQty, stop=stopPx, limit=partPx, alert_message=partMsg)
+        // once the partial has filled, the position is smaller: stop managing it
+        if math.abs(strategy.position_size) < math.abs(strategy.position_size[1]) and strategy.position_size[1] != 0
+            partQty := 0
     strategy.exit("XL", from_entry="L", stop=stopPx, limit=targetPx, alert_message=exitMsg)
     strategy.exit("XS", from_entry="S", stop=stopPx, limit=targetPx, alert_message=exitMsg)
     rsiExit = posEngine == 2 and ((dir > 0 and rsi > bRsiExit) or (dir < 0 and rsi < 100 - bRsiExit))
@@ -256,8 +273,7 @@ if canEnter and dirSig != 0 and dist <= maxStopPts and qty >= 1
     tp = close + dirSig * dist * (eng == 1 ? aTarget : bTarget)
     msg = '{"ticker":"' + syminfo.ticker + '","action":"' + (dirSig > 0 ? "buy" : "sell") + '","orderType":"market"' +
          ',"quantity":' + str.tostring(qty) +
-         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sp, format.mintick) + '}' +
-         ',"takeProfit":{"limitPrice":' + str.tostring(tp, format.mintick) + '}}'
+         (sendBracket ? ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(sp, format.mintick) + '}' : '') + '}'
     if dirSig > 0
         strategy.entry("L", strategy.long, qty=qty, comment=(eng == 1 ? "A long" : "B long") + (ecfLive ? "" : " (shadow)"), alert_message=ecfLive ? msg : "")
         strategy.exit("XL", from_entry="L", stop=sp, limit=tp, alert_message=ecfLive ? exitMsgLive : "")

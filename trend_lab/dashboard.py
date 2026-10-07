@@ -238,7 +238,7 @@ function renderRec(){
   if(!REC || !REC.full) return;
   const u=REC.unseen, f=REC.full, a=REC.engines[0][1], b=REC.engines[1][1];
   $('#rec').innerHTML = `<div class="card" style="margin-bottom:16px"><h3><span>Recommended: ${REC.name}</span><span class="badge watch">◐ forward-test first</span></h3>
-  <div class="desc">Engine A: ATR dip under a rising 1h EMA${a.htf_len} (EMA${a.fast} − ${a.dip_k}·ATR within ${a.dip_bars} bars), stop under ${a.swing_lb}-bar low, ${a.target_r}R target, breakeven at ${a.be_r}R, ${a.trail_k}·ATR trail, entries 08:00–14:30 ET.
+  <div class="desc">Engine A: ATR dip under a rising 1h EMA${a.htf_len} (EMA${a.fast} − ${a.dip_k}·ATR within ${a.dip_bars} bars), stop under ${a.swing_lb}-bar low, half off at +1R, rest ${a.target_r}R target, breakeven at ${a.be_r}R, ${a.trail_k}·ATR trail, entries 08:00–14:30 ET.
   Engine B: RSI(${b.rsi_n}) back above ${b.rsi_lo} under the 4h EMA${b.htf_len}, ${b.target_r}R target, exit RSI&gt;${b.exit_rsi}, ${b.trail_k}·ATR trail, entries 09:00–13:30 ET.
   One position at a time; equity-curve kill switch; cushion sizing 25% ($200–$600). Curve: ${REC.sizing_note}, Pine-parity simulation.</div>
   <svg id="s-rec" viewBox="0 0 1000 220" role="img" aria-label="Recommended strategy equity curve"></svg>
