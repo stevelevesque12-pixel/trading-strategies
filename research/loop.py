@@ -79,8 +79,7 @@ def main():
     with ProcessPoolExecutor(args.workers) as ex:
         while time.time() < deadline:
             batch = []
-            for track, k in (("15m_joint", args.workers * 2), ("15m_full", max(1, args.workers // 2)),
-                             ("5m_recent", max(1, args.workers * 2 // args.five_min_every))):
+            for track, k in (("15m_fast", args.workers * 2), ("15m_joint", max(1, args.workers // 2))):
                 batch += [(f, track, rng.randrange(10**9)) for f in plan(track, k, rng)]
             futs = [ex.submit(_job, b) for b in batch]
             for fu in as_completed(futs):
@@ -92,7 +91,7 @@ def main():
                     continue
                 append(rec)
                 jobs_done += 1
-                if rec["robust"] and rec["track"] in ("15m_full", "15m_joint"):
+                if rec["robust"] and rec["track"] in ("15m_full", "15m_joint", "15m_fast"):
                     try:
                         validate.save(rec)  # auto stress-test every robust 10-year result
                     except Exception as e:

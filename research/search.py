@@ -33,14 +33,20 @@ TRACKS = {
     # v7: optimise on ES *and* NQ in-sample jointly (score = worst of the four IS halves); single-market
     # ES fits proved to be mostly noise (ES IS PF had ~0 correlation with ES OOS PF).
     "15m_joint": ("es_15m", "2023-01-01", "ES+NQ 15m jointly (MES/MNQ pricing); IS < 2023 on both, OOS >= 2023 on both"),
+    # v8: same joint ES+NQ fit, but sized for SPEED: stage 2 maximises the share of evals that pass within
+    # 42 sessions (~2 months) minus the share that bust; needs >= 300 IS trades (frequency is what makes it fast)
+    "15m_fast": ("es_15m", "2023-01-01", "ES+NQ joint fit, sized to pass Lucid within 42 sessions"),
 }
 
 ATR_N = [10, 14, 20, 30]
 SL_K = [1.0, 1.5, 2.0, 2.5, 3.0]
 TP_K = [1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 RISK = [100, 150, 200, 300, 400, 500, 650]
+RISK_FAST = [300, 500, 700, 900, 1200]
+FAST_DAYS = 42
 TRAIL_K = [0.0, 0.0, 1.5, 2.0, 3.0]
-VERSION = 6  # v6: + whole-tick stop/trail distances (matches TradingView trade-for-trade); 15m_joint track added
+VERSION = 6  # (15m_fast track added in v6 as well)
+# v6: + whole-tick stop/trail distances (matches TradingView trade-for-trade); 15m_joint track added
 TRIGGERS = ["fresh", "any", "pullback", "pullback"]
 PB_N = [9, 20, 34, 50]
 WINDOW_CHOICES = ["rth", "ny_am", "ext", "pm", "late", "all_rth"]
@@ -113,13 +119,15 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
     mid = is_m.index[len(is_m) // 2]
     is_a, is_b = is_m.slice(end=mid), is_m.slice(start=mid)
     halves = [is_a, is_b]
-    if track == "15m_joint":
+    joint = track in ("15m_joint", "15m_fast")
+    if joint:
         nq = load("nq_15m")
         nq_is, nq_oos = nq.slice(end=split), nq.slice(start=split)
         nmid = nq_is.index[len(nq_is) // 2]
         halves += [nq_is.slice(end=nmid), nq_is.slice(start=nmid)]
-    min_trades = 60 if track == "5m_recent" else 150
+    min_trades = 60 if track == "5m_recent" else 300 if track == "15m_fast" else 150
     rules = LucidRules()
+    size_rules = LucidRules(max_days=FAST_DAYS) if track == "15m_fast" else rules
     tried = 0
     t0 = time.time()
 
@@ -145,7 +153,7 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
 
     # stage 2: prop sizing on the frozen signal
     sized, sized_sc = best, -1e9
-    for risk in RISK:
+    for risk in (RISK_FAST if track == "15m_fast" else RISK):
         for small in SMALL:
             for dll in DLL:
                 for cap in CAP:
@@ -153,7 +161,7 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
                     tried += 1
                     trades = backtest(is_m, s, rules)
                     for cush in (False, True):  # cushion sizing is a sim-side overlay: reuse the trades
-                        sc = prop_score(metrics(is_m, trades, rules, curve_points=0, cushion_sizing=cush))
+                        sc = prop_score(metrics(is_m, trades, size_rules, curve_points=0, cushion_sizing=cush))
                         if sc > sized_sc:
                             sized, sized_sc = replace(s, cushion_sizing=cush), sc
 
@@ -168,16 +176,20 @@ def optimise_family(family, track="15m_full", n_random=120, n_mutate=120, seed=N
         "seconds": round(time.time() - t0, 1),
         "is": r_is, "oos": r_oos, "full": r_all,
     }
-    if track in ("15m_full", "15m_joint"):
+    if track in ("15m_full", "15m_joint", "15m_fast"):
         rec["mes_check"] = evaluate(load("mes_15m"), sized, rules, curve_points=0)
-    if track == "15m_joint":
+    if joint:
         rec["nq_is"] = evaluate(nq_is, sized, rules, curve_points=0)
         rec["nq_oos"] = evaluate(nq_oos, sized, rules, curve_points=0)
+    if track == "15m_fast":  # Lucid odds within 42 sessions
+        fr = LucidRules(max_days=FAST_DAYS)
+        rec["fast"] = {k: evaluate(m, sized, fr, curve_points=0)["lucid"] for k, m in
+                       (("es_is", is_m), ("es_oos", oos_m), ("nq_is", nq_is), ("nq_oos", nq_oos))}
     rec["robust"] = bool(
         r_is["trades"] >= min_trades and r_oos["trades"] >= min_trades // 3
         and r_is["profit_factor"] > 1.05 and r_oos["profit_factor"] > 1.05
         and r_oos["sharpe"] > 0.3
-        and (track != "15m_joint" or (rec["nq_oos"]["profit_factor"] > 1.05 and rec["nq_is"]["profit_factor"] > 1.05))
+        and (not joint or (rec["nq_oos"]["profit_factor"] > 1.05 and rec["nq_is"]["profit_factor"] > 1.05))
     )
     return rec
 

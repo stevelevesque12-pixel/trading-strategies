@@ -28,6 +28,8 @@ def _slim(d):
         "name": d["name"], "spec": d["spec"], "tried": d["configs_tried"], "robust": d["robust"],
         "is": m(d["is"]), "oos": m(d["oos"]), "full": m(d["full"]), "mes": m(d.get("mes_check")),
         "nq_is": m(d.get("nq_is")), "nq_oos": m(d.get("nq_oos")),
+        "fast": {k: {"pass": v.get("pass_rate"), "bust": v.get("bust_rate"), "days": v.get("median_days_to_pass")}
+                 for k, v in (d.get("fast") or {}).items()},
         # early records stored seconds instead of ms (index resolution bug) - normalise
         "eq": [[t * 1000 if t < 10**11 else t, v] for t, v in d["full"].get("equity", [])],
     }
@@ -147,7 +149,7 @@ button { background: var(--surface-2); color: var(--text); border: 1px solid var
   <div class="card">
     <h2>Every strategy tested</h2>
     <div class="filters">
-      <select id="f-track"><option value="">All tracks</option><option value="15m_joint">15m, ES + NQ joint (10y)</option><option value="15m_full">15m, ES only (10y)</option><option value="5m_recent">5m, recent MES</option></select>
+      <select id="f-track"><option value="">All tracks</option><option value="15m_fast">15m, ES + NQ, sized to pass in 2 months</option><option value="15m_joint">15m, ES + NQ joint (10y)</option><option value="15m_full">15m, ES only (10y)</option><option value="5m_recent">5m, recent MES</option></select>
       <label class="chk"><input type="checkbox" id="f-robust"> Robust only</label>
       <label class="chk"><input type="checkbox" id="f-latest" checked> Latest engine only</label>
       <input type="search" id="f-q" placeholder="Filter by component…">
@@ -210,6 +212,7 @@ const COLS = [
   ["OOS max DD", r => r.oos?.max_dd, r => fmt$(r.oos?.max_dd)],
   ["OOS Sharpe", r => r.oos?.sharpe, r => f2(r.oos?.sharpe)],
   ["NQ OOS PF", r => r.nq_oos?.profit_factor, r => f2(r.nq_oos?.profit_factor)],
+  ["≤2-mo pass ES/NQ OOS", r => r.fast?.es_oos ? (r.fast.es_oos.pass + r.fast.nq_oos.pass) / 2 : null, r => r.fast?.es_oos ? `${pct(r.fast.es_oos.pass)} / ${pct(r.fast.nq_oos.pass)}` : "–"],
   ["OOS Lucid pass", r => r.oos?.pass, r => pct(r.oos?.pass)],
   ["OOS bust", r => r.oos?.bust, r => pct(r.oos?.bust)],
   ["Trades/wk", r => r.full?.trades_per_week, r => r.full?.trades_per_week?.toFixed(1) ?? "–"],
@@ -260,7 +263,7 @@ function select(id, scroll = true) {
   const s = r.spec, p = o => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(", ") || "–";
   const per = (lab, m) => m ? `<tr><td>${lab}</td><td>${m.trades} trades · win ${pct(m.win_rate)} · PF ${f2(m.profit_factor)} · net ${fmt$(m.net)} · DD ${fmt$(m.max_dd)} · Sharpe ${f2(m.sharpe)} · Lucid pass ${pct(m.pass)} / bust ${pct(m.bust)}${m.days ? ` · ${m.days} sessions to pass` : ""}</td></tr>` : "";
   d.innerHTML = `
-    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : r.track === "15m_joint" ? "fit on ES + NQ jointly, 2016–2022" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
+    <h2>${r.name} <span class="note">· ${r.tf}m · ${r.track === "15m_full" ? "ES-as-MES 15m, 2016–2026" : r.track === "15m_joint" ? "fit on ES + NQ jointly, 2016–2022" : r.track === "15m_fast" ? "ES + NQ joint fit, sized to pass in ≤ 42 sessions" : "MES 5m, recent"} · ${r.robust ? "✓ robust" : "not robust"}</span></h2>
     <div class="detail-grid">
       ${tile("OOS win rate", pct(r.oos?.win_rate), `IS ${pct(r.is?.win_rate)}`)}
       ${tile("OOS profit factor", f2(r.oos?.profit_factor), `IS ${f2(r.is?.profit_factor)}`)}
@@ -351,7 +354,7 @@ function drawEquity(r) {
 function families() {
   const med = a => { const b = a.filter(x => x != null).sort((x, y) => x - y); return b.length ? b[Math.floor((b.length - 1) / 2)] : null; };
   const g = {};
-  R.filter(r => r.v === VMAX && (r.track === "15m_full" || r.track === "15m_joint")).forEach(r => (g[r.name] = g[r.name] || []).push(r));
+  R.filter(r => r.v === VMAX && (r.track === "15m_full" || r.track === "15m_joint" || r.track === "15m_fast")).forEach(r => (g[r.name] = g[r.name] || []).push(r));
   const rows = Object.entries(g).filter(([, rs]) => rs.length >= 2).map(([name, rs]) => ({
     name, n: rs.length, rob: rs.filter(r => r.robust).length,
     pf: med(rs.map(r => r.oos?.profit_factor)), pass: med(rs.map(r => r.oos?.pass)), bust: med(rs.map(r => r.oos?.bust)),
