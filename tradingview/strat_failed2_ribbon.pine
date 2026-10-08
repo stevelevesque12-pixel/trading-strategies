@@ -1,0 +1,100 @@
+//@version=6
+strategy("Strat Failed 2 Reversal", overlay = true,
+     initial_capital = 50000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62,
+     slippage = 1,
+     process_orders_on_close = false)   // signal on bar close -> fill at next bar open (realistic for webhook)
+
+// ───────── Inputs ─────────
+dirMode     = input.string("Both", "Direction", options = ["Long", "Short", "Both"])
+strictClose = input.bool(false, "Strict: must close back inside prior bar's range")
+tgtMode     = input.string("Magnitude", "Target", options = ["Magnitude", "Fixed R"])
+rrMult      = input.float(2.0, "Fixed R multiple", step = 0.25)
+minMagR     = input.float(0.0, "Min magnitude distance in R (0 = off)", step = 0.25)
+
+useFTFC     = input.bool(false, "FTFC filter")
+htf1        = input.timeframe("60", "FTFC timeframe 1")
+useHtf2     = input.bool(false, "Also use FTFC timeframe 2")
+htf2        = input.timeframe("D", "FTFC timeframe 2")
+
+entrySess   = input.session("0930-1545", "Entry window (NY time)")
+flatSess    = input.session("1555-1600", "Flatten window (NY time)")
+tpTicker    = input.string("MNQ1!", "TradersPost ticker")
+
+useRibbon   = input.bool(true, "EMA ribbon filter", group = "Ribbon")
+fastLen     = input.int(8,  "Fast EMA", group = "Ribbon")
+slowLen     = input.int(21, "Slow EMA", group = "Ribbon")
+noTouchBars = input.string("Failed 2 bar only", "No-touch check on", options = ["Failed 2 bar only", "Failed 2 + prior bar"], group = "Ribbon")
+
+// ───────── EMA ribbon ─────────
+emaFast   = ta.ema(close, fastLen)
+emaSlow   = ta.ema(close, slowLen)
+ribTop    = math.max(emaFast, emaSlow)
+ribBot    = math.min(emaFast, emaSlow)
+checkPrev = noTouchBars == "Failed 2 + prior bar"
+// Longs: fast above slow, and the candle's low stays entirely above the ribbon
+ribbonLong  = not useRibbon or (emaFast > emaSlow and low > ribTop and (not checkPrev or low[1] > ribTop[1]))
+// Shorts: fast below slow, and the candle's high stays entirely below the ribbon
+ribbonShort = not useRibbon or (emaFast < emaSlow and high < ribBot and (not checkPrev or high[1] < ribBot[1]))
+
+// ───────── Session ─────────
+inEntry = not na(time(timeframe.period, entrySess, "America/New_York"))
+inFlat  = not na(time(timeframe.period, flatSess,  "America/New_York"))
+
+// ───────── FTFC (price vs. higher-timeframe open; open is known at bar start → no repaint) ─────────
+htfOpen1 = request.security(syminfo.tickerid, htf1, open, lookahead = barmerge.lookahead_on)
+htfOpen2 = request.security(syminfo.tickerid, htf2, open, lookahead = barmerge.lookahead_on)
+ftfcBull = not useFTFC or (close > htfOpen1 and (not useHtf2 or close > htfOpen2))
+ftfcBear = not useFTFC or (close < htfOpen1 and (not useHtf2 or close < htfOpen2))
+
+// ───────── Failed 2 definitions ─────────
+// Failed 2D: breaks prior low (not an outside bar), closes green
+failed2D = low < low[1] and high <= high[1] and close > open and (not strictClose or close > low[1])
+// Failed 2U: breaks prior high (not an outside bar), closes red
+failed2U = high > high[1] and low >= low[1] and close < open and (not strictClose or close < high[1])
+
+tick = syminfo.mintick
+
+// ───────── Long ─────────
+longStop  = low - tick
+longRisk  = close - longStop
+longMag   = high[1]
+longTgt   = tgtMode == "Magnitude" ? longMag : close + rrMult * longRisk
+longRoom  = tgtMode == "Fixed R" or (longMag > close and (minMagR == 0 or (longMag - close) >= minMagR * longRisk))
+
+longSig = dirMode != "Short" and failed2D and ribbonLong and ftfcBull and longRoom and inEntry and strategy.position_size == 0
+
+if longSig
+    msgL = '{"ticker":"' + tpTicker + '","action":"buy","quantity":1,' +
+         '"takeProfit":{"limitPrice":' + str.tostring(longTgt) + '},' +
+         '"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop) + '}}'
+    strategy.entry("L", strategy.long, alert_message = msgL)
+    strategy.exit("L-x", "L", stop = longStop, limit = longTgt)
+
+// ───────── Short ─────────
+shortStop = high + tick
+shortRisk = shortStop - close
+shortMag  = low[1]
+shortTgt  = tgtMode == "Magnitude" ? shortMag : close - rrMult * shortRisk
+shortRoom = tgtMode == "Fixed R" or (shortMag < close and (minMagR == 0 or (close - shortMag) >= minMagR * shortRisk))
+
+shortSig = dirMode != "Long" and failed2U and ribbonShort and ftfcBear and shortRoom and inEntry and strategy.position_size == 0
+
+if shortSig
+    msgS = '{"ticker":"' + tpTicker + '","action":"sell","quantity":1,' +
+         '"takeProfit":{"limitPrice":' + str.tostring(shortTgt) + '},' +
+         '"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop) + '}}'
+    strategy.entry("S", strategy.short, alert_message = msgS)
+    strategy.exit("S-x", "S", stop = shortStop, limit = shortTgt)
+
+// ───────── End-of-day flatten (no overnight) ─────────
+if inFlat and strategy.position_size != 0
+    strategy.close_all(comment = "EOD", alert_message = '{"ticker":"' + tpTicker + '","action":"exit"}')
+
+// ───────── Visuals ─────────
+pFast = plot(emaFast, "EMA fast", color = color.new(color.aqua, 0))
+pSlow = plot(emaSlow, "EMA slow", color = color.new(color.orange, 0))
+fill(pFast, pSlow, color = emaFast > emaSlow ? color.new(color.green, 80) : color.new(color.red, 80), title = "Ribbon")
+plotshape(failed2D, "Failed 2D", shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.tiny)
+plotshape(failed2U, "Failed 2U", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.tiny)
