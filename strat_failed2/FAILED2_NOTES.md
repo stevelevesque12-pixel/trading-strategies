@@ -92,3 +92,40 @@ half-edge numbers, ~$2–3k/year per account.
 3. Re-run the Tradeify year simulation on that data.
 4. Live kill switch: stop if rolling 30-trade PF < 1.0.
 5. Consider using these filters on the ORB Baseline instead of as a standalone setup.
+
+## 1m MNQ test (2026-10-08) — `onemin.py`
+
+Still only the 17 RTH sessions of 1m MNQ in the repo (Aug 3–25 2026). Yahoo is blocked
+from the cloud environment and there is no Databento key, so **next step 1 (6–12 months of
+1m data) is still open**. Everything below runs on 1 MNQ and is small-sample.
+
+`bt_failed2.run()` now takes `fast=`/`slow=` EMA lengths; `resample()` takes `offset=` (minutes)
+to shift bar boundaries.
+
+**TF 1–5m, 0.5R, with split halves (H1 = Aug 3–13, H2 = Aug 14–25):**
+
+| TF | Trades | Net | WR | PF | PF H1 | PF H2 |
+|---|---|---|---|---|---|---|
+| 1m | 81 | -$256 | 59% | 0.62 | 0.65 | 0.59 |
+| 2m | 33 | +$67 | 70% | 1.25 | 2.67 | 0.78 |
+| 3m | 27 | -$17 | 63% | 0.95 | 0.73 | 1.11 |
+| 4m | 22 | +$217 | 82% | 2.37 | 6.87 | 1.31 |
+| 5m | 15 | -$82 | 67% | 0.64 | 2.83 | 0.23 |
+
+(4m PF here is 2.37 vs 2.52 in the earlier table above; the cause isn't confirmed.)
+
+**Bar-alignment check (shifting where the bars start; 0.5R):** 4m is positive at all 4
+offsets (PF 2.37 / 1.68 / 1.18 / 2.18). 2m flips to PF 0.39 at offset 1, so 2m is not robust.
+3m and 5m are mixed.
+
+**Fast EMA 6–10 on 4m (0.5R):** PF 3.95 / 1.59 / 2.37 / 2.41 / 1.32, so EMA 7/8/9 all hold.
+On 2m: 1.07 / 1.54 / 1.25 / 1.19 / 1.26.
+
+**Target on 4m:** 0.3R 1.83, **0.5R 2.37**, 0.75R 1.79, 1R 1.17, 1.5R 1.32. 0.5R stays the best.
+
+**Takeaway:** 4m passes every robustness check available (alignment, EMA, target), but the
+sample is 22 trades and H2 is much weaker than H1 (1.31 vs 6.87). 1m loses. 2m is fragile.
+More 1m data is still needed before trusting 4m.
+
+Note: `sample_data/daily/nasdaq_index_daily_2026-09-08_2026-10-07.csv` (user upload) is
+**daily** index OHLC with no volume (22 days). It can't be used for the 1m/4m tests.

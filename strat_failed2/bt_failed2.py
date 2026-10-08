@@ -14,10 +14,10 @@ def load(fname):
     return d[["open", "high", "low", "close", "volume"]]
 
 
-def resample(d, n):
+def resample(d, n, offset=0):
     if n == 1:
         return d
-    origin = pd.Timestamp("2020-01-01 18:00", tz=NY)  # CME session start, like TradingView
+    origin = pd.Timestamp("2020-01-01 18:00", tz=NY) + pd.Timedelta(minutes=offset)  # CME session start, like TradingView
     r = d.resample(f"{n}min", origin=origin).agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
     return r.dropna()
 
@@ -27,10 +27,10 @@ def in_sess(idx, start, end):
     return (m >= start) & (m < end)
 
 
-def run(d, ribbon=True, check_prev=False, direction="Both", allow8=False, vwap=None, tmode="mag", minR=0.0):
+def run(d, ribbon=True, check_prev=False, direction="Both", allow8=False, vwap=None, tmode="mag", minR=0.0, fast=8, slow=21):
     o, h, l, c = (d[k].to_numpy() for k in ("open", "high", "low", "close"))
-    ef = d["close"].ewm(span=8, adjust=False).mean().to_numpy()
-    es = d["close"].ewm(span=21, adjust=False).mean().to_numpy()
+    ef = d["close"].ewm(span=fast, adjust=False).mean().to_numpy()
+    es = d["close"].ewm(span=slow, adjust=False).mean().to_numpy()
     top, bot = np.maximum(ef, es), np.minimum(ef, es)
     up, dn = ef > es, ef < es
     if vwap is not None:
