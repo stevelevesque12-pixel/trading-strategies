@@ -73630,7 +73630,7 @@
  },
  "recommended": {
   "name": "MCL Trend Dip (15m) \u2014 tradingview/mcl_trend_dip.pine",
-  "created": "2026-10-07T14:41:24+00:00",
+  "created": "2026-10-08T02:24:45+00:00",
   "engines": [
    [
     "trend_dip_atr",

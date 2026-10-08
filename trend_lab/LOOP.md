@@ -169,3 +169,8 @@ best of 18 on the same data).
 8 parameters one step either way (16 neighbors), A frozen, half at +1R, fixed $300: 100% profitable in both
 halves, median 1.27 / 1.53, worst 1.10 / 1.48 (rsi_n 2, rsi_lo 35). Most B params barely move the result
 (B adds ~1 trade/week). Both engines sit on plateaus. No change.
+
+## Iteration 24 (2026-10-08 02:25 UTC): deliverables refreshed
+
+Dashboard hero rebuilt from the final config (half at +1R, kill switch, fixed $300 curve): full-year PF 1.56,
+max DD $1,144; unseen (Mar 20-Aug) PF 1.52. 46 tests pass. Research has converged (iterations 19-23: no change).
