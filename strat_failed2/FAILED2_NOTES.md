@@ -129,3 +129,45 @@ More 1m data is still needed before trusting 4m.
 
 Note: `sample_data/daily/nasdaq_index_daily_2026-09-08_2026-10-07.csv` (user upload) is
 **daily** index OHLC with no volume (22 days). It can't be used for the 1m/4m tests.
+
+## 3 years of 1m NQ (2026-10-08) — `nq1m.py`
+
+Data: user-supplied `Dataset_NQ_1min_2022_2025.csv`, saved as
+`sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet`. It covers
+764 RTH sessions with no gaps beyond weekends and holidays. The source timestamps mark the
+bar *close*, so they were shifted back 1 minute to match the repo's bar-open convention.
+Prices look back-adjusted (continuous contract); point P&L is unaffected. The CSV has exactly
+1,048,575 data rows, Excel's row limit, so it may have been cut off at Dec 11 2025.
+Assumptions: 1 NQ, $4 RT, 1 tick slippage per side.
+
+**The 4m edge does not hold up.** 4m 0.5R: 900 trades, PF 0.95, −$4.5k
+(2023 0.81, 2024 1.08, 2025 0.95). By half-year it ranges from 0.55 to 1.40. The 17-session
+PF 2.37 was noise.
+
+| TF | 0.5R PF (trades) | 2023 | 2024 | 2025 |
+|---|---|---|---|---|
+| 1m | 0.95 (2960) | 0.91 | 0.84 | 1.08 |
+| 2m | 0.95 (1654) | 0.84 | 0.93 | 1.05 |
+| 3m | 0.88 (1125) | 0.96 | 0.91 | 0.81 |
+| 4m | 0.95 (900) | 0.81 | 1.08 | 0.95 |
+| 5m | 0.78 (664) | 0.88 | 0.80 | 0.70 |
+| 6m | 1.15 (575) | 1.01 | 1.11 | 1.31 |
+| 8m | 1.21 (486) | 1.00 | 1.03 | 1.51 |
+| 10m | 0.81 (386) | 1.44 | 0.75 | 0.60 |
+| 15m | 1.11 (301) | 0.89 | 1.19 | 1.20 |
+
+The 15m yearly PFs match the earlier 10-year NQ 15m study (2023 ≈ 0.90), which
+cross-checks the dataset.
+
+**Bar-alignment median PF (0.5R):** 2m ~0.93, 3m ~0.89, 4m ~0.96, 5m 1.05 (range 0.78–1.27),
+6m 1.06 (all 6 offsets ≥ 1.04), 8m 1.07 (2/8 offsets lose), 15m 1.11 (3/15 lose).
+Shifting where the bars start moves PF by ±0.2, which is as large as any "edge" here.
+
+**EMA and target sweeps at 4m:** PF stays 0.94–1.06 for EMA 6–10 and 0.88–1.05 for targets
+0.3R–2R. No setting rescues it.
+
+**Conclusion:** across 1–5m there is no edge after costs. 6m and 15m show a thin PF of about
+1.05–1.1 at median alignment. That is too thin for 0.5R in a $2k-drawdown eval, because the
+break-even win rate is about 67% and live slippage alone eats it. The Tradeify sim was not
+re-run, since the input edge is gone. Don't trade 4m. If anything continues, use 15m (with
+the regime caveat above) or use these filters on the ORB Baseline (next step 5).
