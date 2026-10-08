@@ -10,3 +10,5 @@ research/loop.log
 research/results.jsonl
 research/dashboard.html
 research/validation/
+research/snapshot/results.jsonl
+research/snapshot/dashboard.html
