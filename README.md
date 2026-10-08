@@ -29,6 +29,44 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third, much simpler strategy: `lhll/` (Lower Highs and Lower Lows).**
+If a bar makes a lower high *and* a lower low than the bar before it, buy
+at that bar's close and exit at the close 1-10 bars later (no stop, no
+target). One position at a time. Intraday timeframes use RTH bars only and
+never hold overnight; daily bars are built from RTH (09:30-16:00 ET).
+
+```bash
+python -m lhll.run --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet --timeframe 1D
+python -m lhll.run --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet --timeframe 5min
+```
+
+Results, long only, zero costs. `edge` is the average trade minus the
+market's average move over the same hold from *any* bar, so it shows what
+the signal adds beyond NQ/ES simply going up. `edge_t` is the t-stat of
+that edge.
+
+| Market / TF | Period | Hold | Trades | Win % | Avg pts | t | Edge pts | edge_t |
+|---|---|---|---|---|---|---|---|---|
+| NQ daily | 2016-2026 | 1 | 865 | 56.4 | +16.3 | 2.31 | +6.9 | 0.98 |
+| NQ daily | 2016-2026 | 2 | 615 | 57.4 | +27.0 | 2.41 | +8.3 | 0.74 |
+| NQ daily | 2016-2026 | 8 | 254 | 63.4 | +100.2 | 3.14 | +24.1 | 0.75 |
+| ES daily | 2016-2026 | 1 | 872 | 55.6 | +3.7 | 2.25 | +1.6 | 0.98 |
+| ES daily | 2016-2026 | 2 | 624 | 59.3 | +6.9 | 2.57 | +2.7 | 0.99 |
+| NQ 15m | 2016-2026 | 1-10 | 22k-6k | 52-54 | -0.1 to +0.3 | < 0.5 | <= 0 | < 0 |
+| NQ 5m | 2023-2025 | 1-10 | 21k-5k | 51-53 | -0.2 to +0.7 | < 1.1 | mostly < 0 | < 0.2 |
+| NQ 1m | 2023-2025 | 1-10 | 105k-24k | 51-52 | +0.04 to +0.19 | < 1.9 | ~0 | < 1.1 |
+| NQ 1h | 2023-2025 | 1-6 | 1.3k-0.6k | 51-53 | -1.4 to -2.9 | < 0 | -3 to -8 | -1.6 to -2.1 |
+
+How to read it: on **daily** bars every hold from 1-10 days is profitable
+(PF 1.25-1.75, win rate 56-65%), but almost all of that is the uptrend in
+index futures. Buying any day's close and holding the same number of days
+did nearly as well. The extra edge from the signal is positive but not
+significant (edge_t < 1). On **intraday** bars there is nothing there: the
+1m/5m/15m averages are fractions of a point per trade, which commissions and
+one tick of slippage (0.25-0.5 pt on NQ) would wipe out. Hourly is
+negative. Run any timeframe with `--cost 0.5` to see results after costs.
+Tests: `tests/test_lhll.py`.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
