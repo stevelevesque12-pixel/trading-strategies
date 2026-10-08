@@ -174,3 +174,8 @@ halves, median 1.27 / 1.53, worst 1.10 / 1.48 (rsi_n 2, rsi_lo 35). Most B param
 
 Dashboard hero rebuilt from the final config (half at +1R, kill switch, fixed $300 curve): full-year PF 1.56,
 max DD $1,144; unseen (Mar 20-Aug) PF 1.52. 46 tests pass. Research has converged (iterations 19-23: no change).
+
+## Loop closed (2026-10-08 14:36 UTC)
+
+Final: tradingview/mcl_trend_dip.pine (15m MCL1!), Engine A + B, half at +1R, kill switch, cushion 25% $200-$600,
+margin 5%. TradingView parity confirmed (208/213 trades). No further scheduled iterations.
