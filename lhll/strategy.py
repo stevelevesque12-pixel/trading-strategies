@@ -3,7 +3,8 @@ Lower Highs and Lower Lows (LH/LL) time-exit strategy.
 
 Rules:
   1. Signal: a bar whose high is below the previous bar's high AND whose low
-     is below the previous bar's low.
+     is below the previous bar's low. With `consecutive=3`, only the third
+     such bar in a row fires (the 3-bar variant).
   2. Entry: at that bar's close (long by default -- the classic version of
      this setup is a short-term mean-reversion buy; `direction="short"`
      trades the mirror for comparison).
@@ -38,13 +39,22 @@ class Trade:
     pnl_points: float  # after cost_points
 
 
-def lhll_signal(df: pd.DataFrame, session: Optional[pd.Series] = None) -> pd.Series:
-    """True on bars with a lower high and lower low than the previous bar."""
-    sig = (df["high"] < df["high"].shift(1)) & (df["low"] < df["low"].shift(1))
+def lhll_signal(df: pd.DataFrame, session: Optional[pd.Series] = None,
+                consecutive: int = 1) -> pd.Series:
+    """
+    True on the bar that completes exactly `consecutive` bars in a row, each
+    with a lower high and lower low than the bar before it (1 = any such bar;
+    3 = the third in a row, not the fourth or later).
+    """
+    lhll = (df["high"] < df["high"].shift(1)) & (df["low"] < df["low"].shift(1))
     if session is not None:
         sess = pd.Series(np.asarray(session), index=df.index)
-        sig &= sess.eq(sess.shift(1))
-    return sig.fillna(False)
+        lhll &= sess.eq(sess.shift(1))
+    lhll = lhll.fillna(False)
+    if consecutive == 1:
+        return lhll
+    streak = lhll.groupby((~lhll).cumsum()).cumsum()
+    return streak.eq(consecutive)
 
 
 def backtest_lhll(
@@ -53,22 +63,19 @@ def backtest_lhll(
     direction: Literal["long", "short"] = "long",
     cost_points: float = 0.0,
     session: Optional[pd.Series] = None,
+    consecutive: int = 1,
 ) -> List[Trade]:
     if hold_bars < 1:
         raise ValueError("hold_bars must be >= 1")
 
-    sig = lhll_signal(df, session).to_numpy()
+    sig = lhll_signal(df, session, consecutive).to_numpy()
     close = df["close"].to_numpy()
     idx = df.index
     n = len(df)
     sign = 1.0 if direction == "long" else -1.0
 
     if session is not None:
-        sess = np.asarray(session)
-        # index of the last bar of each bar's session
-        breaks = np.flatnonzero(sess[1:] != sess[:-1])
-        ends = np.append(breaks, n - 1)
-        session_end = np.repeat(ends, np.diff(np.concatenate(([-1], ends))))
+        session_end = _session_end(np.asarray(session))
     else:
         session_end = np.full(n, n - 1)
 
@@ -121,10 +128,29 @@ def _t(x: np.ndarray) -> float:
 
 def baseline_avg_points(df: pd.DataFrame, hold_bars: int, direction: str = "long",
                         session: Optional[pd.Series] = None) -> float:
-    """Average N-bar forward move from *every* bar's close: the drift a signal has to beat."""
-    fwd = df["close"].shift(-hold_bars) - df["close"]
-    if session is not None:
-        sess = pd.Series(np.asarray(session), index=df.index)
-        fwd = fwd[sess.eq(sess.shift(-hold_bars))]
-    avg = float(fwd.dropna().mean())
+    """
+    Average move from *every* bar's close, using the same exit rule as the
+    trades (N bars later, or the session's last bar if sooner): the drift a
+    signal has to beat.
+    """
+    close = df["close"].to_numpy()
+    n = len(close)
+    i = np.arange(n)
+    if session is None:
+        i = i[i + hold_bars <= n - 1]
+        j = i + hold_bars
+    else:
+        j = np.minimum(i + hold_bars, _session_end(np.asarray(session)))
+        keep = j > i
+        i, j = i[keep], j[keep]
+    if len(i) == 0:
+        return float("nan")
+    avg = float((close[j] - close[i]).mean())
     return avg if direction == "long" else -avg
+
+
+def _session_end(sess: np.ndarray) -> np.ndarray:
+    """Index of the last bar of each bar's session."""
+    n = len(sess)
+    ends = np.append(np.flatnonzero(sess[1:] != sess[:-1]), n - 1)
+    return np.repeat(ends, np.diff(np.concatenate(([-1], ends))))

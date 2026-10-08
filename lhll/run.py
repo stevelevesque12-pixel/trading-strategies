@@ -27,11 +27,17 @@ def build_bars(raw: pd.DataFrame, timeframe: str) -> tuple:
         daily = rth.groupby(rth.index.date).agg(agg).dropna()
         daily.index = pd.DatetimeIndex(daily.index)
         return daily, None
-    # offset so bins start at :30 (an hourly bar is 09:30-10:30, not 09:00-10:00)
+    # Bins are anchored to 09:30 each day, so any length works (a 45m day is
+    # 09:30, 10:15, ... and an hourly bar is 09:30-10:30, not 09:00-10:00).
+    # The last bar of the day is partial when 390 min isn't a multiple.
+    minutes = int(pd.Timedelta(timeframe).total_seconds() // 60)
+    t = rth.index
+    since_open = (t.hour * 60 + t.minute) - (9 * 60 + 30)
+    start = t.normalize() + pd.to_timedelta(9 * 60 + 30 + since_open // minutes * minutes, unit="min")
     agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
-    bars = rth.resample(timeframe, label="left", closed="left", offset="30min").agg(agg).dropna()
+    bars = rth.groupby(start).agg(agg).dropna()
+    bars.index.name = None
     return bars, pd.Series(bars.index.date, index=bars.index)
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -39,6 +45,7 @@ def main(argv=None):
     p.add_argument("--timeframe", default="1D", help="1D, or a pandas rule like 5min/15min/1h")
     p.add_argument("--direction", choices=["long", "short"], default="long")
     p.add_argument("--max-hold", type=int, default=10)
+    p.add_argument("--consecutive", type=int, default=1, help="enter on the Nth LH/LL bar in a row")
     p.add_argument("--cost", type=float, default=0.0, help="round-trip cost in points per trade")
     p.add_argument("--instrument", default="NQ")
     p.add_argument("--start", help="only use bars on/after this date")
@@ -51,10 +58,10 @@ def main(argv=None):
     point_value = INSTRUMENTS[args.instrument].point_value
 
     print(f"{args.data}\n{args.timeframe} bars: {len(bars)}  {bars.index[0]} -> {bars.index[-1]}  "
-          f"direction={args.direction} cost={args.cost}pts {args.instrument}=${point_value}/pt\n")
+          f"direction={args.direction} consecutive={args.consecutive} cost={args.cost}pts {args.instrument}=${point_value}/pt\n")
     rows = []
     for n in range(1, args.max_hold + 1):
-        trades = backtest_lhll(bars, n, args.direction, args.cost, session)
+        trades = backtest_lhll(bars, n, args.direction, args.cost, session, args.consecutive)
         base = baseline_avg_points(bars, n, args.direction, session) - args.cost
         s = summarize(trades, point_value, base)
         rows.append({"hold": n, **s})

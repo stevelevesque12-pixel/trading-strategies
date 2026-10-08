@@ -56,3 +56,29 @@ def test_summary_and_baseline():
     assert s["trades"] == 1 and s["total_pts"] == 5 and s["total_$"] == 100
     assert baseline_avg_points(df, 1) == pytest.approx((-2 + 5 + 1 + 1) / 4)
     assert summarize([]) == {"trades": 0}
+
+
+def test_baseline_uses_same_session_end_exit_as_trades():
+    df = make([(10, 5, 8), (9, 4, 6), (12, 6, 11), (8, 3, 5), (7, 2, 4)])
+    session = pd.Series(["d1", "d1", "d1", "d2", "d2"], index=df.index)
+    # hold 5 -> every bar exits at its session's last close; last bars excluded
+    assert baseline_avg_points(df, 5, session=session) == pytest.approx(((11 - 8) + (11 - 6) + (4 - 5)) / 3)
+
+
+def test_build_bars_anchors_to_rth_open():
+    from lhll.run import build_bars
+    idx = pd.date_range("2026-01-05 09:30", "2026-01-05 15:59", freq="1min", tz="America/New_York")
+    raw = pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 1.0}, index=idx)
+    bars, _ = build_bars(raw, "45min")
+    assert [t.strftime("%H:%M") for t in bars.index[:3]] == ["09:30", "10:15", "11:00"]
+    assert len(bars) == 9  # 390 / 45 = 8 full bars + a partial 15:30 bar
+
+
+def test_consecutive_fires_only_on_third_bar_in_a_row():
+    # bars 1-4 are LH/LL in a row, bar 5 breaks it, bars 6-8 are LH/LL again
+    rows = [(20, 15, 18), (19, 14, 16), (18, 13, 15), (17, 12, 14), (16, 11, 13),
+            (18, 12, 17), (17, 11, 15), (16, 10, 14), (15, 9, 13)]
+    sig = lhll_signal(make(rows), consecutive=3)
+    assert sig[sig].index.tolist() == [make(rows).index[3], make(rows).index[8]]
+    t = backtest_lhll(make(rows), hold_bars=1, consecutive=3)
+    assert [tr.entry_price for tr in t] == [14]  # bar 8 has no bar after it

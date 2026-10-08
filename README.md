@@ -38,6 +38,7 @@ never hold overnight; daily bars are built from RTH (09:30-16:00 ET).
 ```bash
 python -m lhll.run --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet --timeframe 1D
 python -m lhll.run --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet --timeframe 5min
+python -m lhll.sweep --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet  # all intraday TFs x holds
 ```
 
 Results, long only, zero costs. `edge` is the average trade minus the
@@ -66,6 +67,27 @@ significant (edge_t < 1). On **intraday** bars there is nothing there: the
 one tick of slippage (0.25-0.5 pt on NQ) would wipe out. Hourly is
 negative. Run any timeframe with `--cost 0.5` to see results after costs.
 Tests: `tests/test_lhll.py`.
+
+**3-in-a-row variant** (`--consecutive 3`): buy only at the close of the
+*third* consecutive LH/LL bar (not the 4th or later), sell N bars later.
+Daily RTH bars, 2016-2026, long, zero costs:
+
+| Market | Hold | Trades | Win % | Avg pts | PF | Edge vs drift | edge_t |
+|---|---|---|---|---|---|---|---|
+| ES | 1 | 91 | 60.4 | +17.3 | 2.58 | +15.2 | 2.88 |
+| ES | 2 | 91 | 64.8 | +30.4 | 3.39 | +26.1 | 3.47 |
+| ES | 3-10 | 76-91 | 55-70 | +13 to +37 | 1.47-1.97 | +7 to +19 | 0.5-1.6 |
+| NQ | 1 | 88 | 54.5 | +44.2 | 1.86 | +34.8 | 1.61 |
+| NQ | 2 | 88 | 63.6 | +67.1 | 1.91 | +48.4 | 1.61 |
+| NQ | 3-10 | 69-88 | 58-65 | +45 to +162 | 1.31-1.94 | +7 to +76 | 0.1-1.1 |
+
+ES with a 1-2 day hold is the only result in this folder that clears a t of 2
+against drift, and it is positive in each of 2016-19, 2020-22 and 2023-26
+(edge_t of the 2-day hold: 0.7, 2.6, 2.5). NQ is positive in each period
+but its excess return is mostly from 2020-22. GC is mixed and SI loses.
+With about 9 trades a year this is a small sample. On intraday bars (NQ 1m
+to 90m, 2023-2025, `python -m lhll.sweep --consecutive 3 --cost 0.5`) there
+is no edge at any timeframe or hold.
 
 ## Strategy logic (Failed-2s)
 
