@@ -171,3 +171,73 @@ Shifting where the bars start moves PF by ±0.2, which is as large as any "edge"
 break-even win rate is about 67% and live slippage alone eats it. The Tradeify sim was not
 re-run, since the input edge is gone. Don't trade 4m. If anything continues, use 15m (with
 the regime caveat above) or use these filters on the ORB Baseline (next step 5).
+
+## Failed 2 scalper search (2026-10-08) — `f2lab.py`, `f2search.py`, `f2final.py`
+
+Goal: find a filter (or filters) that makes failed 2s profitable on 1m–15m, at any R.
+
+**Method (to avoid fooling ourselves):**
+- 3 years of 1m NQ. Exits are resolved on 1m bars, and if a stop and target fall in the same
+  minute, the stop is assumed hit first.
+- Filters are selected on 2023–2024 and judged on 2025. The final check is MNQ Aug 2026,
+  which no search ever touched.
+- Costs: $4 RT per NQ, or $1.24 RT per MNQ.
+- Harsh fills: 2-tick entry slippage, 1-tick stop/EOD slippage, and targets must trade 1 tick
+  through the limit to fill.
+
+**What failed:**
+1. *Filters on the market-at-close entry.* An exhaustive search of 1–3 filter combos across 12
+   timeframes and 6 targets found ~20k combos profitable in both 2023 and 2024, but only 44%
+   stayed profitable in 2025, and the strongest training combos generalized *worse*. That is
+   pure curve-fitting. Even before costs, the raw failed 2 is about break-even (PF 0.80–1.05).
+2. *Single filters across all TFs.* The best ones add only about +0.03–0.05 PF: trend
+   alignment (close beyond the ribbon, FTFC with the day/week open, 2h trend), larger bars,
+   strong closes. Not enough to fix the entry.
+3. *Retest/mid limit entries* are worse than market.
+
+**What worked: entry by trigger, on 1m, on quiet failed 2 bars.**
+- The TheStrat-style trigger (a stop order at the break of the failed 2 bar's other end,
+  valid 1 bar) is positive unfiltered on 1m (PF 1.10, ~30k trades) but negative on 2m–15m.
+- Adding **failed 2 bar range < x · ATR(14)** turns it into the only filter set that
+  generalizes: 97–100% of the top training combos were also profitable in 2025.
+- The effect is monotonic in the threshold, every year (harsh fills, 0.5R, PF 2023/2024/2025):
+  range/ATR 0.4–0.6 → 1.29/1.56/1.68 · 0.6–0.8 → 1.08/1.16/1.26 · 0.8–1.0 → 0.98/0.95/1.05 ·
+  above 1.0 → 0.82–0.98.
+- A minimum stop of 6 pts removes trades where costs eat the edge (stops of 0–4 pts lose).
+- The same rule loses on 2m–15m, so this is a very short-horizon 1m effect.
+
+**Final rule** (`tradingview/failed2_1m_trigger.pine`):
+- **Chart:** 1m NQ/MNQ.
+- **Setup:** failed 2D (long) or failed 2U (short), where the bar's range is less than
+  0.6 × ATR(14) and the stop distance is at least 6 pts.
+- **Entry:** buy-stop at the failed 2 bar's high (sell-stop at its low for shorts), cancelled
+  if not filled on the next bar.
+- **Stop:** 1 tick beyond the wick.
+- **Target:** 0.5R.
+- **Session:** entries 09:30–15:44 ET, flatten 15:55 ET.
+- No ribbon. Adding the strict ribbon improves PF slightly but cuts trades to about 0.5/day.
+
+Results with harsh fills, one position at a time (`python f2final.py`):
+
+| Period | Trades | WR | PF | Net / 10 MNQ | Max DD |
+|---|---|---|---|---|---|
+| 2023 | 316 | 67% | 1.25 | $4.5k | −$2.1k |
+| 2024 | 520 | 69% | 1.51 | $15.3k | −$1.6k |
+| 2025 (test year) | 644 | 71% | 1.64 | $26.1k | −$1.5k |
+| MNQ Aug 2026 (untouched) | 46 | 67% | 1.57 | $2.0k | −$0.7k |
+
+That's about 2 trades per day, profitable in 11 of 12 quarters. Raising the minimum stop to
+8 pts is profitable in all 12 quarters at about 1 trade per day.
+
+**Tradeify Select 50K → Flex** (`year.py` model, 2,000 simulated years), 20 MNQ in eval and
+20 MNQ funded:
+- As tested: mean ~$15k/yr, P(losing year) 2%.
+- At **half edge: ~$4k/yr, P(loss) 29%.** Plan around the half-edge number.
+
+**Risks:**
+- Live stop-order slippage on fast 1m breaks is the biggest unknown. At 3 ticks of entry
+  slippage, 2023 is close to break-even.
+- Webhook latency: the stop order must be live within seconds of the 1m close.
+- Confirm that TradersPost accepts `orderType: "stop"` entries with brackets.
+- Paper trade first, and track realized entry slippage against the 2-tick assumption.
+- Kill switch: stop if the rolling 100-trade PF falls below 1.0.

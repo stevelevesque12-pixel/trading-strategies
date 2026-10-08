@@ -1,0 +1,78 @@
+//@version=6
+// Failed 2 — 1m "quiet trap" trigger scalper (NQ / MNQ, 1-minute chart)
+// Research: strat_failed2/FAILED2_NOTES.md ("Failed 2 scalper search") and strat_failed2/f2final.py
+//   Failed 2D (long): bar breaks prior low, not prior high, closes green.
+//   Filter: failed 2 bar range < 0.6 x ATR(14) of the prior bar, and stop distance >= 6 pts.
+//   Entry: buy-STOP at the failed 2 bar's high, valid for the next bar only (cancelled if not hit).
+//   Stop: 1 tick below the failed 2 bar's low. Target: 0.5R from the trigger. Shorts mirror.
+//   Entries 09:30-15:44 ET, flatten 15:55 ET.
+strategy("Failed 2 1m Trigger Scalper", overlay = true,
+     initial_capital = 50000,
+     default_qty_type = strategy.fixed, default_qty_value = 10,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62,
+     slippage = 2)
+
+// ───────── Inputs ─────────
+dirMode   = input.string("Both", "Direction", options = ["Long", "Short", "Both"])
+maxRngAtr = input.float(0.6, "Max failed 2 bar range / ATR(14)", step = 0.05)
+minStop   = input.float(6.0, "Min stop distance (points, incl. 2-tick entry slip)", step = 0.25)
+rrMult    = input.float(0.5, "Target (R multiple)", step = 0.25)
+qty       = input.int(10, "Contracts")
+entrySess = input.session("0930-1544", "Entry window (NY time)")
+flatSess  = input.session("1555-1600", "Flatten window (NY time)")
+tpTicker  = input.string("MNQ1!", "TradersPost ticker")
+
+tick    = syminfo.mintick
+inEntry = not na(time(timeframe.period, entrySess, "America/New_York"))
+inFlat  = not na(time(timeframe.period, flatSess,  "America/New_York"))
+atrPrev = ta.atr(14)[1]
+quiet   = (high - low) < maxRngAtr * atrPrev
+
+failed2D = low < low[1] and high <= high[1] and close > open
+failed2U = high > high[1] and low >= low[1] and close < open
+
+// stop distance as the backtest measures it: trigger + 2 ticks slippage to the protective stop
+longStop  = low - tick
+longTrig  = high
+longRisk  = longTrig - longStop
+longTgt   = longTrig + rrMult * longRisk
+shortStop = high + tick
+shortTrig = low
+shortRisk = shortStop - shortTrig
+shortTgt  = shortTrig - rrMult * shortRisk
+
+flat    = strategy.position_size == 0
+longOk  = dirMode != "Short" and failed2D and quiet and longRisk + 2 * tick >= minStop and inEntry and flat
+shortOk = dirMode != "Long" and failed2U and quiet and shortRisk + 2 * tick >= minStop and inEntry and flat
+
+// ───────── Orders (one bar life) ─────────
+var int sigBar = na
+if flat and not na(sigBar) and bar_index > sigBar
+    strategy.cancel("L")
+    strategy.cancel("S")
+    sigBar := na
+
+if longOk
+    msgL = '{"ticker":"' + tpTicker + '","action":"buy","orderType":"stop","stopPrice":' + str.tostring(longTrig) +
+         ',"quantity":' + str.tostring(qty) + ',' +
+         '"takeProfit":{"limitPrice":' + str.tostring(longTgt) + '},' +
+         '"stopLoss":{"type":"stop","stopPrice":' + str.tostring(longStop) + '}}'
+    strategy.entry("L", strategy.long, qty = qty, stop = longTrig, alert_message = msgL)
+    strategy.exit("L-x", "L", stop = longStop, limit = longTgt)
+    sigBar := bar_index
+else if shortOk
+    msgS = '{"ticker":"' + tpTicker + '","action":"sell","orderType":"stop","stopPrice":' + str.tostring(shortTrig) +
+         ',"quantity":' + str.tostring(qty) + ',' +
+         '"takeProfit":{"limitPrice":' + str.tostring(shortTgt) + '},' +
+         '"stopLoss":{"type":"stop","stopPrice":' + str.tostring(shortStop) + '}}'
+    strategy.entry("S", strategy.short, qty = qty, stop = shortTrig, alert_message = msgS)
+    strategy.exit("S-x", "S", stop = shortStop, limit = shortTgt)
+    sigBar := bar_index
+
+// ───────── End-of-day flatten ─────────
+if inFlat and strategy.position_size != 0
+    strategy.close_all(comment = "EOD", alert_message = '{"ticker":"' + tpTicker + '","action":"exit"}')
+
+// ───────── Visuals ─────────
+plotshape(failed2D and quiet, "Quiet failed 2D", shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.tiny)
+plotshape(failed2U and quiet, "Quiet failed 2U", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.tiny)
