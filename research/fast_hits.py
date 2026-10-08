@@ -15,7 +15,8 @@ from trend.data import load
 from trend.strategy import LucidRules, Spec, backtest, metrics
 
 EXCLUDE = {"donchian+prev_close+vwap|atr_rank", "donchian+heikin+overnight|or_width",
-           "linreg_slope+overnight+rsi|or_width"}
+           "linreg_slope+overnight+rsi|or_width",
+           "hma_slope+heikin+overnight|or_width"}
 LEN_KEYS = {"n", "fast", "slow", "mid", "look", "sig"}
 
 
