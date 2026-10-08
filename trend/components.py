@@ -381,3 +381,24 @@ def reg_or_width(m, minutes, lo, hi):
 def trend_orb_lon(m, minutes):
     """Opening-range breakout from the London open (03:00 ET): a second, earlier daily setup per market."""
     return _orb(m.h, m.l, m.c, m.day_id, _bar_open_minute(m), 3 * 60, minutes)
+
+
+# ------------------------------------------------------------------ batch 7: scalping-oriented
+@_reg(TREND, "ema_ribbon", {"fast": [8, 9], "mid": [21, 34], "slow": [55, 89]})
+def trend_ema_ribbon(m, fast, mid, slow):
+    """Stacked EMAs: fast > mid > slow = up, fast < mid < slow = down, otherwise neutral."""
+    f, md, s = ind.ema(m.c, fast), ind.ema(m.c, mid), ind.ema(m.c, slow)
+    return (((f > md) & (md > s)).astype(np.int8) - ((f < md) & (md < s)).astype(np.int8))
+
+
+@_reg(CONFIRM, "burst", {"k": [0.5, 0.75, 1.0], "hold": [1, 3, 6]})
+def conf_burst(m, k, hold):
+    """Momentum burst: a bar whose body exceeds k x ATR(14) in one direction; the signal holds for `hold` bars."""
+    a = ind.atr(m.h, m.l, m.c, 14)
+    body = m.c - m.o
+    raw = np.where(body > k * a, 1, np.where(body < -k * a, -1, 0)).astype(np.int8)
+    out = raw.copy()
+    for j in range(1, hold):
+        sh = np.r_[np.zeros(j, np.int8), raw[:-j]]
+        out = np.where(out == 0, sh, out)
+    return out.astype(np.int8)
