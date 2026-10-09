@@ -113,6 +113,12 @@ bTarget  = input.float(3.0, "B: target R", group="Engine B")
 bTrail   = input.float(3.0, "B: trail ATR", group="Engine B")
 
 // ---------------- Time helpers (ET) ----------------
+// All settings were fitted on 15-minute bars; on 1m/5m the same lengths mean something else
+// (a 1m run over 365 days: 1,912 trades, PF 0.60). Refuse to run on anything but 15m.
+allowOtherTf = input.bool(false, "Allow timeframes other than 15m (not validated)", group="Alerts")
+if not allowOtherTf and timeframe.period != "15"
+    runtime.error("MCL Trend Dip is built for a 15-minute chart. Switch the chart to 15m (current: " + timeframe.period + ").")
+
 tz = "America/New_York"
 barMinutes = timeframe.in_seconds() / 60
 closeT = time + timeframe.in_seconds() * 1000
