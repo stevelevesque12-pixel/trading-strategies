@@ -1,7 +1,8 @@
 """Balanced single-account plan for a Tradeify Growth 50K account.
 
 Plan:
-  * size 10 / 10 / 6 MNQ: eval at 10, funded at 10 until the first payout, then 6;
+  * eval at 1 NQ (= 10 MNQ of risk, cheaper to trade), funded at 10 MNQ until
+    the first payout, then 6 MNQ;
   * regime filter: trade only when the ORB's own last 60 trading days are net
     positive at 1 contract after costs; otherwise stand aside that day;
   * eval brake: after 2 failed evals in a row, wait 20 trading days before
@@ -14,7 +15,7 @@ drawdown with lock, soft $1,250 daily loss limit, $53,000 payout balance,
 log for one account slot.
 
 Usage:  python -m prop_sim.growth_balanced [--start 2023-01-01] [--plan 10:10:6]
-            [--lookback 60] [--brake 2:20] [--fee 145]
+            [--lookback 60] [--brake 2:20] [--fee 145] [--nq-cost 9] [--eval-micros]
 """
 import argparse
 from dataclasses import dataclass
@@ -42,8 +43,11 @@ class Plan:
 class History:
     """Trade-list days plus 1-contract daily pnl, shared by every run."""
 
-    def __init__(self, csv=str(DEFAULT_CSV), cost=1.5):
+    def __init__(self, csv=str(DEFAULT_CSV), cost=1.5, eval_nq_cost=None):
+        """cost: $ per micro round trip. eval_nq_cost: $ per NQ round trip when the eval is
+        traded in NQ (1 NQ = 10 MNQ of risk); None trades the eval in micros too."""
         dated = load_dated_days(csv, cost)
+        self.eval_hist = None if eval_nq_cost is None else History(csv, eval_nq_cost / 10)
         self.dates = [d for d, _, _ in dated]
         self.days = [(p, m) for _, p, m in dated]
         self.one = np.array([float(sum(p)) for p, _ in self.days])
@@ -58,6 +62,9 @@ class History:
         if key not in self._cache:
             self._cache[key] = day_result(*self.days[t], n)
         return self._cache[key]
+
+    def eval_result(self, t, n):
+        return (self.eval_hist or self).result(t, n)
 
     def filter_on(self, t, lookback):
         return lookback is None or self.one[max(0, t - lookback):t].sum() > 0
@@ -82,7 +89,7 @@ def run(h: History, i0: int, i1: int, plan: Plan):
             idle += 1
             continue
         if fu is None:
-            res = h.result(t, plan.ne)
+            res = h.eval_result(t, plan.ne)
             st = ev.step(res)
             if res[0] <= -DAILY_LOSS_LIMIT:
                 events.append(dict(t=t, kind="dll", where="eval"))
@@ -137,16 +144,18 @@ def main():
     ap.add_argument("--lookback", type=int, default=60, help="0 disables the regime filter")
     ap.add_argument("--brake", default="2:20", help="fails:days, or 0 to disable")
     ap.add_argument("--fee", type=float, default=145.0)
+    ap.add_argument("--nq-cost", type=float, default=9.0, help="$ per NQ round trip for the eval")
+    ap.add_argument("--eval-micros", action="store_true", help="trade the eval in MNQ instead of NQ")
     a = ap.parse_args()
     ne, nb, na = (int(x) for x in a.plan.split(":"))
     bf, bd = (int(x) for x in a.brake.split(":")) if a.brake != "0" else (None, 0)
     plan = Plan(ne, nb, na, a.lookback or None, bf, bd, a.fee)
-    h = History(a.csv, a.cost)
+    h = History(a.csv, a.cost, None if a.eval_micros else a.nq_cost)
     res = windows(h, a.start, a.end, plan)
     net = np.array([r["net"] for r in res])
     k = np.array([r["payouts"] for r in res])
     ev = np.array([r["evals"] for r in res])
-    print(f"Plan {a.plan}, filter {plan.lookback}, brake {a.brake}, fee ${a.fee:.0f}, "
+    print(f"Eval in {'MNQ' if a.eval_micros else f'NQ (${a.nq_cost:.2f}/RT)'}; plan {a.plan}, filter {plan.lookback}, brake {a.brake}, fee ${a.fee:.0f}, "
           f"from {a.start} ({len(res)} one-year windows)")
     print(f"  payouts/yr  mean {k.mean():.1f}  median {np.median(k):.0f}")
     print(f"  net/yr      mean ${net.mean():,.0f}  median ${np.median(net):,.0f}  "
