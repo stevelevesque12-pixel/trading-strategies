@@ -1,0 +1,124 @@
+//@version=6
+// SuperTrend / ATR trend-following strategy, ported from
+// supertrend_atr/strategy.py. Fires TradersPost-format webhook alerts.
+//
+// Rules (long case; short is the exact mirror):
+//   1. Entry: on the bar the chart-timeframe SuperTrend flips up, place a
+//      BUY STOP at that bar's high + offset ticks. Pending for N bars, and
+//      cancelled as soon as SuperTrend flips back down.
+//   2. Structure filter: the higher-timeframe SuperTrend (non-repainting
+//      request.security) must also be up.
+//   3. Volatility filter: ATR / SMA(ATR) must be within [min, max].
+//   4. Stop-loss: fill - 4.2 x ATR at the signal bar.
+//   5. Trailing stop: once the trade is 0.6 x ATR in profit, trail the best
+//      price since entry by 0.6 x current ATR (recomputed on bar close,
+//      only tightens).
+//   6. No profit target. Optional RTH-only mode flattens before the close.
+//
+// Small known difference from the Python backtester: Python also checks the
+// initial stop against the bar the entry filled on; here the exit order is
+// placed from the following bar on.
+//
+// Alerting: create the alert with condition "Any alert() function call",
+// webhook URL = your TradersPost strategy URL. Alerts fire at bar close when
+// the strategy's stop entry has filled (sent as a market order with the
+// initial stop attached) and when the strategy goes flat (sent as "exit").
+// That is up to one bar of latency vs. the backtest's intrabar fills -- on
+// higher timeframes that matters; forward-test before trusting it.
+
+strategy("SuperTrend ATR (stop entries, ATR trail)", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.0, slippage=1)
+
+// ---- Inputs ----
+stPeriod      = input.int(10, "SuperTrend ATR period", minval=1)
+stFactor      = input.float(3.0, "SuperTrend factor", step=0.1)
+atrPeriod     = input.int(14, "ATR period (stop/trail/filter)", minval=1)
+slMult        = input.float(4.2, "Stop-loss ATR coefficient", step=0.1)
+trailMult     = input.float(0.6, "Trailing stop ATR coefficient", step=0.1)
+trailActMult  = input.float(0.6, "Trail activation (ATRs of profit; 0 = immediate)", step=0.1)
+offsetTicks   = input.int(1, "Stop-entry offset (ticks)", minval=0)
+expiryBars    = input.int(3, "Pending order expiry (bars)", minval=1)
+useHtf        = input.bool(true, "Require higher-timeframe SuperTrend agreement")
+htfTf         = input.timeframe("60", "Higher timeframe")
+volLookback   = input.int(100, "ATR average lookback", minval=1)
+volMin        = input.float(0.8, "Min ATR / avg ATR", step=0.05)
+volMax        = input.float(100.0, "Max ATR / avg ATR", step=0.05)
+rthOnly       = input.bool(true, "RTH only (enter in window, flatten at end)")
+entrySession  = input.session("0930-1545", "Entry window (America/New_York)")
+flattenSession= input.session("1555-1600", "Flatten window (America/New_York)")
+
+// ---- Indicators ----
+[stLine, stDir] = ta.supertrend(stFactor, stPeriod)   // stDir < 0 = uptrend
+atr       = ta.atr(atrPeriod)
+volRatio  = atr / ta.sma(atr, volLookback)
+htfDir    = request.security(syminfo.tickerid, htfTf, stDir[1], lookahead=barmerge.lookahead_on)
+
+flipUp    = stDir < 0 and stDir[1] > 0
+flipDown  = stDir > 0 and stDir[1] < 0
+volOk     = volRatio >= volMin and volRatio <= volMax
+inEntry   = not rthOnly or not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlatten = rthOnly and not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+// ---- Pending stop orders ----
+var int   pendingDir  = 0
+var int   barsLeft    = 0
+var float pendingAtr  = na
+var float entryAtr    = na
+
+if pendingDir != 0
+    barsLeft -= 1
+    trendAgainst = (pendingDir == 1 and stDir > 0) or (pendingDir == -1 and stDir < 0)
+    if barsLeft <= 0 or trendAgainst or not inEntry or strategy.position_size != 0
+        strategy.cancel(pendingDir == 1 ? "Long" : "Short")
+        pendingDir := 0
+
+if strategy.position_size == 0 and pendingDir == 0 and inEntry and volOk
+    if flipUp and (not useHtf or htfDir < 0)
+        strategy.entry("Long", strategy.long, stop=high + offsetTicks * syminfo.mintick)
+        pendingDir := 1
+        barsLeft   := expiryBars
+        pendingAtr := atr
+    else if flipDown and (not useHtf or htfDir > 0)
+        strategy.entry("Short", strategy.short, stop=low - offsetTicks * syminfo.mintick)
+        pendingDir := -1
+        barsLeft   := expiryBars
+        pendingAtr := atr
+
+// ---- Stop + ATR trailing stop ----
+var float stopLevel = na
+var float bestPrice = na
+justOpened = strategy.position_size != 0 and strategy.position_size[1] == 0
+
+if justOpened
+    entryAtr  := pendingAtr
+    stopLevel := strategy.position_size > 0 ? strategy.position_avg_price - slMult * entryAtr : strategy.position_avg_price + slMult * entryAtr
+    bestPrice := strategy.position_size > 0 ? high : low
+    pendingDir := 0
+    side = strategy.position_size > 0 ? "buy" : "sell"
+    alert('{"ticker":"' + syminfo.ticker + '","action":"' + side + '","orderType":"market"' +
+         ',"quantity":' + str.tostring(math.abs(strategy.position_size)) +
+         ',"signalPrice":' + str.tostring(strategy.position_avg_price) +
+         ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopLevel) + '}}', alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0
+    bestPrice := math.max(bestPrice, high)
+    if bestPrice - strategy.position_avg_price >= trailActMult * atr
+        stopLevel := math.max(stopLevel, bestPrice - trailMult * atr)
+    strategy.exit("Long Exit", from_entry="Long", stop=stopLevel)
+else if strategy.position_size < 0
+    bestPrice := math.min(bestPrice, low)
+    if strategy.position_avg_price - bestPrice >= trailActMult * atr
+        stopLevel := math.min(stopLevel, bestPrice + trailMult * atr)
+    strategy.exit("Short Exit", from_entry="Short", stop=stopLevel)
+
+if inFlatten and strategy.position_size != 0
+    strategy.close_all(comment="session_flatten")
+
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(stDir < 0 ? stLine : na, "SuperTrend up", color=color.green, style=plot.style_linebr)
+plot(stDir > 0 ? stLine : na, "SuperTrend down", color=color.red, style=plot.style_linebr)
+plot(strategy.position_size != 0 ? stopLevel : na, "Stop / trail", color=color.orange, style=plot.style_linebr)

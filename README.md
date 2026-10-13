@@ -230,3 +230,9 @@ in). Don't rely on the daily loss limit unattended until that's wired up.
 ```bash
 pytest
 ```
+
+**A third strategy, `supertrend_atr/`**: SuperTrend flip entries via pending
+stop orders, a higher-timeframe SuperTrend filter, an ATR volatility filter,
+a 4.2 ATR stop, a 0.6 ATR trailing stop and no fixed target. It is backtested
+on 3 years of real NQ 1m data. Results are mixed and it shows no robust edge;
+see `supertrend_atr/README.md`. The Pine port is `tradingview/supertrend_atr.pine`.
