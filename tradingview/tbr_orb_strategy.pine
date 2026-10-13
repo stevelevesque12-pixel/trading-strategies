@@ -1,0 +1,423 @@
+//@version=6
+// Time-Based Range / ORB strategy -- a tradeable strategy() port of the
+// "Time Range ORB Detector [34ematrader]" indicator, with real order handling
+// (stops, targets, time exit, sizing) so it can run in the Strategy Tester on
+// any symbol and timeframe.
+//
+// Signal styles are the indicator's:
+//   Breakout               first close (or wick) outside the range -> trade WITH it
+//   Fade (reversal)        first break -> trade AGAINST it
+//   Breakout then reversal first break -> with it; later break of the other
+//                          side -> stop-and-reverse into that new direction
+//   NS ORB (limit pullback) full-body close outside -> limit order back inside
+//                          the range at 0.125, SL protecting 95% of range, TP 0.4R
+//
+// DEFAULTS = the configuration that tested best (see README, "TBR / ORB
+// strategy"): 30-min ORB 9:30-10:00 ET, Breakout on a close, stop at the
+// opposite end of the range, target 3R, no new entries after 14:30, flat at
+// 15:55. Researched on NQ 1-minute data 2023-2024, held out on 2025. The
+// edge is modest and showed up on Nasdaq futures; it was ~break-even on ES
+// and gold, so re-test before using it elsewhere.
+//
+// Chart timeframe must be smaller than the range window (1m-5m for a 30-min
+// range). All times are in the selected timezone; windows that cross
+// midnight (e.g. 23:00-01:00) are supported.
+//
+// Alerting (TradersPost-format JSON, same as the other scripts in this repo):
+// create the alert with condition "Any alert() function call"; the webhook
+// URL is your TradersPost strategy URL. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("TBR / ORB Strategy", shorttitle="TBR ORB Strat", overlay=true,
+     initial_capital=50000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.5,
+     slippage=1, pyramiding=0, calc_on_every_tick=false, process_orders_on_close=false,
+     max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ── Time window ───────────────────────────────────────────────────────────
+grpTime = "Range window"
+iPreset = input.string("30-min ORB 9:30–10:00", "Range preset",
+     options=["NY TBR 8:12–9:12", "5-min ORB 9:30–9:35", "15-min ORB 9:30–9:45",
+              "30-min ORB 9:30–10:00", "Initial Balance 9:30–10:30", "London TBR 1:12–2:12",
+              "Custom start + end", "Custom start + duration"], group=grpTime)
+iStartH = input.int(9,  "Custom start hour",   minval=0, maxval=23, group=grpTime, inline="cs")
+iStartM = input.int(30, "min",                 minval=0, maxval=59, group=grpTime, inline="cs")
+iEndH   = input.int(10, "Custom end hour",     minval=0, maxval=23, group=grpTime, inline="ce")
+iEndM   = input.int(0,  "min",                 minval=0, maxval=59, group=grpTime, inline="ce")
+iDur    = input.int(30, "Custom duration (minutes)", minval=1, maxval=720, group=grpTime)
+iTz     = input.string("America/New_York", "Timezone",
+     options=["America/New_York", "America/Chicago", "America/Los_Angeles", "Europe/London",
+              "Europe/Berlin", "Asia/Tokyo", "Asia/Hong_Kong", "Australia/Sydney", "UTC", "Exchange"],
+     group=grpTime, tooltip="'Exchange' = the symbol's own exchange timezone.")
+iCutH   = input.int(14, "No new entries after hour", minval=0, maxval=23, group=grpTime, inline="cut")
+iCutM   = input.int(30, "min",                       minval=0, maxval=59, group=grpTime, inline="cut")
+iFlatOn = input.bool(true, "Flatten at time", group=grpTime, inline="fl")
+iFlatH  = input.int(15, "hour", minval=0, maxval=23, group=grpTime, inline="fl")
+iFlatM  = input.int(55, "min",  minval=0, maxval=59, group=grpTime, inline="fl")
+iMon = input.bool(true, "Mon", group=grpTime, inline="dow")
+iTue = input.bool(true, "Tue", group=grpTime, inline="dow")
+iWed = input.bool(true, "Wed", group=grpTime, inline="dow")
+iThu = input.bool(true, "Thu", group=grpTime, inline="dow")
+iFri = input.bool(true, "Fri", group=grpTime, inline="dow")
+iSat = input.bool(false, "Sat", group=grpTime, inline="dow")
+iSun = input.bool(false, "Sun", group=grpTime, inline="dow")
+
+// ── Signal logic ──────────────────────────────────────────────────────────
+grpSig = "Signal"
+iStyle = input.string("Breakout", "Trade style",
+     options=["Breakout", "Fade (reversal)", "Breakout then reversal", "NS ORB (limit pullback)"], group=grpSig)
+iBreak = input.string("Close", "Break detection", options=["Close", "Wick"], group=grpSig)
+iConfirm = input.string("Sweep only (first break)", "Entry confirmation",
+     options=["Sweep only (first break)", "Sweep + reclaim close", "Sweep + opposing candle"], group=grpSig,
+     tooltip="Same as the indicator. 'Reclaim close' only makes sense for Fade.")
+iAllowRev = input.bool(true, "Fade: also take the reversal signal on the opposite break", group=grpSig)
+iLongs  = input.bool(true, "Allow longs",  group=grpSig, inline="dir")
+iShorts = input.bool(true, "Allow shorts", group=grpSig, inline="dir")
+iMaxTrades = input.int(2, "Max entries per range/day", minval=1, maxval=20, group=grpSig)
+
+// ── NS ORB ────────────────────────────────────────────────────────────────
+grpNS = "NS ORB (only used by that style)"
+iNsEntry = input.float(0.125, "Entry pullback (fraction of range)", minval=0.0, maxval=1.0, step=0.005, group=grpNS)
+iNsSl    = input.float(0.95,  "SL protect fraction of range",      minval=0.1, maxval=2.0, step=0.01,  group=grpNS)
+iNsTpR   = input.float(0.4,   "Take profit (R multiple)",          minval=0.05, maxval=20, step=0.05, group=grpNS)
+iNsFull  = input.bool(true, "Require full body outside (open & close)", group=grpNS)
+
+// ── Stop / target ─────────────────────────────────────────────────────────
+grpRisk = "Stop loss / take profit (non-NS styles)"
+iSlMode = input.string("Range level", "Stop type",
+     options=["Range level", "Swing since break", "ATR", "Fixed points"], group=grpRisk,
+     tooltip="Range level: long stop = range high − fraction × range (1.0 = range low, 0.5 = mid). Short is the mirror.\nSwing since break: beyond the lowest low / highest high from the break bar to the entry bar (good for Fade).\nIf a stop lands on the wrong side of entry it falls back to ATR.")
+iSlFrac = input.float(1.0, "Range level fraction", minval=0.0, maxval=3.0, step=0.05, group=grpRisk)
+iSlAtr  = input.float(0.5, "Stop ATR multiple", minval=0.05, step=0.05, group=grpRisk)
+iSlPts  = input.float(25.0, "Stop fixed points", minval=0.0, step=0.25, group=grpRisk)
+iSlBuf  = input.int(0, "Stop buffer (ticks)", minval=0, group=grpRisk)
+iTpMode = input.string("R multiple", "Target type",
+     options=["R multiple", "ATR multiple", "Fixed points", "Opposite range end", "Measured move (1x range)", "None (time exit)"], group=grpRisk)
+iTpR    = input.float(3.0, "Target R multiple", minval=0.1, step=0.1, group=grpRisk)
+iTpAtr  = input.float(1.0, "Target ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+iTpPts  = input.float(50.0, "Target fixed points", minval=0.25, step=0.25, group=grpRisk)
+iAtrLen = input.int(14, "ATR length", minval=1, group=grpRisk)
+iBeOn   = input.bool(false, "Move stop to breakeven", group=grpRisk, inline="be")
+iBeR    = input.float(1.0, "after (R)", minval=0.1, step=0.1, group=grpRisk, inline="be")
+
+// ── Filters ───────────────────────────────────────────────────────────────
+grpFlt = "Range size filter (0 = off)"
+iRngUnit = input.string("% of price", "Unit", options=["% of price", "Points", "Ticks"], group=grpFlt)
+iRngMin  = input.float(0.0, "Min range", minval=0.0, step=0.01, group=grpFlt)
+iRngMax  = input.float(0.0, "Max range", minval=0.0, step=0.01, group=grpFlt,
+     tooltip="NQ research: a max of ~0.85% of price removed the 2020 drawdown but also cut 2025 to a small loss -- mixed, so off by default.")
+
+// ── Sizing ────────────────────────────────────────────────────────────────
+grpSize = "Position sizing"
+iSizeMode = input.string("Fixed contracts", "Sizing", options=["Fixed contracts", "Risk amount"], group=grpSize)
+iQty      = input.float(1.0, "Contracts / units (fixed)", minval=0.000001, group=grpSize)
+iRiskAmt  = input.float(500.0, "Risk per trade (account currency)", minval=1.0, group=grpSize)
+iMaxQty   = input.float(10.0, "Max contracts / units", minval=0.000001, group=grpSize)
+iRoundQty = input.bool(true, "Whole contracts only", group=grpSize)
+
+// ── Visuals / alerts ──────────────────────────────────────────────────────
+grpVis = "Visuals & alerts"
+iShowRange = input.bool(true, "Show range high / low / mid", group=grpVis)
+iShowLvls  = input.bool(true, "Show active stop / target", group=grpVis)
+iShowBg    = input.bool(true, "Shade the range-building window", group=grpVis)
+iAlerts    = input.bool(true, "Send TradersPost-format alert() messages", group=grpVis)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Time helpers
+// ═══════════════════════════════════════════════════════════════════════════
+tz = iTz == "Exchange" ? syminfo.timezone : iTz
+
+f_win() =>
+    switch iPreset
+        "NY TBR 8:12–9:12"           => array.from(8 * 60 + 12, 9 * 60 + 12)
+        "5-min ORB 9:30–9:35"        => array.from(570, 575)
+        "15-min ORB 9:30–9:45"       => array.from(570, 585)
+        "30-min ORB 9:30–10:00"      => array.from(570, 600)
+        "Initial Balance 9:30–10:30" => array.from(570, 630)
+        "London TBR 1:12–2:12"       => array.from(72, 132)
+        "Custom start + duration"    => array.from(iStartH * 60 + iStartM, (iStartH * 60 + iStartM + iDur) % 1440)
+        => array.from(iStartH * 60 + iStartM, iEndH * 60 + iEndM)
+
+win    = f_win()
+sMin   = array.get(win, 0)
+eMin   = array.get(win, 1)
+cutMin = iCutH * 60 + iCutM
+flatMin = iFlatH * 60 + iFlatM
+
+// minute-of-day membership in [a, b), wrapping past midnight when b < a
+f_in(int m, int a, int b) =>
+    a == b ? false : a < b ? (m >= a and m < b) : (m >= a or m < b)
+
+mod      = hour(time, tz) * 60 + minute(time, tz)
+inBuild  = f_in(mod, sMin, eMin)
+inSignal = f_in(mod, eMin, cutMin)
+inSpan   = iFlatOn ? f_in(mod, sMin, flatMin) : true
+newRange = inBuild and not inBuild[1]
+endBuild = inBuild[1] and not inBuild
+
+dow = dayofweek(time, tz)
+dowOk = switch dow
+    dayofweek.monday    => iMon
+    dayofweek.tuesday   => iTue
+    dayofweek.wednesday => iWed
+    dayofweek.thursday  => iThu
+    dayofweek.friday    => iFri
+    dayofweek.saturday  => iSat
+    => iSun
+
+winLen = (eMin - sMin + 1440) % 1440
+tfOk = timeframe.isintraday and timeframe.in_seconds() <= winLen * 60
+
+atr = ta.atr(iAtrLen)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Session state
+// ═══════════════════════════════════════════════════════════════════════════
+var float rHi = na
+var float rLo = na
+var bool  dayActive = false
+var bool  ready = false
+var int   firstSide = 0
+var int   secondSide = 0
+var int   sweepBar = na
+var float swingHi = na
+var float swingLo = na
+var bool  firstSigDone = false
+var bool  revSigDone = false
+var bool  nsSetup = false
+var int   trades = 0
+
+// active trade bookkeeping
+var float posStop = na
+var float posTgt  = na
+var float posRisk = na
+var int   posDir  = 0
+var bool  posNs   = false
+var bool  beDone  = false
+var float sigAtr  = na
+var string posId  = ""
+
+if newRange
+    if strategy.position_size == 0
+        strategy.cancel_all()
+    rHi := high
+    rLo := low
+    dayActive := dowOk and tfOk
+    ready := false
+    firstSide := 0
+    secondSide := 0
+    sweepBar := na
+    swingHi := na
+    swingLo := na
+    firstSigDone := false
+    revSigDone := false
+    nsSetup := false
+    trades := 0
+else if inBuild and not na(rHi)
+    rHi := math.max(rHi, high)
+    rLo := math.min(rLo, low)
+
+if endBuild and dayActive and not na(rHi)
+    ready := true
+
+rH   = rHi - rLo
+rMid = (rHi + rLo) / 2
+
+rngSize = switch iRngUnit
+    "Points" => rH
+    "Ticks"  => rH / syminfo.mintick
+    => rH / close * 100
+rangeOk = rH > 0 and (iRngMin <= 0 or rngSize >= iRngMin) and (iRngMax <= 0 or rngSize <= iRngMax)
+
+canTrade = ready and inSignal and rangeOk and trades < iMaxTrades
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Helpers: stop / target / size / alerts
+// ═══════════════════════════════════════════════════════════════════════════
+tick = syminfo.mintick
+
+f_stop(int dir, float entry) =>
+    float buf = iSlBuf * tick
+    float atrStop = entry - dir * iSlAtr * nz(atr, 0.0) - dir * buf
+    float s = switch iSlMode
+        "Range level"       => (dir == 1 ? rHi - iSlFrac * rH : rLo + iSlFrac * rH) - dir * buf
+        "Swing since break" => (dir == 1 ? swingLo : swingHi) - dir * buf
+        "ATR"               => atrStop
+        => entry - dir * iSlPts - dir * buf
+    if na(s) or (dir == 1 and s >= entry) or (dir == -1 and s <= entry)
+        s := atrStop
+    s
+
+f_target(int dir, float entry, float risk, float a) =>
+    switch iTpMode
+        "R multiple"               => entry + dir * iTpR * risk
+        "ATR multiple"             => entry + dir * iTpAtr * a
+        "Fixed points"             => entry + dir * iTpPts
+        "Opposite range end"       => dir == 1 ? (rHi > entry ? rHi : na) : (rLo < entry ? rLo : na)
+        "Measured move (1x range)" => dir == 1 ? rHi + rH : rLo - rH
+        => float(na)
+
+f_qty(float risk) =>
+    float q = iQty
+    if iSizeMode == "Risk amount"
+        float perUnit = risk * syminfo.pointvalue
+        q := perUnit > 0 ? iRiskAmt / perUnit : 0.0
+    q := math.min(q, iMaxQty)
+    iRoundQty ? math.floor(q) : q
+
+f_alert(int dir, float qty, string orderType, float px, float stop, float tgt) =>
+    if iAlerts
+        string m = '{"ticker":"' + syminfo.ticker + '","action":"' + (dir == 1 ? "buy" : "sell") + '"' +
+             ',"orderType":"' + orderType + '"' +
+             (orderType == "limit" ? ',"limitPrice":' + str.tostring(px) : '') +
+             ',"quantity":' + str.tostring(qty) +
+             ',"signalPrice":' + str.tostring(close) +
+             ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stop) + '}' +
+             (na(tgt) ? '' : ',"takeProfit":{"limitPrice":' + str.tostring(tgt) + '}') + '}'
+        alert(m, alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Break / signal detection (mirrors the indicator)
+// ═══════════════════════════════════════════════════════════════════════════
+nsStyle   = iStyle == "NS ORB (limit pullback)"
+fadeStyle = iStyle == "Fade (reversal)"
+wantRev   = iStyle == "Breakout then reversal" or (fadeStyle and iAllowRev)
+
+brokeHi = iBreak == "Close" ? close > rHi : high > rHi
+brokeLo = iBreak == "Close" ? close < rLo : low < rLo
+
+sweepNow  = false
+secondNow = false
+if ready and inSignal and rangeOk and not nsStyle
+    if firstSide == 0
+        if brokeHi and not brokeLo
+            firstSide := 1
+            sweepNow := true
+        else if brokeLo and not brokeHi
+            firstSide := -1
+            sweepNow := true
+        if sweepNow
+            sweepBar := bar_index
+            swingHi := high
+            swingLo := low
+    else
+        swingHi := math.max(swingHi, high)
+        swingLo := math.min(swingLo, low)
+        if secondSide == 0 and bar_index > sweepBar
+            if firstSide == 1 and brokeLo
+                secondSide := -1
+                secondNow := true
+            else if firstSide == -1 and brokeHi
+                secondSide := 1
+                secondNow := true
+
+int sigDir = 0
+if firstSide != 0 and not firstSigDone and ready and inSignal and not nsStyle
+    bool rawLong = fadeStyle ? firstSide == -1 : firstSide == 1
+    int raw = rawLong ? 1 : -1
+    bool after = bar_index > sweepBar
+    bool ok = switch iConfirm
+        "Sweep only (first break)" => sweepNow
+        "Sweep + reclaim close"    => after and close <= rHi and close >= rLo
+        => after and (raw == 1 ? close > open : close < open)
+    if ok
+        firstSigDone := true
+        sigDir := raw
+else if wantRev and firstSigDone and secondNow and not revSigDone
+    revSigDone := true
+    sigDir := secondSide
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Orders
+// ═══════════════════════════════════════════════════════════════════════════
+dirAllowed(int d) => d == 1 ? iLongs : iShorts
+
+if sigDir != 0 and canTrade and dirAllowed(sigDir)
+    float entry = close
+    float stop = f_stop(sigDir, entry)
+    float risk = math.abs(entry - stop)
+    float qty = f_qty(risk)
+    if risk > 0 and qty > 0
+        float tgt = f_target(sigDir, entry, risk, nz(atr, 0.0))
+        string id = sigDir == 1 ? "Long" : "Short"
+        strategy.entry(id, sigDir == 1 ? strategy.long : strategy.short, qty=qty)
+        strategy.exit(id + " exit", from_entry=id, stop=stop, limit=tgt)
+        posStop := stop
+        posTgt := tgt
+        posRisk := risk
+        posDir := sigDir
+        posNs := false
+        beDone := false
+        sigAtr := nz(atr, 0.0)
+        posId := id
+        trades += 1
+        f_alert(sigDir, qty, "market", entry, stop, tgt)
+
+// NS ORB: full-body close outside -> resting limit back inside the range
+if nsStyle and canTrade and not nsSetup
+    bool longClose  = close > rHi and (not iNsFull or open > rHi)
+    bool shortClose = close < rLo and (not iNsFull or open < rLo)
+    int d = longClose and not shortClose ? 1 : shortClose and not longClose ? -1 : 0
+    if d != 0
+        nsSetup := true
+        if dirAllowed(d)
+            float lim  = d == 1 ? rHi - iNsEntry * rH : rLo + iNsEntry * rH
+            float stop = d == 1 ? rHi - iNsSl * rH : rLo + iNsSl * rH
+            float risk = (lim - stop) * d
+            float qty  = f_qty(risk)
+            if risk > 0 and qty > 0
+                float tgt = lim + d * iNsTpR * risk
+                string id = d == 1 ? "NS Long" : "NS Short"
+                strategy.entry(id, d == 1 ? strategy.long : strategy.short, qty=qty, limit=lim)
+                strategy.exit(id + " exit", from_entry=id, stop=stop, limit=tgt)
+                posStop := stop
+                posTgt := tgt
+                posRisk := risk
+                posDir := d
+                posNs := true
+                beDone := false
+                posId := id
+                trades += 1
+                f_alert(d, qty, "limit", lim, stop, tgt)
+
+// unfilled NS limit expires at the entry cutoff
+if nsSetup and strategy.position_size == 0 and not inSignal and not inBuild
+    strategy.cancel("NS Long")
+    strategy.cancel("NS Short")
+
+// Once filled: re-anchor R targets to the real fill price, manage breakeven
+inPos = strategy.position_size != 0
+if inPos and not na(posStop)
+    float avg = strategy.position_avg_price
+    int d = strategy.position_size > 0 ? 1 : -1
+    bool justFilled = not inPos[1] or math.sign(strategy.position_size[1]) != d
+    if justFilled and not posNs
+        posRisk := math.abs(avg - posStop)
+        posTgt := f_target(d, avg, posRisk, sigAtr)
+    if iBeOn and not beDone and posRisk > 0 and (d == 1 ? high >= avg + iBeR * posRisk : low <= avg - iBeR * posRisk)
+        beDone := true
+        posStop := avg
+    strategy.exit(posId + " exit", from_entry=posId, stop=posStop, limit=posTgt)
+
+// Time exit
+if inPos and not inSpan
+    strategy.close_all(comment="Time exit")
+    if iAlerts
+        alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+if not inPos and not inSpan and not inSignal
+    strategy.cancel_all()
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Visuals
+// ═══════════════════════════════════════════════════════════════════════════
+showRng = iShowRange and dayActive and not na(rHi) and (inBuild or inSpan or inPos)
+plot(showRng ? rHi : na,  "Range high", color=color.new(#c43c3c, 0),  style=plot.style_linebr, linewidth=2)
+plot(showRng ? rLo : na,  "Range low",  color=color.new(#c43c3c, 0),  style=plot.style_linebr, linewidth=2)
+plot(showRng ? rMid : na, "Range mid",  color=color.new(color.gray, 30), style=plot.style_linebr)
+plot(iShowLvls and inPos ? posStop : na, "Stop",   color=color.new(color.red, 0),   style=plot.style_linebr)
+plot(iShowLvls and inPos ? posTgt : na,  "Target", color=color.new(color.green, 0), style=plot.style_linebr)
+bgcolor(iShowBg and inBuild and dowOk ? color.new(#6b1212, 85) : na, title="Range window")
+plotshape(endBuild and dayActive and not rangeOk, "Range filtered out", shape.xcross, location.abovebar, color.new(color.orange, 0), size=size.tiny)
+
+if barstate.islast and not tfOk
+    label.new(bar_index, high, "TBR ORB: chart timeframe must be intraday and ≤ the range window",
+         color=color.orange, textcolor=color.black, style=label.style_label_down)

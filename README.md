@@ -29,6 +29,41 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+## TBR / ORB strategy (`tradingview/tbr_orb_strategy.pine`)
+
+A tradeable `strategy()` built around the "Time Range ORB Detector
+[34ematrader]" indicator. All of the indicator's range windows (NY TBR
+8:12–9:12, 5/15/30-min ORB, Initial Balance, London TBR, custom start+end or
+start+duration, any timezone, windows crossing midnight) and signal styles
+(Breakout, Fade, Breakout-then-reversal, NS ORB limit pullback) are inputs,
+plus stop types (range level, swing since break, ATR, fixed points), target
+types (R, ATR, points, opposite range end, measured move, time exit only),
+entry cutoff, flatten time, weekday toggles, a range-size filter,
+fixed or risk-based sizing (uses `syminfo.pointvalue`, so it works on any
+symbol) and TradersPost-format `alert()` messages. Python replica for
+research: `tbr_orb/research.py` (`python -m tbr_orb.research --help`).
+
+**Defaults = what tested best:** 30-min ORB 9:30–10:00 ET, enter on the first
+1m close outside the range, stop at the opposite end of the range, target 3R,
+no entries after 14:30, flat at 15:55, both directions. Tuned on NQ 1m
+2023–2024, then checked on 2025, which wasn't used for tuning. Costs:
+$5/round-turn commission, 1 tick slippage on entries and stops.
+
+| NQ, 1 contract | trades | win % | profit factor | net | max DD |
+|---|---|---|---|---|---|
+| 2023 (in-sample) | 251 | 49% | 1.23 | +$40.9k | −$17.2k |
+| 2024 (in-sample) | 258 | 47% | 1.22 | +$47.2k | −$27.3k |
+| 2025 (out-of-sample) | 240 | 51% | 1.16 | +$43.6k | −$44.1k |
+| 15m bars 2016–2026 (coarser) | 2483 | 49% | 1.08 | +$141k | −$63.9k (2020: −$53k) |
+
+What didn't work (same data, same costs): the indicator's own defaults. The
+ATR 1.0/0.5 exits lost in nearly every window/style, and NS ORB at 0.4R was
+roughly break-even or worse. Fades lost money too. The breakout edge is
+modest, and so far it's specific to Nasdaq: the same rules were about
+break-even on ES and gold (15m, 2016–2026). A max-range filter (~0.85% of
+price) removed the 2020 loss but turned 2025 into a small loss, so it's off
+by default. On 1 NQ, expect drawdowns of $40–60k. MNQ is 1/10 of that.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
