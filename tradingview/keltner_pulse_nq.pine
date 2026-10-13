@@ -1,0 +1,120 @@
+//@version=6
+// NQ Keltner Pulse (M15), ported from keltner_pulse/strategy.py.
+// Keltner Channel breakout -> ATR-buffered pending STOP entry.
+//
+// Rules (long; short mirrors):
+//   - Signal: bar closes above ta.kc(close, 20, 2.6) upper band.
+//   - Place buy STOP at signal high + 0.1 x ATR(14). Expires after 46 bars;
+//     a new signal replaces it. No new orders while in a position.
+//   - Stop-loss 2.5 x ATR (ATR frozen at signal time), target +1.5%.
+//   - Trailing stop 100 points behind the highest high, active once price
+//     has run 1.8 x ATR in favor. Never loosens.
+//   - Time exit at the close of the 30th bar held (fill bar = bar 1).
+//
+// REQUIRED CHART SETUP: NQ1! (or MNQ1!) on a 15-minute chart.
+//
+// Differences from the Python backtest: TradingView computes stop/target
+// from the pending order's price, then re-anchors to the actual average fill
+// price from the next bar on (Python uses the actual fill price from the
+// fill bar). Gapped fills, the tick rounding, and intrabar ordering can also
+// differ slightly.
+//
+// Alerting (TradersPost): create the alert with condition "Order fills only"
+// (or "alert() function calls" + order fills), message = {{strategy.order.alert_message}},
+// webhook URL = your TradersPost strategy URL. Each fill sends a market order
+// to TradersPost, so live fills land a little after TradingView's simulated
+// stop fill. See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("NQ Keltner Pulse M15", overlay=true, initial_capital=100000,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     process_orders_on_close=true, calc_on_every_tick=false)
+
+// ---- Inputs ----
+kcPeriod        = input.int(20, "Keltner period", minval=1)
+kcMult          = input.float(2.6, "Keltner multiplier", step=0.1)
+atrPeriod       = input.int(14, "ATR period (buffer/stop/activation)", minval=1)
+entryBufferAtr  = input.float(0.1, "Entry buffer (x ATR)", step=0.05)
+stopAtr         = input.float(2.5, "Stop-loss (x ATR)", step=0.1)
+targetPct       = input.float(1.5, "Profit target (%)", step=0.1)
+trailPoints     = input.float(100.0, "Trailing stop (points)")
+trailActAtr     = input.float(1.8, "Trailing activation (x ATR)", step=0.1)
+timeExitBars    = input.int(30, "Time exit (bars)", minval=1)
+pendingExpiry   = input.int(46, "Pending order expiry (bars)", minval=1)
+
+// ---- Indicators ----
+[kcMid, kcUpper, kcLower] = ta.kc(close, kcPeriod, kcMult)
+atr = ta.atr(atrPeriod)
+plot(kcUpper, "KC upper", color.new(color.teal, 0))
+plot(kcMid, "KC mid", color.new(color.gray, 40))
+plot(kcLower, "KC lower", color.new(color.teal, 0))
+
+roundTick(p) => math.round(p / syminfo.mintick) * syminfo.mintick
+
+// ---- State ----
+var string pendDir     = na
+var float  pendPrice   = na
+var float  pendStopD   = na
+var float  pendTrailD  = na
+var int    pendBar     = na
+var float  stopPx      = na
+var float  targetPx    = na
+var float  trailActD   = na
+var float  best        = na
+
+inPos  = strategy.position_size != 0
+isLong = strategy.position_size > 0
+
+buyMsg   = '{"ticker":"' + syminfo.ticker + '","action":"buy","orderType":"market"}'
+sellMsg  = '{"ticker":"' + syminfo.ticker + '","action":"sell","orderType":"market"}'
+exitMsg  = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+
+// ---- Position management (runs at this bar's close; orders apply next bar) ----
+if inPos
+    entryPx  = strategy.position_avg_price
+    entryBar = strategy.opentrades.entry_bar_index(0)
+    justFilled = entryBar == bar_index
+    if justFilled
+        // Re-anchor to the actual fill; pending state carried the ATR distances.
+        stopPx    := roundTick(isLong ? entryPx - pendStopD : entryPx + pendStopD)
+        targetPx  := roundTick(entryPx * (1 + (isLong ? 1 : -1) * targetPct / 100))
+        trailActD := pendTrailD
+        best      := entryPx
+        pendDir   := na
+    // Trail from this bar's extreme (applies from the next bar).
+    best := isLong ? math.max(best, high) : math.min(best, low)
+    if isLong and best - entryPx >= trailActD
+        stopPx := math.max(stopPx, best - trailPoints)
+    if not isLong and entryPx - best >= trailActD
+        stopPx := math.min(stopPx, best + trailPoints)
+
+    if bar_index - entryBar + 1 >= timeExitBars
+        strategy.close_all(comment="time", alert_message=exitMsg)
+    else
+        strategy.exit("X", stop=stopPx, limit=targetPx, alert_message=exitMsg)
+
+// ---- New signal at bar close (flat only) ----
+if not inPos and not na(atr)
+    if close > kcUpper
+        pendDir := "long", pendPrice := roundTick(high + entryBufferAtr * atr)
+        pendStopD := stopAtr * atr, pendTrailD := trailActAtr * atr, pendBar := bar_index
+    else if close < kcLower
+        pendDir := "short", pendPrice := roundTick(low - entryBufferAtr * atr)
+        pendStopD := stopAtr * atr, pendTrailD := trailActAtr * atr, pendBar := bar_index
+
+// ---- Pending order upkeep (flat only) ----
+if not inPos
+    if not na(pendDir) and bar_index - pendBar >= pendingExpiry
+        pendDir := na   // the order placed now would live past bar pendBar + expiry
+    strategy.cancel_all()
+    if pendDir == "long"
+        strategy.entry("L", strategy.long, stop=pendPrice, alert_message=buyMsg)
+        // Protective bracket for the fill bar itself, from the order price.
+        strategy.exit("X", "L", stop=roundTick(pendPrice - pendStopD),
+             limit=roundTick(pendPrice * (1 + targetPct / 100)), alert_message=exitMsg)
+    else if pendDir == "short"
+        strategy.entry("S", strategy.short, stop=pendPrice, alert_message=sellMsg)
+        strategy.exit("X", "S", stop=roundTick(pendPrice + pendStopD),
+             limit=roundTick(pendPrice * (1 - targetPct / 100)), alert_message=exitMsg)
+
+plot(inPos ? stopPx : na, "Stop", color.red, style=plot.style_linebr)
+plot(inPos ? targetPx : na, "Target", color.green, style=plot.style_linebr)

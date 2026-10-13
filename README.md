@@ -61,6 +61,49 @@ Code layout:
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
 - `tests/` — unit tests for the strategy logic, backtest smoke tests, and webhook sizing/routing tests.
 
+## NQ Keltner Pulse (M15)
+
+A third, unrelated strategy: `keltner_pulse/` (backtester) and
+`tradingview/keltner_pulse_nq.pine` (TradingView port). It's a Keltner Channel
+breakout on 15-minute bars that enters with a pending STOP order set an ATR
+buffer beyond the signal bar:
+
+| Rule | Value |
+|---|---|
+| Keltner Channel | EMA(20) +/- 2.6 x EMA(true range, 20), same as `ta.kc` |
+| Signal | a bar closes outside the channel |
+| Entry | buy STOP at signal high + 0.1 x ATR (sell STOP at low - 0.1 x ATR) |
+| Pending expiry | 46 bars (a new signal replaces the order) |
+| Stop-loss | 2.5 x ATR from the fill |
+| Profit target | 1.5 % of the fill price |
+| Trailing stop | 100 points behind the best price, once 1.8 x ATR in profit |
+| Time exit | close of the 30th bar held |
+
+The spec doesn't give the ATR period, so it uses ATR(14), Wilder's smoothing.
+On a bar that touches both the stop and the target, the backtest books the
+stop. Orders gapped through fill at the open.
+
+```bash
+python -m keltner_pulse.run \
+    --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet \
+    --commission-rt 4.5 --slippage-ticks 1
+```
+
+Results on real NQ 15m, May 2016 to Aug 2026, 1 contract, $4.50 round-turn
+commission and 1 tick of slippage on every stop fill: **3,179 trades, 38.3 %
+win rate, profit factor 1.03, +$61.6k, max drawdown $53.5k.** Before costs
+the profit factor is 1.05 (+$97k). Longs made money (PF 1.13) and shorts lost
+(PF 0.96). Six of the eleven calendar years were flat or losing
+(2019, 2020, 2022, 2025, and 2026 to date at -$30k). The 1m dataset
+resampled to 15m gives the same result over 2023-2025 (PF 1.10 on both).
+That's a thin edge, and a drawdown about as large as the total profit makes it
+fragile. Treat it as a starting point, not something to trade as is.
+
+The 100-point trail and the 1.5 % target are fixed sizes. Their effect
+depends on the price level: in 2016, with NQ near 4,500, the trail barely
+ever engaged. The NQ series may also be back-adjusted (see CLAUDE.md), which
+shifts what 1.5 % of price means.
+
 ## Setup
 
 ```bash
