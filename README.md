@@ -225,6 +225,60 @@ manager, so the daily-loss-limit lockout won't see live fills until you add
 that callback (`LiveRunner._on_finished_bar` has a note where to hook it
 in). Don't rely on the daily loss limit unattended until that's wired up.
 
+## Volatility Break (M15)
+
+A third, standalone strategy: `volatility_break/` (Python + backtester) and
+`tradingview/volatility_break.pine` (Pine port, TradersPost alerts on fill).
+
+| Rule | Value |
+|---|---|
+| Timeframe | M15 |
+| Volatility filter | Bollinger Band Width Ratio, `(upper - lower) / middle` of BB(20, 2.0) |
+| Entry condition | Width Ratio < its 50-bar SMA (volatility compressed) |
+| Orders | OCO bracket of pending STOP orders: buy stop at the upper band, sell stop at the lower band |
+| Pending expiration | 121 bars |
+| Stop-loss / target | 3.5 x ATR(14) / 5.2 x ATR(14), from the fill price (ATR frozen when the bracket is placed) |
+| Trailing stop | 60 points behind the best price, active once open profit >= 2.1 x ATR |
+
+The original spec fixed the timeframe, ATR multiples, 60-point trail and
+121-bar expiry. The BB
+period and deviation, the 50-bar average, "Width Ratio below its average" as
+the volatility condition, and placing the stops at the bands were filled in
+here; they're all constructor arguments on `VolatilityBreakStrategy`. "60
+points" is taken as 60.0 price units (60 NQ index points). It trades 24h and
+holds overnight, with one bracket or position at a time. The fill model
+(gaps, both sides triggering in one bar, stop-before-target) is documented
+at the top of `volatility_break/strategy.py`.
+
+```bash
+python -m volatility_break.run \
+    --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet \
+    --symbol NQ --commission 2.5 --slippage-ticks 1
+```
+
+**Backtest result: no edge.** 1 contract, May 2016 to Aug 2026, $2.50/side
+commission + 1 tick slippage on entries and stop exits:
+
+| Market | Trades | Profit factor | Avg R | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| NQ | 3,696 | 0.99 | +0.004 | -$20.9k | $129.9k |
+| ES | 2,805 | 0.95 | -0.041 | -$93.0k | $162.8k |
+| GC | 3,123 | 1.07 | -0.013 | +$160.6k | $104.8k |
+
+- On NQ, longs made +$197k and shorts lost -$218k: the long side is just the
+  index's uptrend over the period, not the setup. 2023 to 2025 was positive
+  (profit factor 1.13) and most other years were negative.
+- The Width Ratio filter adds nothing. Removing it (bracketing every bar
+  when flat) gives about the same profit factor on all three markets, and
+  tighter or looser thresholds, other BB deviations, or a 100-bar average
+  stay between 0.92 and 1.07.
+- A fixed 60-point trail doesn't scale with the market. In 2016, NQ's
+  stop distance was about 18 points, so the trail couldn't tighten anything
+  until the trade was 60+ points in profit, past the target. On GC it never
+  matters. On 2026 NQ it's tight compared with a ~180-point stop.
+- GC's positive net comes with a negative average R (a few big long winners
+  during the gold rally), so it isn't a robust edge either.
+
 ## Running the tests
 
 ```bash

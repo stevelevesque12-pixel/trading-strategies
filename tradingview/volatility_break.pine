@@ -1,0 +1,124 @@
+//@version=6
+// Volatility Break (M15), ported from volatility_break/strategy.py.
+// Fires TradersPost-format webhook alerts when the pending orders FILL.
+//
+// Rules:
+//   - Bollinger Bands(20, 2.0). Width Ratio = (upper - lower) / basis.
+//   - Volatility condition: Width Ratio < SMA(Width Ratio, 50) * threshold.
+//   - On a squeeze bar's close, flat and with no live orders: place an OCO
+//     bracket -- BUY STOP at the upper band, SELL STOP at the lower band.
+//     Levels and ATR(14) are frozen at placement. Unfilled orders are
+//     cancelled after 121 bars.
+//   - Exits: stop 3.5 x ATR, target 5.2 x ATR (from the fill price), and a
+//     trailing stop 60 points behind the best price that switches on once
+//     open profit reaches 2.1 x ATR.
+//
+// REQUIRED CHART SETUP: 15-minute chart.
+//
+// Backtested in Python on 10 years of NQ/ES/GC 15m data -- no edge after
+// costs (see README). Treat as a research port, not a ready-to-trade system.
+//
+// Alerting: because entries are resting stop orders, alerts go out on the
+// FILL, not on a bar close. Create the alert with condition "Order fills
+// only", message = {{strategy.order.alert_message}}, webhook URL = your
+// TradersPost strategy's webhook URL. The entry alert carries a broker-side
+// stop/target computed from the order's level (the actual fill can be worse
+// on a gap); the trailing exit is managed here and sent as "exit".
+
+strategy("Volatility Break (M15)", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+
+// ---- Inputs ----
+bbLen           = input.int(20, "BB period", minval=2)
+bbMult          = input.float(2.0, "BB deviations", step=0.1)
+ratioAvgLen     = input.int(50, "Width Ratio average period", minval=1)
+squeezeThresh   = input.float(1.0, "Squeeze threshold (x average)", step=0.05)
+atrLen          = input.int(14, "ATR period", minval=1)
+slAtr           = input.float(3.5, "Stop-loss (x ATR)", step=0.1)
+tpAtr           = input.float(5.2, "Profit target (x ATR)", step=0.1)
+trailPts        = input.float(60.0, "Trailing stop (points)", minval=0.0)
+trailActAtr     = input.float(2.1, "Trailing activation (x ATR)", step=0.1)
+expiryBars      = input.int(121, "Pending order expiration (bars)", minval=1)
+riskPerTradeUsd = input.float(500.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(20.0, "Point value (USD/point) -- NQ=20, MNQ=2, ES=50, MES=5", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Indicators ----
+basis  = ta.sma(close, bbLen)
+dev    = bbMult * ta.stdev(close, bbLen)
+upper  = basis + dev
+lower  = basis - dev
+bbwr   = (upper - lower) / basis
+squeeze = bbwr < ta.sma(bbwr, ratioAvgLen) * squeezeThresh and upper > lower
+atr    = ta.atr(atrLen)
+
+// ---- Pending bracket state ----
+var float buyLvl   = na
+var float sellLvl  = na
+var float atrPlace = na
+var int   placeBar = na
+var int   qty      = 0
+var int   tradesAtPlace = 0
+
+flat = strategy.position_size == 0
+
+// A fill consumes the bracket (OCO already cancelled the other side). Counted
+// via trades rather than position size so a fill that also exits within the
+// same bar is still seen.
+if not na(placeBar) and strategy.opentrades + strategy.closedtrades > tradesAtPlace
+    placeBar := na
+
+// Expire unfilled orders.
+if flat and not na(placeBar) and bar_index - placeBar >= expiryBars
+    strategy.cancel("VB Long")
+    strategy.cancel("VB Short")
+    placeBar := na
+
+entryMsg(string action, float level, float stopPx, float targetPx) =>
+    '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
+     ',"quantity":' + str.tostring(qty) +
+     ',"signalPrice":' + str.tostring(level) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stopPx) + '}' +
+     ',"takeProfit":{"limitPrice":' + str.tostring(targetPx) + '}}'
+
+exitMsg = '{"ticker":"' + syminfo.ticker + '","action":"exit"}'
+
+// Place a new bracket.
+if flat and na(placeBar) and squeeze and not na(atr)
+    riskPerContract = slAtr * atr * pointValueUsd
+    qty := riskPerContract > 0 ? math.min(math.floor(riskPerTradeUsd / riskPerContract), maxContracts) : 0
+    if qty > 0
+        buyLvl   := upper
+        sellLvl  := lower
+        atrPlace := atr
+        placeBar := bar_index
+        tradesAtPlace := strategy.opentrades + strategy.closedtrades
+        strategy.entry("VB Long", strategy.long, qty=qty, stop=buyLvl, oca_name="VB", oca_type=strategy.oca.cancel,
+             alert_message=entryMsg("buy", buyLvl, buyLvl - slAtr * atrPlace, buyLvl + tpAtr * atrPlace))
+        strategy.entry("VB Short", strategy.short, qty=qty, stop=sellLvl, oca_name="VB", oca_type=strategy.oca.cancel,
+             alert_message=entryMsg("sell", sellLvl, sellLvl + slAtr * atrPlace, sellLvl - tpAtr * atrPlace))
+        // Provisional exits keyed off the order levels, so the fill bar is protected too.
+        strategy.exit("VB Long Exit", from_entry="VB Long", stop=buyLvl - slAtr * atrPlace, limit=buyLvl + tpAtr * atrPlace,
+             trail_points=math.round(trailActAtr * atrPlace / syminfo.mintick), trail_offset=math.round(trailPts / syminfo.mintick), alert_message=exitMsg)
+        strategy.exit("VB Short Exit", from_entry="VB Short", stop=sellLvl + slAtr * atrPlace, limit=sellLvl - tpAtr * atrPlace,
+             trail_points=math.round(trailActAtr * atrPlace / syminfo.mintick), trail_offset=math.round(trailPts / syminfo.mintick), alert_message=exitMsg)
+
+// ---- Exits (re-issued every bar so they key off the actual fill price) ----
+tick = syminfo.mintick
+entryPx = strategy.position_size != 0 ? strategy.position_avg_price : na
+trailActTicks = math.round(trailActAtr * atrPlace / tick)
+trailOffTicks = math.round(trailPts / tick)
+
+if strategy.position_size > 0
+    strategy.exit("VB Long Exit", from_entry="VB Long", stop=entryPx - slAtr * atrPlace, limit=entryPx + tpAtr * atrPlace,
+         trail_points=trailActTicks, trail_offset=trailOffTicks, alert_message=exitMsg)
+if strategy.position_size < 0
+    strategy.exit("VB Short Exit", from_entry="VB Short", stop=entryPx + slAtr * atrPlace, limit=entryPx - tpAtr * atrPlace,
+         trail_points=trailActTicks, trail_offset=trailOffTicks, alert_message=exitMsg)
+
+// ---- Visuals ----
+plot(upper, "BB upper", color=color.new(color.gray, 40))
+plot(lower, "BB lower", color=color.new(color.gray, 40))
+plot(not na(placeBar) ? buyLvl : na, "Buy stop", color=color.green, style=plot.style_linebr, linewidth=2)
+plot(not na(placeBar) ? sellLvl : na, "Sell stop", color=color.red, style=plot.style_linebr, linewidth=2)
+bgcolor(squeeze ? color.new(color.blue, 93) : na)
