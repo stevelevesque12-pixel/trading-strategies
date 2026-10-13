@@ -32,8 +32,10 @@ carefully before trusting it.
 **A third strategy, `ma_pullback/`** (built for MCL, 30m by default): when
 the 9 MA is above the 20 MA, wait for a bar to close below both, then rest a
 sell limit on each MA. The first one hit is the trade and the other is
-cancelled. The long mirror is optional and off by default. The timeframe,
-MA lengths/type, stop (ticks), target (R) and setup expiry are all settings.
+cancelled. The stop goes at the most recent swing high above the limit,
+with a 1:1 target (a fixed-tick stop is also available). The long mirror is
+optional and off by default. The timeframe, MA lengths/type, stop placement,
+swing strength/buffer, target (R) and setup expiry are all settings.
 See `tradingview/ma_pullback_mcl.pine` and `ma_pullback/strategy.py`, and
 backtest it with `python -m ma_pullback.run` (real MCL 15m data resampled to
 30m; `--help` lists the settings).

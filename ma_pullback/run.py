@@ -2,7 +2,8 @@
 Backtest the MA pullback strategy on the repo's MCL data.
 
     python -m ma_pullback.run                      # 30m from the 15m file, defaults
-    python -m ma_pullback.run --tf 1h --stop-ticks 40 --target-r 2 --longs
+    python -m ma_pullback.run --tf 1h --swing-strength 3 --swing-buffer 2 --longs
+    python -m ma_pullback.run --stop-mode ticks --stop-ticks 30 --target-r 1.5   # the original fixed stop
 """
 
 import argparse
@@ -30,6 +31,8 @@ def summarize(trades) -> dict:
         "avg_r": round(df["r_multiple"].mean(), 3),
         "profit_factor": round(wins / losses, 2) if losses else float("inf"),
         "max_drawdown_usd": round((equity.cummax() - equity).max(), 2),
+        "median_risk_ticks": round(((df["entry_price"] - df["stop_price"]).abs()).median() * 100),
+        "max_risk_ticks": round(((df["entry_price"] - df["stop_price"]).abs()).max() * 100),
         "filled_at_fast_ma": int((df["filled_at"] == "fast").sum()),
         "filled_at_slow_ma": int((df["filled_at"] == "slow").sum()),
     }
@@ -42,14 +45,18 @@ def main():
     ap.add_argument("--fast", type=int, default=9)
     ap.add_argument("--slow", type=int, default=20)
     ap.add_argument("--ma-type", default="SMA", choices=["SMA", "EMA"])
+    ap.add_argument("--stop-mode", default="swing", choices=["swing", "ticks"])
+    ap.add_argument("--swing-strength", type=int, default=2)
+    ap.add_argument("--swing-buffer", type=int, default=0, help="ticks beyond the swing")
     ap.add_argument("--stop-ticks", type=int, default=30)
-    ap.add_argument("--target-r", type=float, default=1.5)
+    ap.add_argument("--target-r", type=float, default=1.0)
     ap.add_argument("--expiry-bars", type=int, default=0)
     ap.add_argument("--longs", action="store_true", help="also trade the mirrored long side")
     a = ap.parse_args()
 
     bars = resample_ohlc(load_1m_csv(a.data), a.tf)
-    cfg = MAPullbackConfig(fast_len=a.fast, slow_len=a.slow, ma_type=a.ma_type, stop_ticks=a.stop_ticks,
+    cfg = MAPullbackConfig(fast_len=a.fast, slow_len=a.slow, ma_type=a.ma_type, stop_mode=a.stop_mode,
+                           swing_strength=a.swing_strength, swing_buffer_ticks=a.swing_buffer, stop_ticks=a.stop_ticks,
                            target_r=a.target_r, expiry_bars=a.expiry_bars, enable_longs=a.longs)
     trades = run(bars, cfg)
     print(f"{len(bars)} {a.tf} bars, {bars.index[0]} -> {bars.index[-1]}")

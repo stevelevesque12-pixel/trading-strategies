@@ -11,11 +11,16 @@ Rules, short side (the optional long side is the exact mirror):
      bar close.
   4. The armed setup is cancelled if the bias goes away (fast MA no longer
      above slow MA) or, if `expiry_bars` > 0, after that many bars unfilled.
-  5. Exit: stop `stop_ticks` above the fill, target `target_r` * risk below.
+  5. Exit (default, stop_mode="swing"): stop at the most recent swing high
+     above the limit price (a confirmed pivot high, `swing_strength` bars
+     each side, plus `swing_buffer_ticks`). If no swing high above that limit
+     exists yet, that limit isn't placed. Target = `target_r` * risk (1:1 by
+     default), with risk measured from the limit price.
+     stop_mode="ticks" instead puts the stop `stop_ticks` from the limit.
 
-The original spec only defined the bias, setup and entry. The stop, target,
-expiry and MA type are added parameters, and their defaults are
-placeholders rather than tested choices.
+The original spec only defined the bias, setup and entry. The swing stop with
+1:1 target came from a follow-up request. The expiry and MA type are added
+parameters.
 
 Fill model (matches TradingView's default broker emulator closely enough):
 orders are placed at a bar's close and can fill on the next bar. A limit sell
@@ -36,8 +41,11 @@ class MAPullbackConfig:
     fast_len: int = 9
     slow_len: int = 20
     ma_type: Literal["SMA", "EMA"] = "SMA"
-    stop_ticks: int = 30
-    target_r: float = 1.5
+    stop_mode: Literal["swing", "ticks"] = "swing"
+    swing_strength: int = 2       # swing = pivot with this many lower highs (higher lows) each side
+    swing_buffer_ticks: int = 0   # extra ticks beyond the swing
+    stop_ticks: int = 30          # used when stop_mode == "ticks"
+    target_r: float = 1.0
     expiry_bars: int = 0          # 0 = setup never expires while bias holds
     enable_shorts: bool = True
     enable_longs: bool = False    # mirror side, off by default
@@ -76,12 +84,14 @@ def run(bars: pd.DataFrame, cfg: Optional[MAPullbackConfig] = None) -> List[Trad
     slow = moving_average(bars["close"], cfg.slow_len, cfg.ma_type).to_numpy()
     o, h, l, c = (bars[k].to_numpy() for k in ("open", "high", "low", "close"))
     idx = bars.index
-    stop_dist = cfg.stop_ticks * cfg.tick_size
+    swing_highs, swing_lows = _confirmed_swings(h, l, cfg.swing_strength)
+    recent_highs: List[float] = []   # confirmed swing highs so far, oldest first
+    recent_lows: List[float] = []
 
     trades: List[Trade] = []
     armed: Optional[str] = None      # "short" / "long" while limits are resting
     armed_bars = 0
-    orders: Optional[dict] = None    # {"fast": price, "slow": price} live for the current bar
+    orders: Optional[dict] = None    # {"fast": (limit, stop, target), "slow": ...} live for the current bar
     pos: Optional[dict] = None
 
     for i in range(len(bars)):
@@ -89,17 +99,15 @@ def run(bars: pd.DataFrame, cfg: Optional[MAPullbackConfig] = None) -> List[Trad
         filled_this_bar = False
         if orders is not None and pos is None:
             if armed == "short":
-                hit = {k: p for k, p in orders.items() if h[i] >= p}
+                hit = {k: v for k, v in orders.items() if h[i] >= v[0]}
                 if hit:
-                    which = min(hit, key=hit.get)          # lowest sell limit is reached first
-                    fill = max(o[i], hit[which])
-                    pos = _open("short", idx[i], fill, which, stop_dist, cfg.target_r)
+                    which = min(hit, key=lambda k: hit[k][0])   # lowest sell limit is reached first
+                    pos = _open("short", idx[i], max(o[i], hit[which][0]), which, *hit[which])
             else:
-                hit = {k: p for k, p in orders.items() if l[i] <= p}
+                hit = {k: v for k, v in orders.items() if l[i] <= v[0]}
                 if hit:
-                    which = max(hit, key=hit.get)          # highest buy limit is reached first
-                    fill = min(o[i], hit[which])
-                    pos = _open("long", idx[i], fill, which, stop_dist, cfg.target_r)
+                    which = max(hit, key=lambda k: hit[k][0])   # highest buy limit is reached first
+                    pos = _open("long", idx[i], min(o[i], hit[which][0]), which, *hit[which])
             if pos is not None:
                 filled_this_bar = True
                 armed, orders = None, None                 # OCO: the other order is cancelled
@@ -127,6 +135,10 @@ def run(bars: pd.DataFrame, cfg: Optional[MAPullbackConfig] = None) -> List[Trad
 
         # ---- 3. Bar close: evaluate bias / setup and (re)price the limits ----
         orders = None
+        if not pd.isna(swing_highs[i]):
+            recent_highs.append(swing_highs[i])
+        if not pd.isna(swing_lows[i]):
+            recent_lows.append(swing_lows[i])
         if pd.isna(fast[i]) or pd.isna(slow[i]):
             continue
         short_bias = cfg.enable_shorts and fast[i] > slow[i]
@@ -146,16 +158,53 @@ def run(bars: pd.DataFrame, cfg: Optional[MAPullbackConfig] = None) -> List[Trad
                 armed, armed_bars = "long", 0
 
         if armed is not None and pos is None:
-            orders = {"fast": fast[i], "slow": slow[i]}
+            orders = {}
+            for name, limit in (("fast", fast[i]), ("slow", slow[i])):
+                stop = _stop_for(armed, limit, recent_highs, recent_lows, cfg)
+                if stop is not None:
+                    risk = abs(stop - limit)
+                    target = limit - risk * cfg.target_r if armed == "short" else limit + risk * cfg.target_r
+                    orders[name] = (limit, stop, target)
+            orders = orders or None
 
     return trades
 
 
-def _open(direction, t, fill, which, stop_dist, target_r) -> dict:
-    sign = -1 if direction == "short" else 1
-    stop = fill - sign * stop_dist
+def _confirmed_swings(h, l, k: int):
+    """Arrays aligned to the bar where each pivot becomes CONFIRMED (k bars after it)."""
+    n = len(h)
+    sh = [float("nan")] * n
+    sl = [float("nan")] * n
+    for p in range(k, n - k):
+        left_h, right_h = h[p - k:p], h[p + 1:p + k + 1]
+        if all(h[p] > x for x in left_h) and all(h[p] > x for x in right_h):
+            sh[p + k] = h[p]
+        left_l, right_l = l[p - k:p], l[p + 1:p + k + 1]
+        if all(l[p] < x for x in left_l) and all(l[p] < x for x in right_l):
+            sl[p + k] = l[p]
+    return sh, sl
+
+
+def _stop_for(direction, limit, recent_highs, recent_lows, cfg: MAPullbackConfig) -> Optional[float]:
+    """Stop price for a limit order, or None if there's no valid stop (order not placed)."""
+    if cfg.stop_mode == "ticks":
+        d = cfg.stop_ticks * cfg.tick_size
+        return limit + d if direction == "short" else limit - d
+    buf = cfg.swing_buffer_ticks * cfg.tick_size
+    if direction == "short":
+        for x in reversed(recent_highs):
+            if x > limit:
+                return x + buf
+    else:
+        for x in reversed(recent_lows):
+            if x < limit:
+                return x - buf
+    return None
+
+
+def _open(direction, t, fill, which, limit, stop, target) -> dict:
     return {"dir": direction, "time": t, "entry": fill, "which": which,
-            "stop": stop, "target": fill + sign * stop_dist * target_r, "risk": stop_dist}
+            "stop": stop, "target": target, "risk": abs(stop - limit)}
 
 
 def _close(pos: dict, t, price: float, reason: str, cfg: MAPullbackConfig) -> Trade:

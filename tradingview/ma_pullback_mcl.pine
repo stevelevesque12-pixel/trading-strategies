@@ -9,10 +9,14 @@
 //      the MAs, re-priced at every strategy-timeframe close.
 //   4. The setup is cancelled if the fast MA is no longer above the slow MA,
 //      or after "Setup expiry" bars unfilled (0 = never).
-//   5. Exit: stop N ticks beyond the fill, target = R multiple of that risk.
+//   5. Exit (default "Swing"): stop at the most recent confirmed swing high
+//      above each limit (pivot with "Swing strength" lower highs each side,
+//      plus an optional tick buffer). If no swing high above a limit exists,
+//      that limit isn't placed. Target = R multiple of the risk (1:1 default),
+//      measured from the limit price. "Ticks" mode uses a fixed stop instead.
 //
-// The stop, target, expiry and MA type are added settings: the original
-// spec defined only bias/setup/entry. Their defaults are placeholders.
+// The expiry and MA type are added settings: the spec defined only
+// bias/setup/entry, and the swing stop with 1:1 came from a follow-up.
 //
 // TIMEFRAME: "Strategy timeframe" (default 30m) is where the MAs and the
 // close-below-both check are computed. Run the chart on that timeframe for
@@ -38,8 +42,11 @@ slowLen     = input.int(20, "Slow MA length", minval=1)
 enableShort = input.bool(true, "Trade shorts (fast MA above slow MA)")
 enableLong  = input.bool(false, "Trade longs (mirror: fast below slow, close above both)")
 expiryBars  = input.int(0, "Setup expiry (strategy-TF bars, 0 = never)", minval=0)
-stopTicks   = input.int(30, "Stop (ticks from fill)", minval=1, group="Exits")
-targetR     = input.float(1.5, "Target (R multiple)", minval=0.1, step=0.1, group="Exits")
+stopMode    = input.string("Swing", "Stop placement", options=["Swing", "Ticks"], group="Exits")
+swingLen    = input.int(2, "Swing strength (bars each side)", minval=1, group="Exits")
+swingBuf    = input.int(0, "Swing buffer (ticks beyond the swing)", minval=0, group="Exits")
+stopTicks   = input.int(30, "Stop (ticks from limit, Ticks mode)", minval=1, group="Exits")
+targetR     = input.float(1.0, "Target (R multiple)", minval=0.1, step=0.1, group="Exits")
 qty         = input.int(1, "Contracts", minval=1, group="Exits")
 
 if timeframe.in_seconds(timeframe.period) > timeframe.in_seconds(tf)
@@ -51,13 +58,51 @@ ma(src, len) => maType == "EMA" ? ta.ema(src, len) : ta.sma(src, len)
 sameTF = timeframe.in_seconds(timeframe.period) == timeframe.in_seconds(tf)
 maFastChart = ma(close, fastLen)
 maSlowChart = ma(close, slowLen)
-[fastHTF, slowHTF, closeHTF] = request.security(syminfo.tickerid, tf,
-     [ma(close, fastLen)[1], ma(close, slowLen)[1], close[1]], lookahead=barmerge.lookahead_on)
+phChart = ta.pivothigh(high, swingLen, swingLen)
+plChart = ta.pivotlow(low, swingLen, swingLen)
+[fastHTF, slowHTF, closeHTF, phHTF, plHTF] = request.security(syminfo.tickerid, tf,
+     [ma(close, fastLen)[1], ma(close, slowLen)[1], close[1],
+      ta.pivothigh(high, swingLen, swingLen)[1], ta.pivotlow(low, swingLen, swingLen)[1]],
+     lookahead=barmerge.lookahead_on)
 
 fastMA  = sameTF ? maFastChart : fastHTF
 slowMA  = sameTF ? maSlowChart : slowHTF
 tfClose = sameTF ? close : closeHTF
 tfBarDone = sameTF ? true : timeframe.change(tf)   // a strategy-TF bar just completed
+newSwingHigh = sameTF ? phChart : phHTF            // pivot confirmed on the completed bar, else na
+newSwingLow  = sameTF ? plChart : plHTF
+
+// Confirmed swings, oldest first (capped).
+var array<float> swingHighs = array.new_float()
+var array<float> swingLows  = array.new_float()
+if tfBarDone
+    if not na(newSwingHigh)
+        array.push(swingHighs, newSwingHigh)
+        if array.size(swingHighs) > 200
+            array.shift(swingHighs)
+    if not na(newSwingLow)
+        array.push(swingLows, newSwingLow)
+        if array.size(swingLows) > 200
+            array.shift(swingLows)
+
+// Stop for a limit: most recent swing beyond it (Swing mode) or fixed ticks. na = don't place.
+f_stop(isShort, limitPx) =>
+    float result = na
+    if stopMode == "Ticks"
+        result := isShort ? limitPx + stopTicks * syminfo.mintick : limitPx - stopTicks * syminfo.mintick
+    else
+        arr = isShort ? swingHighs : swingLows
+        n = array.size(arr)
+        if n > 0
+            for j = n - 1 to 0
+                x = array.get(arr, j)
+                if isShort and x > limitPx
+                    result := x + swingBuf * syminfo.mintick
+                    break
+                if not isShort and x < limitPx
+                    result := x - swingBuf * syminfo.mintick
+                    break
+    result
 
 // ---- Setup state machine (evaluated once per completed strategy-TF bar) ----
 var string armed = na
@@ -73,8 +118,6 @@ tradeCount = strategy.opentrades + strategy.closedtrades
 if tradeCount != lastTradeCount
     armed := na
     lastTradeCount := tradeCount
-
-stopDist = stopTicks * syminfo.mintick
 
 if tfBarDone and not na(fastMA) and not na(slowMA)
     shortBias = enableShort and fastMA > slowMA
@@ -103,24 +146,27 @@ f_msg(action, entry, stop, target) =>
      ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stop, format.mintick) + '}' +
      ',"takeProfit":{"limitPrice":' + str.tostring(target, format.mintick) + '}}'
 
+// Places (or re-prices) one limit with its stop/target, or cancels it if no valid stop exists.
+f_order(id, isShort, limitRaw) =>
+    px = math.round_to_mintick(limitRaw)
+    st = f_stop(isShort, px)
+    if na(st)
+        strategy.cancel(id)
+    else
+        st := math.round_to_mintick(st)
+        risk = math.abs(st - px)
+        tg = math.round_to_mintick(isShort ? px - risk * targetR : px + risk * targetR)
+        strategy.entry(id, isShort ? strategy.short : strategy.long, qty=qty, limit=px,
+             oca_name="setup", oca_type=strategy.oca.cancel,
+             alert_message=f_msg(isShort ? "sell" : "buy", px, st, tg))
+        strategy.exit(id + " x", from_entry=id, stop=st, limit=tg)
+
 if flat and armed == "short"
-    pf = math.round_to_mintick(limFast)
-    ps = math.round_to_mintick(limSlow)
-    strategy.entry("S fast", strategy.short, qty=qty, limit=pf, oca_name="setup", oca_type=strategy.oca.cancel,
-         alert_message=f_msg("sell", pf, pf + stopDist, pf - stopDist * targetR))
-    strategy.entry("S slow", strategy.short, qty=qty, limit=ps, oca_name="setup", oca_type=strategy.oca.cancel,
-         alert_message=f_msg("sell", ps, ps + stopDist, ps - stopDist * targetR))
-    strategy.exit("S fast x", from_entry="S fast", stop=pf + stopDist, limit=pf - stopDist * targetR)
-    strategy.exit("S slow x", from_entry="S slow", stop=ps + stopDist, limit=ps - stopDist * targetR)
+    f_order("S fast", true, limFast)
+    f_order("S slow", true, limSlow)
 else if flat and armed == "long"
-    pf = math.round_to_mintick(limFast)
-    ps = math.round_to_mintick(limSlow)
-    strategy.entry("L fast", strategy.long, qty=qty, limit=pf, oca_name="setup", oca_type=strategy.oca.cancel,
-         alert_message=f_msg("buy", pf, pf - stopDist, pf + stopDist * targetR))
-    strategy.entry("L slow", strategy.long, qty=qty, limit=ps, oca_name="setup", oca_type=strategy.oca.cancel,
-         alert_message=f_msg("buy", ps, ps - stopDist, ps + stopDist * targetR))
-    strategy.exit("L fast x", from_entry="L fast", stop=pf - stopDist, limit=pf + stopDist * targetR)
-    strategy.exit("L slow x", from_entry="L slow", stop=ps - stopDist, limit=ps + stopDist * targetR)
+    f_order("L fast", false, limFast)
+    f_order("L slow", false, limSlow)
 else if flat
     strategy.cancel("S fast")
     strategy.cancel("S slow")
