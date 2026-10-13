@@ -29,6 +29,15 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, `ma_pullback/`** (built for MCL, 30m by default): when
+the 9 MA is above the 20 MA, wait for a bar to close below both, then rest a
+sell limit on each MA. The first one hit is the trade and the other is
+cancelled. The long mirror is optional and off by default. The timeframe,
+MA lengths/type, stop (ticks), target (R) and setup expiry are all settings.
+See `tradingview/ma_pullback_mcl.pine` and `ma_pullback/strategy.py`, and
+backtest it with `python -m ma_pullback.run` (real MCL 15m data resampled to
+30m; `--help` lists the settings).
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

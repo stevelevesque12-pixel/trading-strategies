@@ -1,0 +1,133 @@
+//@version=6
+// MA pullback strategy for MCL, ported 1:1 from ma_pullback/strategy.py.
+//
+// Rules (short side; the optional long side is the exact mirror, off by default):
+//   1. Bias: fast MA (9) above slow MA (20) -> look for shorts only.
+//   2. Setup: wait for a strategy-timeframe bar to CLOSE below both MAs.
+//   3. Entry: a sell limit rests on EACH MA. The first one hit is the trade,
+//      the other is cancelled (OCA group). While waiting, both limits follow
+//      the MAs, re-priced at every strategy-timeframe close.
+//   4. The setup is cancelled if the fast MA is no longer above the slow MA,
+//      or after "Setup expiry" bars unfilled (0 = never).
+//   5. Exit: stop N ticks beyond the fill, target = R multiple of that risk.
+//
+// The stop, target, expiry and MA type are added settings: the original
+// spec defined only bias/setup/entry. Their defaults are placeholders.
+//
+// TIMEFRAME: "Strategy timeframe" (default 30m) is where the MAs and the
+// close-below-both check are computed. Run the chart on that timeframe for
+// an exact match with the Python backtest. A lower chart timeframe also
+// works (fills are then checked on the finer bars). In that case the setup is
+// read from the completed strategy-timeframe bar, which is non-repainting
+// but arms one chart bar late. The chart timeframe must not be higher than
+// the strategy timeframe.
+//
+// Alerts (TradersPost format): create the alert with condition
+// "Order fills and alert() function calls". Each entry fill sends the JSON
+// in its alert_message (market order with stop + take profit attached).
+
+strategy("MA Pullback (MCL)", overlay=true, initial_capital=10000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0,
+     calc_on_every_tick=false, process_orders_on_close=false)
+
+// ---- Inputs ----
+tf          = input.timeframe("30", "Strategy timeframe")
+maType      = input.string("SMA", "MA type", options=["SMA", "EMA"])
+fastLen     = input.int(9, "Fast MA length", minval=1)
+slowLen     = input.int(20, "Slow MA length", minval=1)
+enableShort = input.bool(true, "Trade shorts (fast MA above slow MA)")
+enableLong  = input.bool(false, "Trade longs (mirror: fast below slow, close above both)")
+expiryBars  = input.int(0, "Setup expiry (strategy-TF bars, 0 = never)", minval=0)
+stopTicks   = input.int(30, "Stop (ticks from fill)", minval=1, group="Exits")
+targetR     = input.float(1.5, "Target (R multiple)", minval=0.1, step=0.1, group="Exits")
+qty         = input.int(1, "Contracts", minval=1, group="Exits")
+
+if timeframe.in_seconds(timeframe.period) > timeframe.in_seconds(tf)
+    runtime.error("Chart timeframe must be lower than or equal to the Strategy timeframe.")
+
+ma(src, len) => maType == "EMA" ? ta.ema(src, len) : ta.sma(src, len)
+
+// ---- Strategy-timeframe values from the last COMPLETED bar ----
+sameTF = timeframe.in_seconds(timeframe.period) == timeframe.in_seconds(tf)
+maFastChart = ma(close, fastLen)
+maSlowChart = ma(close, slowLen)
+[fastHTF, slowHTF, closeHTF] = request.security(syminfo.tickerid, tf,
+     [ma(close, fastLen)[1], ma(close, slowLen)[1], close[1]], lookahead=barmerge.lookahead_on)
+
+fastMA  = sameTF ? maFastChart : fastHTF
+slowMA  = sameTF ? maSlowChart : slowHTF
+tfClose = sameTF ? close : closeHTF
+tfBarDone = sameTF ? true : timeframe.change(tf)   // a strategy-TF bar just completed
+
+// ---- Setup state machine (evaluated once per completed strategy-TF bar) ----
+var string armed = na
+var int armedBars = 0
+var float limFast = na
+var float limSlow = na
+
+flat = strategy.position_size == 0
+// A fill ends the setup (one trade per setup), even if the trade already
+// closed on the same bar.
+var int lastTradeCount = 0
+tradeCount = strategy.opentrades + strategy.closedtrades
+if tradeCount != lastTradeCount
+    armed := na
+    lastTradeCount := tradeCount
+
+stopDist = stopTicks * syminfo.mintick
+
+if tfBarDone and not na(fastMA) and not na(slowMA)
+    shortBias = enableShort and fastMA > slowMA
+    longBias  = enableLong and fastMA < slowMA
+    if (armed == "short" and not shortBias) or (armed == "long" and not longBias)
+        armed := na
+    if not na(armed)
+        armedBars += 1
+        if expiryBars > 0 and armedBars > expiryBars
+            armed := na
+    if na(armed) and flat
+        if shortBias and tfClose < math.min(fastMA, slowMA)
+            armed := "short"
+            armedBars := 0
+        else if longBias and tfClose > math.max(fastMA, slowMA)
+            armed := "long"
+            armedBars := 0
+    limFast := fastMA
+    limSlow := slowMA
+
+// ---- Orders ----
+f_msg(action, entry, stop, target) =>
+    '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
+     ',"quantity":' + str.tostring(qty) +
+     ',"signalPrice":' + str.tostring(entry, format.mintick) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stop, format.mintick) + '}' +
+     ',"takeProfit":{"limitPrice":' + str.tostring(target, format.mintick) + '}}'
+
+if flat and armed == "short"
+    pf = math.round_to_mintick(limFast)
+    ps = math.round_to_mintick(limSlow)
+    strategy.entry("S fast", strategy.short, qty=qty, limit=pf, oca_name="setup", oca_type=strategy.oca.cancel,
+         alert_message=f_msg("sell", pf, pf + stopDist, pf - stopDist * targetR))
+    strategy.entry("S slow", strategy.short, qty=qty, limit=ps, oca_name="setup", oca_type=strategy.oca.cancel,
+         alert_message=f_msg("sell", ps, ps + stopDist, ps - stopDist * targetR))
+    strategy.exit("S fast x", from_entry="S fast", stop=pf + stopDist, limit=pf - stopDist * targetR)
+    strategy.exit("S slow x", from_entry="S slow", stop=ps + stopDist, limit=ps - stopDist * targetR)
+else if flat and armed == "long"
+    pf = math.round_to_mintick(limFast)
+    ps = math.round_to_mintick(limSlow)
+    strategy.entry("L fast", strategy.long, qty=qty, limit=pf, oca_name="setup", oca_type=strategy.oca.cancel,
+         alert_message=f_msg("buy", pf, pf - stopDist, pf + stopDist * targetR))
+    strategy.entry("L slow", strategy.long, qty=qty, limit=ps, oca_name="setup", oca_type=strategy.oca.cancel,
+         alert_message=f_msg("buy", ps, ps - stopDist, ps + stopDist * targetR))
+    strategy.exit("L fast x", from_entry="L fast", stop=pf - stopDist, limit=pf + stopDist * targetR)
+    strategy.exit("L slow x", from_entry="L slow", stop=ps - stopDist, limit=ps + stopDist * targetR)
+else if flat
+    strategy.cancel("S fast")
+    strategy.cancel("S slow")
+    strategy.cancel("L fast")
+    strategy.cancel("L slow")
+
+// ---- Visuals ----
+plot(fastMA, "Fast MA", color=color.orange, linewidth=2)
+plot(slowMA, "Slow MA", color=color.blue, linewidth=2)
+bgcolor(armed == "short" ? color.new(color.red, 90) : armed == "long" ? color.new(color.green, 90) : na, title="Setup armed")
