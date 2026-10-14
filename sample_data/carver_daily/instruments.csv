@@ -1,0 +1,39 @@
+instrument,name,asset_class,multiplier,commission,spread,rolls_per_year
+SP500,E-mini S&P 500,Equity,50.0,2.25,0.13,4
+NASDAQ,E-mini Nasdaq-100,Equity,20.0,2.2,0.32,4
+DOW,Micro E-mini Dow,Equity,0.5,0.62,1.2,4
+RUSSELL,Micro E-mini Russell 2000,Equity,5.0,0.62,0.11,4
+VIX,VIX,Vol,1000.0,2.38,0.025,12
+US2,2y T-Note,Bond,2000.0,1.51,0.002,4
+US5,5y T-Note,Bond,1000.0,1.51,0.0039,4
+US10,10y T-Note,Bond,1000.0,1.67,0.008,4
+US20,T-Bond,Bond,1000.0,1.74,0.016,4
+US30,Ultra T-Bond,Bond,1000.0,1.82,0.016,4
+EUR,Euro FX,FX,125000.0,2.47,2.9e-05,4
+JPY,Japanese Yen,FX,12500000.0,2.47,2.7e-07,4
+GBP,British Pound,FX,62500.0,2.47,6.1e-05,4
+AUD,Australian Dollar,FX,100000.0,2.47,3.3e-05,4
+CAD,Canadian Dollar,FX,100000.0,2.47,3e-05,4
+CHF,Swiss Franc,FX,125000.0,1.5,5.8e-05,4
+MXP,Mexican Peso,FX,500000.0,2.47,5.5e-06,4
+CRUDE_W,WTI Crude,Energy,1000.0,2.37,0.012,1
+HEATOIL,Heating Oil,Energy,42000.0,2.37,0.00034,12
+GASOILINE,RBOB Gasoline,Energy,42000.0,2.37,0.00027,12
+GAS_US,Natural Gas,Energy,10000.0,2.47,0.0011,12
+GOLD,Gold,Metals,100.0,2.47,0.096,6
+SILVER,Silver,Metals,1000.0,1.27,0.004,5
+COPPER,Copper,Metals,25000.0,2.47,0.00047,4
+PLAT,Platinum,Metals,50.0,2.47,0.23,4
+PALLAD,Palladium,Metals,100.0,2.31,0.56,4
+CORN,Corn,Ags,50.0,2.97,0.16,1
+WHEAT,Wheat,Ags,50.0,2.97,0.16,1
+SOYBEAN,Soybeans,Ags,50.0,2.97,0.17,1
+SOYMEAL,Soybean Meal,Ags,100.0,2.97,0.057,8
+SOYOIL,Soybean Oil,Ags,600.0,2.97,0.015,8
+LIVECOW,Live Cattle,Ags,400.0,2.97,0.024,6
+FEEDCOW,Feeder Cattle,Ags,500.0,2.97,0.04,8
+LEANHOG,Lean Hogs,Ags,400.0,2.97,0.017,7
+SUGAR11,Sugar #11,Ags,1120.0,2.97,0.005,4
+COFFEE,Coffee,Ags,375.0,2.97,0.095,5
+COCOA,Cocoa,Ags,10.0,2.97,3.9,5
+COTTON2,Cotton #2,Ags,500.0,2.97,0.044,4
