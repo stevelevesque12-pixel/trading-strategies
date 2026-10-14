@@ -58,12 +58,33 @@ def test_reverse_limit_closes_open_trade_at_the_flip_fill(monkeypatch):
     monkeypatch.setattr(st, "indicators", lambda b, p: b.join(ind))
     monkeypatch.setattr(st, "signals", lambda b, p: sig)
 
-    p = Params(commission_rt=0, stop_slip_ticks=0, reverse="limit", cancel_on_flip=False)
+    p = Params(commission_rt=0, stop_slip_ticks=0, reverse="limit", cancel_on_flip=False, live_ma=False)
     trades = backtest(fine, "30min", p)
     assert trades[0].direction == 1 and trades[0].entry == 100.0
     assert trades[0].reason == "reverse" and trades[0].exit == 100.9
     assert trades[0].exit_time == idx[5]
 
     # Without side swapping the short setup is ignored while the long is open.
-    plain = backtest(fine, "30min", Params(commission_rt=0, stop_slip_ticks=0, cancel_on_flip=False))
+    plain = backtest(fine, "30min", Params(commission_rt=0, stop_slip_ticks=0, cancel_on_flip=False, live_ma=False))
     assert all(t.reason != "reverse" for t in plain)
+
+
+def test_replays_hand_marked_mcl_trades_jan_2025():
+    # Trades marked on TradingView (MCL1! 30m, Jan 2-9 2025): direction, fill time, entry, stop distance.
+    from pathlib import Path
+
+    import pytest
+
+    path = Path(__file__).parent.parent / "sample_data/real_multi_instrument/tv_mcl1_30m_2025-01-02_2026-10.parquet"
+    pytest.importorskip("pyarrow")
+    bars = pd.read_parquet(path)[["open", "high", "low", "close"]]
+    trades = backtest(bars[:"2025-01-09 12:00"], "30min", Params())
+    got = [(t.direction, t.entry_time.strftime("%d %H:%M"), round(t.entry, 2), round(abs(t.entry - t.stop), 2), t.reason) for t in trades]
+    assert got[:4] == [
+        (-1, "02 18:00", 73.21, 0.46, "target"),
+        (-1, "05 20:00", 74.02, 0.42, "target"),
+        (-1, "06 11:30", 74.13, 0.59, "target"),
+        (1, "06 23:00", 73.42, 0.36, "target"),
+    ]
+    assert trades[0].exit_time.strftime("%d %H:%M") == "03 04:00"
+    assert trades[1].exit_time.strftime("%d %H:%M") == "06 00:00"

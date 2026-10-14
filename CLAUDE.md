@@ -9,6 +9,10 @@
   differences are fine). The source CSV hit Excel's row limit, so it may have been cut off at Dec 11 2025.
 - `real_multi_instrument/real_*_{1m,5m,15m}_*.parquet`: micro futures (MNQ, MES, MYM, M2K, MGC,
   MCL, SIL), 1m Aug 2026, 5m May–Aug 2026, 15m Sep 2025–Aug 2026. Also NQ, ES, GC and SI 15m for 2016–2026.
+- `real_multi_instrument/tv_mcl1_30m_2025-01-02_2026-10.parquet`: MCL1! 30m exported from the user's
+  TradingView chart (Jan 2 2025 - Oct 14 2026), index in America/New_York, bar-open timestamps. Also has
+  TradingView's own `ma_a` (20 SMA), `ma_b` (9 SMA) and `atr_tv` (ATR 14) columns for checking indicator
+  math, plus volume. Same feed as the MCL 15m file where they overlap.
 - `daily/nasdaq_index_daily_2026-09-08_2026-10-07.csv`: daily Nasdaq index OHLC with no volume (22 days).
 
 The same NQ 1m data is in `stevelevesque12-pixel/AI-personal-hedge-fund` at

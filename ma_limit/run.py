@@ -19,12 +19,15 @@ def main():
     ap.add_argument("--atr-mult", type=float, default=2.0)
     ap.add_argument("--rr", type=float, default=1.0)
     ap.add_argument("--x", type=int, default=5, help="candles the limit stays working after the setup close")
+    ap.add_argument("--mode", choices=["chart", "realtime"], default="chart",
+                    help="chart: entry/stop from the touching candle (matches hand-marked trades); realtime: no look-ahead")
     a = ap.parse_args()
 
     inst = INSTRUMENTS[a.symbol]
     df = pd.read_parquet(a.path).tz_convert("America/New_York")
     df.columns = [c.lower() for c in df.columns]
-    p = Params(atr_mult=a.atr_mult, rr=a.rr, expiry_bars=a.x, tick_size=inst.tick_size, point_value=inst.point_value)
+    df = df[[c for c in ("open", "high", "low", "close", "volume") if c in df]]
+    p = Params(atr_mult=a.atr_mult, rr=a.rr, expiry_bars=a.x, live_mode=a.mode, tick_size=inst.tick_size, point_value=inst.point_value)
     trades = backtest(df, a.tf, p)
     print(summarize(trades))
 

@@ -28,6 +28,14 @@ class Params:
     rr: float = 1.0
     expiry_bars: int = 5  # "x": the limit must fill within this many candles of the latest close beyond both MAs
     track_ma: bool = False  # move the working limit to each new bar's 20 SMA
+    # Enter at the 20 SMA of the candle that touches it, with that candle's ATR for the stop --
+    # how trades are marked by hand on the chart. Uses the touching candle's close (the MA
+    # value live trading would chase intrabar ends there), so it's a slight look-ahead.
+    live_ma: bool = True
+    # With live_ma, "realtime" places the limit where price meets the forming candle's live 20 SMA
+    # (= mean of the previous 19 closes, known at the candle's open) and sizes the stop from the
+    # last closed candle's ATR -- no look-ahead. "chart" uses the touching candle's closed values.
+    live_mode: str = "chart"
     cancel_on_flip: bool = False  # pull an unfilled limit once the 9/20 order flips (default: keep it until x expires)
     tick_size: float = 0.01
     point_value: float = 100.0
@@ -73,7 +81,20 @@ def indicators(bars: pd.DataFrame, p: Params) -> pd.DataFrame:
     tr = pd.concat(
         [out["high"] - out["low"], (out["high"] - prev_close).abs(), (out["low"] - prev_close).abs()], axis=1
     ).max(axis=1)
-    out["atr"] = tr.ewm(alpha=1 / p.atr_len, adjust=False).mean()  # Wilder / TradingView ta.atr
+    out["atr"] = _rma(tr.to_numpy(), p.atr_len)  # Wilder / TradingView ta.atr
+    out["touch"] = out["close"].shift().rolling(p.slow - 1).mean()  # price that meets the live 20 SMA
+    out["atr_prev"] = out["atr"].shift()
+    return out
+
+
+def _rma(x: np.ndarray, n: int) -> np.ndarray:
+    """TradingView ta.rma: seeded with the SMA of the first n values, then Wilder smoothing."""
+    out = np.full(len(x), np.nan)
+    if len(x) < n:
+        return out
+    out[n - 1] = x[:n].mean()
+    for i in range(n, len(x)):
+        out[i] = out[i - 1] + (x[i] - out[i - 1]) / n
     return out
 
 
@@ -103,9 +124,10 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
     # Map each signal bar's close time -> its values, to be acted on from the next fine bar.
     sb = sig_bars.assign(sig=sig)
     sb_close = {ts + period: row for ts, row in zip(sb.index, sb.itertuples())}
+    sb_open = dict(zip(sb.index, sb.itertuples()))
 
     trades: List[Trade] = []
-    pending = None  # dict(direction, limit, stop, target, expires, signal_time)
+    pending = None  # dict(direction, limit, stop, target, bars_left, signal_time)
     pos: Optional[Trade] = None
     idx = fine.index
     o, h, l, c = (fine[k].to_numpy() for k in ("open", "high", "low", "close"))
@@ -127,7 +149,8 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 still_valid = (pending["direction"] == -1 and row.fast > row.slow) or (
                     pending["direction"] == 1 and row.fast < row.slow
                 )
-                if (p.cancel_on_flip and not still_valid) or ts >= pending["expires"]:
+                pending["bars_left"] -= 1
+                if (p.cancel_on_flip and not still_valid) or pending["bars_left"] <= 0:
                     pending = None
                 elif p.track_ma:
                     d = pending["direction"]
@@ -145,7 +168,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                     limit=row.slow,
                     stop=row.slow - d * risk,
                     target=row.slow + d * p.rr * risk,
-                    expires=ts + p.expiry_bars * period,
+                    bars_left=p.expiry_bars,
                     signal_time=row.Index,
                 )
 
@@ -168,13 +191,25 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
             check_exit(False)
 
         if pending is not None and (pos is None or pending["direction"] == -pos.direction):
-            d, lim = pending["direction"], pending["limit"]
+            d, lim, stop, target = pending["direction"], pending["limit"], pending["stop"], pending["target"]
+            cur = sb_open.get(ts.floor(period)) if p.live_ma else None
+            if cur is not None and not np.isnan(cur.slow):
+                ma, atr = (cur.touch, cur.atr_prev) if p.live_mode == "realtime" else (cur.slow, cur.atr)
+                risk = p.atr_mult * atr
+                lim, stop, target = ma, ma - d * risk, ma + d * p.rr * risk
+            # Like the chart's position tool: entry and stop distance on the tick grid, target mirrors the stop.
+            tick = lambda x: round(round(x / p.tick_size) * p.tick_size, 10)
+            lim, risk = tick(lim), tick(abs(lim - stop))
+            stop, target = round(lim - d * risk, 10), round(lim + d * p.rr * risk, 10)
             hit = h[i] >= lim if d == -1 else l[i] <= lim
             if hit:
-                fill = max(o[i], lim) if d == -1 else min(o[i], lim)  # gap through -> better price
+                if p.live_ma:
+                    fill = lim  # marked at the MA, even when the candle opened through it
+                else:
+                    fill = max(o[i], lim) if d == -1 else min(o[i], lim)  # gap through -> better price
                 if pos is not None:
                     close_trade(pos, ts, fill, "reverse")
-                pos = Trade(d, pending["signal_time"], ts, fill, pending["stop"], pending["target"])
+                pos = Trade(d, pending["signal_time"], ts, fill, stop, target)
                 pending = None
                 check_exit(True)
 
