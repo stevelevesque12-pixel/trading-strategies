@@ -8,7 +8,9 @@ Rules (Phidias site, Premium 50K, Oct 2026 screenshots):
 Assumptions where the page is silent (each is a constant below):
   - the drawdown stops trailing at start + $100 (so it locks at $50,100, which is $52,600 - $2,500);
   - 30% rule: the best day since the last payout is at most 30% of the profit made since then;
-  - split 75/80/85/90/100% for payouts 1-5+; $500 minimum payout; no maximum (RULES['max_pay'] to cap);
+  - split 75/80/85/90/100% for payouts 1-5+ (Phidias rules page), applied to the withdrawal; max $2,000 per
+    period on 50K ($2,500 100K, $2,750 150K); the balance after a withdrawal may not fall below start + $100;
+    $500 minimum payout (assumed);
   - a lost funded account goes back to a new evaluation at the reset price.
 Session days run 18:00 -> 17:00 ET. The drawdown is checked against each day's worst equity (closed P&L plus
 the open trade at its worst bar extreme), and the trailing line moves with the day's closing equity.
@@ -17,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 RULES = dict(target=4000.0, dd=2500.0, lock=100.0, threshold=2600.0, valid_day=150.0, pay_days=5,
-             cons=0.30, min_pay=500.0, max_pay=None, split=(0.75, 0.80, 0.85, 0.90, 1.00), reset=108.45, max_qty=100)
+             cons=0.30, min_pay=500.0, max_pay=2000.0, keep=100.0, split=(0.75, 0.80, 0.85, 0.90, 1.00), reset=108.45, max_qty=100)
 
 
 def session_day(ts):
@@ -101,7 +103,8 @@ def simulate(day_ret, day_low, n_eval, n_fund, idx, price=None, r=RULES):
         fa = (mode == 2) & al & ~ok
         valid[fa] += t[fa] >= r["valid_day"]
         cyc_best[fa] = np.maximum(cyc_best[fa], t[fa])
-        amt = bal - r["threshold"]
+        # Request needs the balance at the threshold; withdraw up to the period cap, keeping start + $100 in the account.
+        amt = np.where(bal >= r["threshold"], bal - r["keep"], 0.0)
         if r.get("max_pay"):
             amt = np.minimum(amt, r["max_pay"])
         cyc_profit = bal - cyc_start
