@@ -118,7 +118,7 @@ def simulate(plan, tot, low, n_eval, n_fund, idx):
         if p["mode"] == "phidias":
             wins[fa] += 1  # trading days since the last payout
             profit = np.maximum(bal, 0)
-            amt = 0.5 * profit if PHIDIAS_HALF else profit
+            amt = np.minimum(0.5 * profit if PHIDIAS_HALF else profit, p.get("cap", np.inf))  # cap: optional per-payout limit
             go = fa & (wins >= PAY_DAYS) & (cyc_best <= p["f_cons"] * np.maximum(profit, 1e-9)) & (amt >= p["min_pay"])
             split = np.array(PHIDIAS_SPLIT)[np.minimum(npay, len(PHIDIAS_SPLIT) - 1)]
             paid[go] += amt[go] * split[go]; pays += go; npay += go
