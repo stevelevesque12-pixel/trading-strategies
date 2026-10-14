@@ -1,0 +1,197 @@
+//@version=6
+// ============================================================================
+// NQ Trend-Day / Untouched-EMA fade  (Pine port of the PowerLanguage version)
+// ----------------------------------------------------------------------------
+// EMA(20) is built ONLY from completed RTH 15-minute bucket closes (26 per
+// session, SMA-seeded, carried across sessions).
+//
+// A session QUALIFIES when:
+//   - it produced a full set of clean 15-minute buckets,
+//   - the EMA was observable for every bucket,
+//   - the EMA was never inside any bucket's high-low range ("untouched"),
+//   - |sessionClose - sessionOpen| / sessionRange >= TrendPct.
+//
+// On the NEXT session's open, fade it:
+//   open ABOVE the EMA -> SHORT, open BELOW the EMA -> LONG.
+//   Entry: market on the following bar (~1 minute after the open).
+//   Skipped if the opening bar already reached the EMA, or if the opening
+//   bar's close is no longer on the entry side.
+//   Exit: resting limit at the CURRENT EMA, retrailed after every completed
+//   bucket. Flat one minute before the session end. One trade per session.
+//
+// CHART: NQ or MNQ, 1-MINUTE bars. RTH or ETH both work.
+// TIMES: SessStart / SessEnd are HHMM in the "Session timezone" input, NOT
+//   the chart clock (TradingView charts can be shown in any timezone).
+//   Defaults are CT (830 / 1500) with timezone = Exchange, which is
+//   America/Chicago for CME symbols. For ET pick America/New_York and
+//   use 930 / 1600.
+// TIMING: PowerLanguage stamps bars with their CLOSE time; TradingView stamps
+//   them with their OPEN time. This script reads time_close, so the session
+//   test "(open, close]" means exactly the same thing as in MultiCharts.
+// DIAG: enable ShowDiag and open the Pine Logs panel: one line per session
+//   with the bucket count, untouched flag, trend ratio and whether it
+//   qualified.
+// ============================================================================
+strategy("NQ Trend-Day Untouched-EMA Fade", overlay = true, pyramiding = 0,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     process_orders_on_close = false, calc_on_every_tick = false)
+
+sessStart    = input.int(830, "SessStart (HHMM)")
+sessEnd      = input.int(1500, "SessEnd (HHMM)")
+tzIn         = input.string("Exchange", "Session timezone",
+     options = ["Exchange", "America/Chicago", "America/New_York"])
+emaLen       = input.int(20, "EMA length (buckets)", minval = 1)
+trendPct     = input.float(45.0, "TrendPct")
+reqUntouched = input.bool(true, "Require untouched EMA")
+reqTrendDay  = input.bool(true, "Require trend day")
+minBuckets   = input.int(24, "MinBuckets (26 = strict)")
+numCons      = input.int(1, "Contracts", minval = 1)
+useStop      = input.bool(false, "Use protective stop (StopMult x mean bucket range)")
+stopMult     = input.float(2.0, "StopMult")
+showDiag     = input.bool(false, "ShowDiag (Pine Logs)")
+
+tz = tzIn == "Exchange" ? syminfo.timezone : tzIn
+
+hhmmToMin(int t) =>
+    int(math.floor(t / 100)) * 60 + t % 100
+
+// bar CLOSE, minutes from midnight in the session timezone
+tmin = hour(time_close, tz) * 60 + minute(time_close, tz)
+smin = hhmmToMin(sessStart)
+emin = hhmmToMin(sessEnd)
+
+// a bar belongs to the session when its close falls in (open, close]
+inSess = tmin > smin and tmin <= emin
+
+var bool  wasIn      = false
+var int   bMin       = 0
+var float bHi        = na
+var float bLo        = na
+var float bCl        = na
+var float sHi        = na
+var float sLo        = na
+var float sCl        = na
+var float sOpen      = na
+var int   sBkt       = 0
+var bool  touchFree  = true
+var bool  observable = true
+var bool  haveSess   = false
+var float emaV       = na
+var bool  emaReady   = false
+var int   seedN      = 0
+var float seedSum    = 0.0
+var float rngSum     = 0.0
+var int   rngN       = 0
+
+alpha = 2.0 / (emaLen + 1)
+
+if inSess
+    // ---------------- first bar of a session ----------------
+    if not wasIn
+        // ---- finalize the PREVIOUS session ----
+        bool qual = false
+        if haveSess
+            float sRange = sHi - sLo
+            float trendRatio = sRange > 0 ? 100 * math.abs(sCl - sOpen) / sRange : 0.0
+            qual := sBkt >= minBuckets and observable and sRange > 0
+                 and (not reqUntouched or touchFree)
+                 and (not reqTrendDay or trendRatio >= trendPct)
+            if sBkt < 20  // badly broken session: rebuild the EMA
+                emaReady := false
+                seedN := 0
+                seedSum := 0.0
+            if showDiag
+                log.info("{0} bkts={1} untouched={2} obs={3} trend={4} qual={5} emaReady={6} ema={7}",
+                     str.format_time(time, "yyyy-MM-dd", tz), sBkt, str.tostring(touchFree),
+                     str.tostring(observable), str.tostring(trendRatio, "#.0"), str.tostring(qual),
+                     str.tostring(emaReady), str.tostring(emaV, "#.00"))
+
+        // ---- decide this session's trade from the PRE-session EMA ----
+        int dir = 0
+        if qual and emaReady
+            dir := open > emaV ? -1 : open < emaV ? 1 : 0
+            if dir == 1 and (high >= emaV or close >= emaV)
+                dir := 0
+            if dir == -1 and (low <= emaV or close <= emaV)
+                dir := 0
+        if dir == 1
+            strategy.entry("TD-L", strategy.long, qty = numCons)
+        if dir == -1
+            strategy.entry("TD-S", strategy.short, qty = numCons)
+
+        // ---- start the new session ----
+        sBkt := 0
+        sOpen := open
+        sHi := high
+        sLo := low
+        sCl := close
+        touchFree := true
+        observable := true
+        haveSess := true
+        rngSum := 0.0
+        rngN := 0
+        bMin := 0
+        bHi := high
+        bLo := low
+        bCl := close
+    else
+        sHi := math.max(sHi, high)
+        sLo := math.min(sLo, low)
+        sCl := close
+        bMin += 1
+        bHi := math.max(bHi, high)
+        bLo := math.min(bLo, low)
+        bCl := close
+
+    // ---------------- a 15-minute bucket just completed ----------------
+    if bMin == 14
+        // causal touch test: uses the EMA known BEFORE this bucket closes
+        if not emaReady
+            observable := false
+        else if bLo <= emaV and emaV <= bHi
+            touchFree := false
+
+        if not emaReady
+            seedSum += bCl
+            seedN += 1
+            if seedN >= emaLen
+                emaV := seedSum / seedN
+                emaReady := true
+        else
+            emaV := alpha * bCl + (1 - alpha) * emaV
+
+        rngSum += bHi - bLo
+        rngN += 1
+        sBkt += 1
+
+        // open the next bucket on the following bar
+        bMin := -1
+        bHi := close
+        bLo := close
+        bCl := close
+
+    // ---------------- exits ----------------
+    // Limit at the EMA plus the optional stop share one strategy.exit per
+    // side; re-issuing it every bar retrails the limit to the current EMA.
+    float stopPx = na
+    if useStop and strategy.position_size != 0 and rngN > 0
+        float meanRng = rngSum / rngN
+        stopPx := strategy.position_size > 0 ? strategy.position_avg_price - stopMult * meanRng
+             : strategy.position_avg_price + stopMult * meanRng
+    if strategy.position_size > 0 and emaReady
+        strategy.exit("TD-LX", "TD-L", limit = emaV, stop = stopPx,
+             comment_profit = "TD-LT", comment_loss = "TD-LX")
+    if strategy.position_size < 0 and emaReady
+        strategy.exit("TD-SX", "TD-S", limit = emaV, stop = stopPx,
+             comment_profit = "TD-ST", comment_loss = "TD-SX")
+
+    // flat one minute before the session close
+    if tmin >= emin - 1
+        if strategy.position_size > 0
+            strategy.close("TD-L", comment = "TD-EOD")
+        if strategy.position_size < 0
+            strategy.close("TD-S", comment = "TD-EODS")
+
+wasIn := inSess
+
+plot(emaReady ? emaV : na, "Bucket EMA", color.orange, 2, plot.style_linebr)
