@@ -149,7 +149,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
     trades: List[Trade] = []
     pending = None  # dict(direction, limit, stop, target, bars_left, signal_time)
     pos: Optional[Trade] = None
-    idx = fine.index
+    idx = list(fine.index)  # Timestamps boxed once; per-element DatetimeIndex access is slow
     o, h, l, c = (fine[k].to_numpy() for k in ("open", "high", "low", "close"))
     slip = p.stop_slip_ticks * p.tick_size
 

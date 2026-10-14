@@ -60,7 +60,7 @@ def daily_paths_df(t, days):
     return tot.to_numpy(), low.to_numpy()
 
 
-def daily_paths(trades, days):
+def daily_paths(trades, days, pv=PV):
     """Per-contract (day_total, day_worst) arrays over `days`: closed P&L at the close and the lowest point
     reached during the day (closed P&L before each trade minus that trade's worst excursion)."""
     tot = pd.Series(0.0, index=days)
@@ -73,7 +73,7 @@ def daily_paths(trades, days):
             continue
         run, worst = 0.0, 0.0
         for t in sorted(ts, key=lambda x: x.exit_time):
-            worst = min(worst, run - t.mae * PV)
+            worst = min(worst, run - t.mae * pv)
             run += t.pnl_dollars
             worst = min(worst, run)
         tot[d], low[d] = run, worst
