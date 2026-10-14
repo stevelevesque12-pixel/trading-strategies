@@ -3,7 +3,8 @@ With Trend Strength" algorithm (Carver, *Advanced Futures Trading Strategies*,
 strategy 7: EWMAC fast/slow with a continuous, capped forecast).
 
 Pieces mirrored from the QC algorithm's parameters:
-  slow_ema_span  = 2 ** 6 = 64, fast span = slow / 4 = 16
+  slow_ema_span  = 2 ** 7 = 128, fast span = slow / 4 = 32
+  (QC default is exponent 6 = EWMAC 16/64; 32/128 tested better here)
   abs_forecast_cap = 20, sigma_span = 32, target_risk (tau) = 0.2,
   blend_years = 3, buffer_scaler = 0.1
 
@@ -40,7 +41,7 @@ def instrument_diversification_multiplier(n: int) -> float:
 
 @dataclass(frozen=True)
 class Params:
-    slow_ema_span: int = 64
+    slow_ema_span: int = 128  # QC slow_ema_span_exponent = 7
     abs_forecast_cap: float = 20.0
     sigma_span: int = 32
     target_risk: float = 0.2

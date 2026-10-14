@@ -81,7 +81,7 @@ def main():
         for name, eq in curves.items():
             ax.plot(eq.index, eq / 1e6, label=name)
         ax.set_ylabel("Equity ($M, start $1M)")
-        ax.set_title("Carver EWMAC 16/64 trend strength, buffered")
+        ax.set_title(f"Carver EWMAC {p.fast_ema_span}/{p.slow_ema_span} trend strength, buffered")
         ax.grid(alpha=0.3)
         ax.legend()
         fig.tight_layout()
@@ -96,7 +96,7 @@ def main():
     header = f"""# Carver fast trend following (long/short, trend strength): local backtest
 
 This is a port of the QuantConnect algorithm `FuturesFastTrendFollowingLongAndShortWithTrendStrenthAlgorithm`
-with default parameters: EWMAC {p.fast_ema_span}/{p.slow_ema_span}, forecast scalar {p.forecast_scalar},
+with `slow_ema_span_exponent = 7` (QC default is 6) and otherwise default parameters: EWMAC {p.fast_ema_span}/{p.slow_ema_span}, forecast scalar {p.forecast_scalar},
 cap +/-{p.abs_forecast_cap:g}, sigma span {p.sigma_span}, 70/30 blend with the {p.blend_years}-year average vol,
 tau {p.target_risk}, buffer {p.buffer_scaler}, IDM from Carver Table 16, $1M starting capital (compounding).
 It runs on daily session bars built from the repo's 15-minute data. A signal at day t's close fills at
