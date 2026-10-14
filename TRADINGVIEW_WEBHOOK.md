@@ -36,6 +36,46 @@ sharing across firms or with others), high-frequency trading is banned
 they require a live video of you enabling the code on your own PC as part
 of verification.
 
+**Tradeify's hedging rule** (from their "Hedging & Correlated Products"
+page, Aug 19 2026 -- applies to Evaluation, Sim Funded and Elite Live):
+you may not hold opposing positions (one long, one short) on the same
+instrument **or on two products in the same Product Group**, in one account
+**or across any of your accounts**. Contract size doesn't matter, so long
+MES + short NQ is a hedge. Both Pine strategies trade MES or MNQ, and
+those (along with ES, NQ, MYM and M2K) are all in the **Equity Index**
+group. For these strategies the rule boils down to: **all your accounts must be long, short or flat on
+equity index futures together -- never mixed.**
+
+- Allowed: long the same thing on several accounts (copy trading); long MES
+  + long MNQ; equity index one way + crude or gold the other way (different
+  groups).
+- Violation: Failed-2s long MES on account A while structure_scalp is short
+  MNQ on account B; a manual NQ short alongside a bot long; trading a
+  failed account against an active one.
+- Consequences: every account involved goes into violation status, profits
+  from the violating period are forfeited, and you can be banned
+  permanently. The automatic breach check fires when a hedge lasts **over 10
+  seconds AND makes over $150 profit**, but cross-account and
+  correlated-product hedges are also reviewed by hand. The 10 seconds are
+  for correcting a mistake, not an allowance.
+- Minis and micros can now be held together, but an account's combined
+  position counts as 10 micros = 1 mini against its contract limit.
+
+**Nothing on the TradersPost path enforces this.** Each Pine script only
+knows about its own chart's position. If you run
+`tradingview/failed2s_mes.pine` and `tradingview/structure_scalp.pine` at
+the same time, even on separate accounts, they can and eventually will
+take opposite sides. Until you're on the self-hosted path (which does
+check -- see the bottom of this doc), pick one of these:
+
+1. Run **one** equity-index strategy at a time, copied to as many accounts
+   as you like (same direction).
+2. If you want both strategies running, put them on the **same** account
+   and check TradersPost's strategy settings for an option to reject
+   signals while a position is open. Confirm it works on demo first.
+3. Never place manual equity-index trades while a bot can enter, and make
+   sure every account is flat before you start a session.
+
 ## 1. Install/configure the Pine script
 
 1. On TradingView, open **Pine Editor**, paste in
@@ -118,6 +158,8 @@ gets fewer.
   won't fire a second entry while it thinks a position is open. This is
   Pine's own (not Tradovate's real) position state, so it can drift from
   reality if an order doesn't fill the way Pine assumes.
+- **Hedging across strategies/accounts**: not enforced on this path -- see
+  "Tradeify's hedging rule" above.
 - **Daily loss limit / daily trade cap**: not enforced anywhere in this
   path currently -- TradersPost may have its own risk controls in its
   strategy settings worth configuring; otherwise rely on Tradeify's
@@ -134,5 +176,17 @@ TradersPost's subscription entirely: `webhook/server.py` (FastAPI) talks
 to Tradovate directly via `live/tradovate_client.py`, with the same
 risk-based sizing logic in `webhook/sizing.py`. It needs its own Pine
 script variant (the current `.pine` file is TradersPost-formatted) and a
-public host for the server (Railway config: `nixpacks.toml`). Ask if you
+public host for the server (Railway config: `nixpacks.toml`).
+
+The self-hosted path **does** enforce the hedging rule
+(`failed2s/hedging.py`, used by both `webhook/server.py` and
+`live/runner.py`). Before every entry it fetches open positions on every
+account the Tradovate login can see and blocks the order if it would oppose
+any position in the same Product Group. If the positions can't be fetched, it
+blocks the entry instead of placing it unchecked. Set
+`ACCOUNT_CONTRACT_LIMIT_MINIS` to your account's contract limit and it also
+enforces the 10-micros-=-1-mini cap. Its blind spot is anything outside that
+login: accounts behind a different login, TradersPost, or manual trades on
+another platform. Keep everything you trade on one login, or keep those
+other accounts flat. Ask if you
 want that path built out again when you're there.

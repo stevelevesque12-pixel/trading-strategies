@@ -31,6 +31,8 @@ from typing import Optional
 
 import requests
 
+from failed2s.hedging import Position
+
 DEMO_BASE = "https://demo.tradovateapi.com/v1"
 LIVE_BASE = "https://live.tradovateapi.com/v1"
 DEMO_MD_WS = "wss://md-demo.tradovateapi.com/v1/websocket"
@@ -52,6 +54,7 @@ class TradovateClient:
         self.md_access_token: Optional[str] = None
         self.expiration_time: Optional[str] = None
         self._session = requests.Session()
+        self._contract_names: dict = {}
 
     @classmethod
     def from_env(cls, env: Optional[str] = None) -> "TradovateClient":
@@ -138,6 +141,28 @@ class TradovateClient:
         """
         positions = self._get("/position/list")
         return sum(p.get("netPos", 0) for p in positions if p.get("accountId") == account_id)
+
+    def contract_name(self, contract_id: int) -> str:
+        """Contract name (e.g. 'MESZ6') for a contractId, cached -- ids don't change meaning."""
+        if contract_id not in self._contract_names:
+            self._contract_names[contract_id] = self._get("/contract/item", params={"id": contract_id})["name"]
+        return self._contract_names[contract_id]
+
+    def open_positions(self) -> list:
+        """
+        Every non-flat position on every account this login can see, as
+        failed2s.hedging.Position objects (for the cross-account hedge guard).
+
+        Only covers accounts under THIS Tradovate login -- accounts behind a
+        different login (or traded through TradersPost/manually elsewhere) are
+        invisible here. UNVERIFIED against a live Tradovate response from this
+        environment; confirm on demo that /contract/item returns {"name": ...}.
+        """
+        return [
+            Position(p.get("accountId"), self.contract_name(p["contractId"]), p["netPos"])
+            for p in self._get("/position/list")
+            if p.get("netPos")
+        ]
 
 
 class TradovateChartFeed:

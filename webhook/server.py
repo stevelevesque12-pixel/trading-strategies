@@ -21,6 +21,8 @@ Optional:
     MAX_CONTRACTS             hard cap regardless of risk math (default 5)
     DAILY_LOSS_LIMIT_USD      (default 1000)
     MAX_DAILY_TRADES          (default 10)
+    ACCOUNT_CONTRACT_LIMIT_MINIS  your Tradeify account's contract limit, in
+                               mini-equivalents (10 micros = 1 mini); unset = no check
     TRADOVATE_ENV             "demo" (default) or "live"
     DRY_RUN                   "true" (default) or "false" -- log-only vs. real orders
 
@@ -31,6 +33,13 @@ NOT work the same way -- with no real P&L to record, it never actually
 trips. Treat it as a placeholder until a fills listener is wired in, and
 don't run this unattended past your real daily loss limit without also
 checking the account manually.
+
+Hedging guard: before every entry, open positions on EVERY account this
+Tradovate login can see are checked against Tradeify's hedging rule (no
+opposing positions in the same Product Group, across accounts, any contract
+size -- see failed2s/hedging.py). If positions can't be fetched, the entry is
+blocked rather than sent blind. It cannot see accounts behind other logins,
+TradersPost, or manual trades on other platforms -- see TRADINGVIEW_WEBHOOK.md.
 """
 
 import logging
@@ -39,6 +48,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 
+from failed2s.hedging import check_entry
 from failed2s.instruments import INSTRUMENTS
 from failed2s.risk import RiskManager
 from live.tradovate_client import TradovateClient
@@ -54,6 +64,8 @@ RISK_PER_TRADE_USD = float(os.environ.get("RISK_PER_TRADE_USD", "200"))
 MAX_CONTRACTS = int(os.environ.get("MAX_CONTRACTS", "5"))
 DAILY_LOSS_LIMIT_USD = float(os.environ.get("DAILY_LOSS_LIMIT_USD", "1000"))
 MAX_DAILY_TRADES = int(os.environ.get("MAX_DAILY_TRADES", "10"))
+_limit = os.environ.get("ACCOUNT_CONTRACT_LIMIT_MINIS")
+ACCOUNT_CONTRACT_LIMIT_MINIS = float(_limit) if _limit else None
 TRADOVATE_ENV = os.environ.get("TRADOVATE_ENV", "demo")
 DRY_RUN = os.environ.get("DRY_RUN", "true").lower() != "false"
 
@@ -77,6 +89,13 @@ def _get_client():
                 raise RuntimeError("No Tradovate accounts returned for this login")
             _account_id = accounts[0]["id"]
     return _client
+
+
+def _open_positions(client):
+    """All open positions across every account on this login (none known in dry run)."""
+    if DRY_RUN:
+        return []
+    return client.open_positions()
 
 
 @app.post("/tradingview-webhook")
@@ -125,6 +144,18 @@ async def tradingview_webhook(request: Request):
         "Sizing: risk=$%.2f, stop distance=%.2f pts -> %s contract(s)",
         RISK_PER_TRADE_USD, abs(entry_price - stop_price), contracts,
     )
+
+    try:
+        positions = _open_positions(client)
+    except Exception:
+        log.exception("Blocked: couldn't fetch open positions for the hedging check")
+        return {"status": "blocked_positions_unavailable"}
+
+    signed_qty = contracts if action == "buy" else -contracts
+    reason = check_entry(symbol, signed_qty, positions, _account_id, ACCOUNT_CONTRACT_LIMIT_MINIS)
+    if reason:
+        log.warning("Blocked by hedging guard: %s", reason)
+        return {"status": "blocked_by_hedging_guard", "reason": reason}
 
     # Counts this entry against MAX_DAILY_TRADES immediately (in both dry-run
     # and live mode, so the cap is testable before going live). pnl=0.0 here

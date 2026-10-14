@@ -74,3 +74,52 @@ def test_larger_risk_budget_scales_contracts(monkeypatch):
     client = _make_client(monkeypatch, RISK_PER_TRADE_USD="1000")
     resp = client.post("/tradingview-webhook", json=BUY_PAYLOAD)
     assert resp.json()["contracts"] == 5  # would be 20, clamped to MAX_CONTRACTS=5
+
+
+def _with_positions(monkeypatch, client, positions):
+    import webhook.server as server
+    monkeypatch.setattr(server, "_open_positions", lambda _client: positions)
+    return client
+
+
+def test_hedging_guard_blocks_opposing_position_on_another_account(monkeypatch):
+    from failed2s.hedging import Position
+    client = _with_positions(monkeypatch, _make_client(monkeypatch), [Position(999, "NQZ6", -1)])
+    resp = client.post("/tradingview-webhook", json=BUY_PAYLOAD)
+    body = resp.json()
+    assert body["status"] == "blocked_by_hedging_guard"
+    assert "NQ" in body["reason"]
+
+
+def test_hedging_guard_allows_same_direction(monkeypatch):
+    from failed2s.hedging import Position
+    client = _with_positions(monkeypatch, _make_client(monkeypatch), [Position(999, "NQZ6", 1)])
+    assert client.post("/tradingview-webhook", json=BUY_PAYLOAD).json()["status"] == "dry_run"
+
+
+def test_blocked_entry_does_not_use_up_daily_trade_cap(monkeypatch):
+    from failed2s.hedging import Position
+    import webhook.server as server
+    client = _make_client(monkeypatch, MAX_DAILY_TRADES="1")
+    monkeypatch.setattr(server, "_open_positions", lambda _c: [Position(999, "NQZ6", -1)])
+    assert client.post("/tradingview-webhook", json=BUY_PAYLOAD).json()["status"] == "blocked_by_hedging_guard"
+    monkeypatch.setattr(server, "_open_positions", lambda _c: [])
+    assert client.post("/tradingview-webhook", json=BUY_PAYLOAD).json()["status"] == "dry_run"
+
+
+def test_entry_blocked_when_positions_unavailable(monkeypatch):
+    import webhook.server as server
+    client = _make_client(monkeypatch)
+
+    def boom(_client):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(server, "_open_positions", boom)
+    assert client.post("/tradingview-webhook", json=BUY_PAYLOAD).json()["status"] == "blocked_positions_unavailable"
+
+
+def test_contract_limit_env(monkeypatch):
+    client = _make_client(monkeypatch, ACCOUNT_CONTRACT_LIMIT_MINIS="0.3")
+    body = client.post("/tradingview-webhook", json=BUY_PAYLOAD).json()  # 4 MES = 0.4 minis
+    assert body["status"] == "blocked_by_hedging_guard"
+    assert body["reason"].startswith("contract limit:")

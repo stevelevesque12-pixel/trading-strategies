@@ -18,6 +18,7 @@ import sys
 from datetime import datetime, date as date_cls
 
 from failed2s.bars import Bar
+from failed2s.hedging import check_entry
 from failed2s.instruments import INSTRUMENTS
 from failed2s.risk import RiskManager
 from failed2s.strategy import PAIRS, Failed2sStrategy, SessionConfig
@@ -124,6 +125,19 @@ class LiveRunner:
             f"stop={signal.stop_price} target={signal.target_price} ({signal.reason})"
         )
         if self.dry_run:
+            return
+
+        # Tradeify hedging rule: no opposing positions in the same Product
+        # Group on any account this login can see. Fail closed if unknown.
+        try:
+            positions = self.client.open_positions()
+        except Exception as e:
+            print(f"[{bar.timestamp}] Signal skipped: couldn't fetch positions for hedging check ({e}).")
+            return
+        signed_qty = 1 if signal.direction == "long" else -1
+        reason = check_entry(self.symbol, signed_qty, positions, self.account_id)
+        if reason:
+            print(f"[{bar.timestamp}] Signal skipped by hedging guard: {reason}")
             return
 
         action = "Buy" if signal.direction == "long" else "Sell"
