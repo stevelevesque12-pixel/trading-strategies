@@ -1,0 +1,348 @@
+//@version=5
+strategy(title="PPO - DD", shorttitle="PPO - DD", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500, precision=10, pyramiding=100)
+
+// ════════════════════════════════════════════════════════════════════════════
+// PPO - DD (dual-side, mutually exclusive) — TWO price/EMA checks per side
+//
+// Each side fires only when BOTH of its price/EMA ratio checks pass on the
+// same bar, so you confirm the setup on a shorter-term and a longer-term EMA:
+//   LONG : EMA1 / price > thrL1  AND  EMA2 / price > thrL2   (dip on both)
+//   SHORT: price / EMA1 > thrS1  AND  price / EMA2 > thrS2   (pump on both)
+// Each EMA has its own length, timeframe, and ratio threshold.
+//
+// Pine allows only one net position per strategy, so only ONE side can hold a
+// basket at a time: while flat, the enabled side whose signal fires opens
+// (Long checked first if both fire on the same bar); the other side cannot open
+// until the first basket is flat. Keeps the averaging math correct.
+//
+// DD ladder / sizing / decaying-TP logic ported from BTD + PTS Multi-Set v13.
+// Entry-frequency limits (one-trade-per-day, lock-after-loss) are per side.
+// Whole-basket MARKET-FILL exits.
+// ════════════════════════════════════════════════════════════════════════════
+
+// ────────────────────────────────────────────────────────────────────────────
+// LONG SIDE — INPUTS
+// ────────────────────────────────────────────────────────────────────────────
+enableL   = input.bool(true, "Enable Long", group="Long · Signal")
+
+thrL1     = input.float(1.05, "EMA1 / Price min ratio (fires when >)", inline="L1a", group="Long · Signal", tooltip="Shorter-term check. EMA1 must sit at least this ratio above price, e.g. 1.05 = EMA1 is 5% above price.")
+lenL1     = input.int(150, minval=1, title="EMA 1 Length", inline="L1b", group="Long · Signal")
+tfL1      = input.timeframe("15", title="TF", inline="L1b", group="Long · Signal")
+
+thrL2     = input.float(1.05, "EMA2 / Price min ratio (fires when >)", inline="L2a", group="Long · Signal", tooltip="Longer-term check. EMA2 must sit at least this ratio above price. BOTH checks must pass on the same bar.")
+lenL2     = input.int(300, minval=1, title="EMA 2 Length", inline="L2b", group="Long · Signal")
+tfL2      = input.timeframe("", title="TF", inline="L2b", group="Long · Signal")
+
+entryQtyL = input.int(1, "Entry Qty", group="Long · Position", minval=1)
+baseTPL   = input.float(0.135, "Base TP %", group="Long · Position") / 100
+maxDDL    = input.int(7, "Max DD Times", group="Long · Position", minval=1) - 1
+slpercL   = input.float(4, "DD SL %", group="Long · Position") / 100
+slAtMaxL  = input.bool(true, "Arm SL only at final DD", group="Long · Position", tooltip="On: hard stop active only once the last DD leg has filled. Off: stop armed the whole time.")
+tpCatchL  = input.bool(true, "Enable TP Catch-Up", group="Long · Position", tooltip="On the fill bar, if that bar's range already reached the undecayed stage TP intrabar but price closed back inside, close at market immediately.")
+
+ddCsvL    = input.string("0.618, 1.05, 1.35, 1.75, 2.2, 3.2, 0, 0, 0, 0", "DD Distances (CSV, %, from original entry)", group="Long · DD Ladder")
+ddtpCsvL  = input.string("0.02, 0.05, 0.05, 0.05, 0.05, 0.05, 0, 0, 0, 0", "DD TPs (CSV, %)", group="Long · DD Ladder")
+mfCsvL    = input.string("2, 1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2", "Multipliers (CSV)", group="Long · DD Ladder")
+
+decayCsvL = input.string("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", "Decay Window (CSV, min) [0 = off, slot 0 = base]", group="Long · TP Decay")
+mintpCsvL = input.string("0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01", "Min TP % (CSV, slot 0 = base)", group="Long · TP Decay")
+
+oneDayL   = input.bool(false, "One trade per day", group="Long · Entry Limits", tooltip="At most one new Long base entry per calendar day (exchange time).")
+lockLossL = input.bool(false, "Lock after a loss", group="Long · Entry Limits")
+lockDaysL = input.float(1, "Lock days after loss", group="Long · Entry Limits", minval=0, step=0.5, tooltip="After a losing Long basket, block new Long entries for this many × 24h from the close.")
+
+// ────────────────────────────────────────────────────────────────────────────
+// SHORT SIDE — INPUTS (mirror: price / EMA checks)
+// ────────────────────────────────────────────────────────────────────────────
+enableS   = input.bool(false, "Enable Short", group="Short · Signal")
+
+thrS1     = input.float(1.05, "Price / EMA1 min ratio (fires when >)", inline="S1a", group="Short · Signal", tooltip="Shorter-term check. Price must sit at least this ratio above EMA1, e.g. 1.05 = price is 5% above EMA1.")
+lenS1     = input.int(150, minval=1, title="EMA 1 Length", inline="S1b", group="Short · Signal")
+tfS1      = input.timeframe("15", title="TF", inline="S1b", group="Short · Signal")
+
+thrS2     = input.float(1.05, "Price / EMA2 min ratio (fires when >)", inline="S2a", group="Short · Signal", tooltip="Longer-term check. Price must sit at least this ratio above EMA2. BOTH checks must pass on the same bar.")
+lenS2     = input.int(300, minval=1, title="EMA 2 Length", inline="S2b", group="Short · Signal")
+tfS2      = input.timeframe("", title="TF", inline="S2b", group="Short · Signal")
+
+entryQtyS = input.int(1, "Entry Qty", group="Short · Position", minval=1)
+baseTPS   = input.float(0.135, "Base TP %", group="Short · Position") / 100
+maxDDS    = input.int(7, "Max DD Times", group="Short · Position", minval=1) - 1
+slpercS   = input.float(4, "DD SL %", group="Short · Position") / 100
+slAtMaxS  = input.bool(true, "Arm SL only at final DD", group="Short · Position", tooltip="On: hard stop active only once the last DD leg has filled. Off: stop armed the whole time.")
+tpCatchS  = input.bool(true, "Enable TP Catch-Up", group="Short · Position", tooltip="On the fill bar, if that bar's range already reached the undecayed stage TP intrabar but price closed back inside, close at market immediately.")
+
+ddCsvS    = input.string("0.618, 1.05, 1.35, 1.75, 2.2, 3.2, 0, 0, 0, 0", "DD Distances (CSV, %, from original entry)", group="Short · DD Ladder")
+ddtpCsvS  = input.string("0.02, 0.05, 0.05, 0.05, 0.05, 0.05, 0, 0, 0, 0", "DD TPs (CSV, %)", group="Short · DD Ladder")
+mfCsvS    = input.string("2, 1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2", "Multipliers (CSV)", group="Short · DD Ladder")
+
+decayCsvS = input.string("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", "Decay Window (CSV, min) [0 = off, slot 0 = base]", group="Short · TP Decay")
+mintpCsvS = input.string("0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01", "Min TP % (CSV, slot 0 = base)", group="Short · TP Decay")
+
+oneDayS   = input.bool(false, "One trade per day", group="Short · Entry Limits", tooltip="At most one new Short base entry per calendar day (exchange time).")
+lockLossS = input.bool(false, "Lock after a loss", group="Short · Entry Limits")
+lockDaysS = input.float(1, "Lock days after loss", group="Short · Entry Limits", minval=0, step=0.5, tooltip="After a losing Short basket, block new Short entries for this many × 24h from the close.")
+
+// ════════════════════════════════════════════════════════════════════════════
+// CSV PARSERS (ported from BTD)
+// ════════════════════════════════════════════════════════════════════════════
+f_parseFloatCSV(_csv) =>
+    float[] _out = array.new_float()
+    string[] _parts = str.split(str.replace_all(_csv, " ", ""), ",")
+    int _n = array.size(_parts)
+    for i = 0 to 9
+        if i < _n
+            float _v = str.tonumber(array.get(_parts, i))
+            array.push(_out, na(_v) ? 0.0 : _v)
+        else
+            array.push(_out, 0.0)
+    _out
+
+f_parseFloatCSV11(_csv) =>
+    float[] _out = array.new_float()
+    string[] _parts = str.split(str.replace_all(_csv, " ", ""), ",")
+    int _n = array.size(_parts)
+    for i = 0 to 10
+        if i < _n
+            float _v = str.tonumber(array.get(_parts, i))
+            array.push(_out, na(_v) ? 0.0 : _v)
+        else
+            array.push(_out, 0.0)
+    _out
+
+// Parse both sides once on the first bar. DD/TP/MinTP CSVs are % → stored as fractions.
+var float[] ddL    = array.new_float()
+var float[] ddS    = array.new_float()
+var float[] ddtpL  = array.new_float()
+var float[] ddtpS  = array.new_float()
+var float[] mfL    = array.new_float()
+var float[] mfS    = array.new_float()
+var float[] decayL = array.new_float()
+var float[] decayS = array.new_float()
+var float[] mintpL = array.new_float()
+var float[] mintpS = array.new_float()
+
+f_loadSide(_ddCsv, _ddtpCsv, _mfCsv, _decayCsv, _mintpCsv, _dd, _ddtp, _mf, _decay, _mintp) =>
+    float[] _d  = f_parseFloatCSV(_ddCsv)
+    float[] _t  = f_parseFloatCSV(_ddtpCsv)
+    float[] _m  = f_parseFloatCSV(_mfCsv)
+    float[] _dc = f_parseFloatCSV11(_decayCsv)
+    float[] _mt = f_parseFloatCSV11(_mintpCsv)
+    for i = 0 to 9
+        array.push(_dd, array.get(_d, i) / 100)
+        array.push(_ddtp, array.get(_t, i) / 100)
+        array.push(_mf, array.get(_m, i))
+    for i = 0 to 10
+        array.push(_decay, array.get(_dc, i))
+        array.push(_mintp, array.get(_mt, i) / 100)
+    true
+
+if barstate.isfirst
+    f_loadSide(ddCsvL, ddtpCsvL, mfCsvL, decayCsvL, mintpCsvL, ddL, ddtpL, mfL, decayL, mintpL)
+    f_loadSide(ddCsvS, ddtpCsvS, mfCsvS, decayCsvS, mintpCsvS, ddS, ddtpS, mfS, decayS, mintpS)
+
+// ════════════════════════════════════════════════════════════════════════════
+// ENTRY SIGNALS (two price/EMA checks per side, both must pass)
+// ════════════════════════════════════════════════════════════════════════════
+emaL1    = request.security(syminfo.tickerid, tfL1, ta.ema(close, lenL1))
+emaL2    = request.security(syminfo.tickerid, tfL2, ta.ema(close, lenL2))
+ratioL1  = emaL1 / close
+ratioL2  = emaL2 / close
+checkL1  = ratioL1 > thrL1
+checkL2  = ratioL2 > thrL2
+longSig  = checkL1 and checkL2
+
+emaS1    = request.security(syminfo.tickerid, tfS1, ta.ema(close, lenS1))
+emaS2    = request.security(syminfo.tickerid, tfS2, ta.ema(close, lenS2))
+ratioS1  = close / emaS1
+ratioS2  = close / emaS2
+checkS1  = ratioS1 > thrS1
+checkS2  = ratioS2 > thrS2
+shortSig = checkS1 and checkS2
+
+// ════════════════════════════════════════════════════════════════════════════
+// WEBHOOK ALERT MESSAGES (TradersPost JSON)
+// In the TradingView alert dialog, set the message to: {{strategy.order.alert_message}}
+// ════════════════════════════════════════════════════════════════════════════
+string MSG_LONG_ENTRY  = '{"ticker":"{{ticker}}","action":"buy","quantity":{{strategy.order.contracts}},"sentiment":"bullish"}'
+string MSG_SHORT_ENTRY = '{"ticker":"{{ticker}}","action":"sell","quantity":{{strategy.order.contracts}},"sentiment":"bearish"}'
+string MSG_LONG_EXIT   = '{"ticker":"{{ticker}}","action":"exit","sentiment":"flat"}'
+string MSG_SHORT_EXIT  = '{"ticker":"{{ticker}}","action":"exit","sentiment":"flat"}'
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPERS (ported from BTD)
+// ════════════════════════════════════════════════════════════════════════════
+// Undecayed TP price for the current stage.
+// Base stage (cnt==0) measured from the original entry; DD stages from the avg.
+f_tpPrice(_dir, _avg, _cnt, _firstEntry, _baseTP, _ddtpArr) =>
+    float _chosen = _cnt == 0 ? _baseTP : array.get(_ddtpArr, _cnt - 1)
+    float _base   = _cnt == 0 ? _firstEntry : _avg
+    _base * (1 + _dir * _chosen)
+
+// TP time-decay: linear from _tpFull toward _floor over _decayMin minutes.
+f_tp_decay(_tpFull, _floor, _lastFillT, _decayMin) =>
+    float _res = _tpFull
+    if _decayMin > 0 and _lastFillT != 0 and not na(_tpFull) and not na(_floor)
+        float _elapsedMin = (time - _lastFillT) / 60000.0
+        float _factor = math.min(1.0, math.max(0.0, _elapsedMin / _decayMin))
+        _res := _tpFull - (_tpFull - _floor) * _factor
+    _res
+
+// ════════════════════════════════════════════════════════════════════════════
+// RUNTIME STATE
+// ════════════════════════════════════════════════════════════════════════════
+var int   activeSide    = 0     // 0 = flat, 1 = long basket live, -1 = short basket live
+var float firstEntry    = na    // original entry fill price (anchor for DD ladder)
+var float totalUSD      = na    // cumulative USD invested (drives the multiplier sizing)
+var int   count_max     = 0     // DDs filled so far (0 = only the base leg)
+var int   lastFillTime  = 0     // ms timestamp of most recent fill (decay clock)
+var float liveTP        = na
+var float liveSL        = na
+var float nextDDtrig    = na
+var float basketStartNP = na    // realized net profit captured at the base entry (loss detector)
+
+// Per-side entry-limit state (persists across baskets).
+var int   lastEntryDayL = na
+var int   lastEntryDayS = na
+var float lockUntilL    = na
+var float lockUntilS    = na
+
+inPos  = strategy.position_size != 0
+avg    = strategy.position_avg_price
+curDay = year * 10000 + month * 100 + dayofmonth   // calendar-day id, exchange time
+
+// Computed every bar (global scope) so it compares against the previous bar,
+// not the previous in-position bar.
+filledThisBar = ta.change(strategy.position_size) != 0
+
+// ── Detect basket close; lock out the OWNING side if it closed red ──
+justFlat = strategy.position_size == 0 and strategy.position_size[1] != 0
+if justFlat
+    float _delta = strategy.netprofit - nz(basketStartNP)
+    if _delta < 0
+        if activeSide == 1 and lockLossL
+            lockUntilL := time + lockDaysL * 86400000.0
+        if activeSide == -1 and lockLossS
+            lockUntilS := time + lockDaysS * 86400000.0
+
+// ── Reset per-basket ladder state when flat ──
+if strategy.position_size == 0
+    activeSide   := 0
+    firstEntry   := na
+    totalUSD     := na
+    count_max    := 0
+    lastFillTime := 0
+    liveTP       := na
+    liveSL       := na
+    nextDDtrig   := na
+
+// ── Base entry (mutually exclusive; Long checked first) ──
+if strategy.position_size == 0
+    bool _dayOKL  = not oneDayL or na(lastEntryDayL) or curDay != lastEntryDayL
+    bool _lockOKL = na(lockUntilL) or time >= lockUntilL
+    bool _dayOKS  = not oneDayS or na(lastEntryDayS) or curDay != lastEntryDayS
+    bool _lockOKS = na(lockUntilS) or time >= lockUntilS
+
+    if enableL and longSig and _dayOKL and _lockOKL
+        strategy.entry("Long", strategy.long, qty=entryQtyL, alert_message=MSG_LONG_ENTRY)
+        activeSide    := 1
+        lastFillTime  := time
+        lastEntryDayL := curDay
+        basketStartNP := strategy.netprofit
+    else if enableS and shortSig and _dayOKS and _lockOKS
+        strategy.entry("Short", strategy.short, qty=entryQtyS, alert_message=MSG_SHORT_ENTRY)
+        activeSide    := -1
+        lastFillTime  := time
+        lastEntryDayS := curDay
+        basketStartNP := strategy.netprofit
+
+// ── In position: pick the active side's config, manage TP/SL and the DD ladder ──
+if inPos
+    // Active side's parameters.
+    int     a_dir     = activeSide
+    string  a_id      = activeSide == 1 ? "Long" : "Short"
+    float   a_baseTP  = activeSide == 1 ? baseTPL : baseTPS
+    int     a_maxDD   = activeSide == 1 ? maxDDL : maxDDS
+    float   a_slperc  = activeSide == 1 ? slpercL : slpercS
+    bool    a_slAtMax = activeSide == 1 ? slAtMaxL : slAtMaxS
+    bool    a_tpCatch = activeSide == 1 ? tpCatchL : tpCatchS
+    float[] a_dd      = activeSide == 1 ? ddL : ddS
+    float[] a_ddtp    = activeSide == 1 ? ddtpL : ddtpS
+    float[] a_mf      = activeSide == 1 ? mfL : mfS
+    float[] a_decay   = activeSide == 1 ? decayL : decayS
+    float[] a_mintp   = activeSide == 1 ? mintpL : mintpS
+    string  a_entMsg  = activeSide == 1 ? MSG_LONG_ENTRY : MSG_SHORT_ENTRY
+    string  a_exitMsg = activeSide == 1 ? MSG_LONG_EXIT : MSG_SHORT_EXIT
+
+    // Seed the original-entry anchor and invested-USD once the fill is live.
+    if na(firstEntry)
+        firstEntry := avg
+        totalUSD   := math.abs(strategy.position_size) * avg
+
+    // ---- Decaying TP (stage-correct) ----
+    int   _decayIdx = math.min(count_max, 10)
+    float _stageTP  = count_max == 0 ? a_baseTP : array.get(a_ddtp, count_max - 1)
+    float _minTP    = math.min(array.get(a_mintp, _decayIdx), _stageTP)
+    float _floor    = avg * (1 + a_dir * _minTP)
+    float _decayMin = array.get(a_decay, _decayIdx)
+    float _tpFull   = f_tpPrice(a_dir, avg, count_max, firstEntry, a_baseTP, a_ddtp)
+    liveTP := f_tp_decay(_tpFull, _floor, lastFillTime, _decayMin)
+
+    // ---- Stop loss (off average) ----
+    bool _slArmed = a_slAtMax ? (count_max >= a_maxDD) : true
+    liveSL := _slArmed ? avg * (1 - a_dir * a_slperc) : na
+
+    // ---- Next DD trigger, anchored to the ORIGINAL ENTRY (a 0 distance ends the ladder) ----
+    nextDDtrig := count_max < a_maxDD and count_max < 10 and array.get(a_dd, math.min(count_max, 9)) > 0 ? firstEntry * (1 - a_dir * array.get(a_dd, math.min(count_max, 9))) : na
+
+    // ---- Same-candle TP catch-up ----
+    float _stageFull = _tpFull
+    bool  _catch     = false
+    if a_tpCatch and filledThisBar and not na(_stageFull)
+        bool _touched     = a_dir == 1 ? high >= _stageFull : low <= _stageFull
+        bool _closeInside = a_dir == 1 ? close < _stageFull : close > _stageFull
+        if _touched and _closeInside
+            strategy.close(a_id, comment="TP catch-up", alert_message=a_exitMsg)
+            _catch := true
+
+    // ---- Primary exit: resting limit(TP)/stop(SL) on the whole basket ----
+    if not _catch
+        if not na(liveSL)
+            strategy.exit("Exit", from_entry=a_id, limit=liveTP, stop=liveSL, comment_profit="TP", comment_loss="SL", alert_message=a_exitMsg)
+        else
+            strategy.exit("Exit", from_entry=a_id, limit=liveTP, comment_profit="TP", alert_message=a_exitMsg)
+
+    // ---- Double down (market add, fills next open) ----
+    if not _catch and not na(nextDDtrig)
+        bool _ddHit = a_dir == 1 ? low <= nextDDtrig : high >= nextDDtrig
+        if _ddHit
+            int   _newCnt = count_max + 1
+            float _mult   = array.get(a_mf, _newCnt - 1)
+            float _usd    = totalUSD * _mult
+            int   _addQty = math.max(1, int(math.round(_usd / nextDDtrig)))
+            strategy.entry(a_id, a_dir == 1 ? strategy.long : strategy.short, qty=_addQty, comment="DD" + str.tostring(_newCnt), alert_message=a_entMsg)
+            count_max    := _newCnt
+            totalUSD     := totalUSD + _addQty * nextDDtrig
+            lastFillTime := time
+
+// ════════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ════════════════════════════════════════════════════════════════════════════
+plot(enableL ? emaL1 : na, "Long EMA 1 (short)", color=color.new(color.green, 0))
+plot(enableL ? emaL2 : na, "Long EMA 2 (long)", color=color.new(color.lime, 40))
+plot(enableS ? emaS1 : na, "Short EMA 1 (short)", color=color.new(color.red, 0))
+plot(enableS ? emaS2 : na, "Short EMA 2 (long)", color=color.new(color.orange, 40))
+plot(ratioL1, "Long EMA1/Price", display=display.status_line, color=color.green)
+plot(ratioL2, "Long EMA2/Price", display=display.status_line, color=color.aqua)
+plot(ratioS1, "Short Price/EMA1", display=display.status_line, color=color.red)
+plot(ratioS2, "Short Price/EMA2", display=display.status_line, color=color.orange)
+
+plotchar(enableL and longSig, "Long both checks pass", "▲", location.top, color.new(color.green, 0), size=size.tiny)
+plotchar(enableS and shortSig, "Short both checks pass", "▼", location.bottom, color.new(color.red, 0), size=size.tiny)
+
+plot(activeSide, "Active Side (1=L,-1=S)", display=display.data_window)
+plot(count_max, "DD Count", display=display.data_window)
+plot(inPos ? firstEntry : na, "Original Entry", linewidth=2, style=plot.style_steplinebr, color=color.new(color.white, 40))
+plot(inPos ? avg : na, "Avg Price", linewidth=1, style=plot.style_steplinebr, color=color.new(color.gray, 0))
+plot(inPos ? liveTP : na, "Live TP (decayed)", linewidth=2, style=plot.style_steplinebr, color=color.new(color.green, 0))
+plot(inPos ? liveSL : na, "Live SL", linewidth=2, style=plot.style_steplinebr, color=color.new(color.red, 0))
+plot(inPos ? nextDDtrig : na, "Next DD", linewidth=1, style=plot.style_steplinebr, color=color.new(color.orange, 0))
