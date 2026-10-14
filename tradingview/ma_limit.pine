@@ -4,7 +4,7 @@
 //
 //   Short: 9 SMA above 20 SMA and a candle closes below both -> sell limit at the 20 SMA.
 //   Long:  9 SMA below 20 SMA and a candle closes above both -> buy limit at the 20 SMA.
-//   Stop = SL x ATR(14) from the entry, target = R multiple of the stop (1:1 by default).
+//   Stop = SL x ATR(14) from the entry, target = R multiple of the stop (2R by default).
 //
 //   - The limit works for "Entry window" candles after the setup candle closes, then is
 //     cancelled. A new setup while waiting restarts the window at the new 20 SMA.
