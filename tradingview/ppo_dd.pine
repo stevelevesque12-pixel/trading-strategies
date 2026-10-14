@@ -19,6 +19,12 @@ strategy(title="PPO - DD", shorttitle="PPO - DD", overlay=true, max_boxes_count=
 // Entry-frequency limits (one-trade-per-day, lock-after-loss) are per side.
 // Whole-basket MARKET-FILL exits.
 //
+// Long defaults come from ppo_dd/optimize.py + ppo_dd/stress15.py (NQ 1m
+// 2023-2025 and NQ 15m 2016-2026, see ppo_dd/RESULTS.md). The old defaults
+// (1.05 ratios) almost never fired, and the 2/1.5x multiplier ladder grew a
+// 1-lot to 381 contracts. "1,1,..." doubles the basket per DD, capped at 5
+// entries (max 16 lots per 1-lot base).
+//
 // FORMATTING NOTE: Pine needs the indentation in this file. A wrapped line
 // (e.g. the `tooltip=` line under an input) must directly follow the line it
 // continues, with no blank line between, and be indented by a number of
@@ -30,20 +36,20 @@ strategy(title="PPO - DD", shorttitle="PPO - DD", overlay=true, max_boxes_count=
 // ────────────────────────────────────────────────────────────────────────────
 enableL = input.bool(true, "Enable Long", group="Long · Signal")
 
-thrL1 = input.float(1.05, "EMA1 / Price min ratio (fires when >)", inline="L1a", group="Long · Signal",
+thrL1 = input.float(1.01, "EMA1 / Price min ratio (fires when >)", inline="L1a", group="Long · Signal",
   tooltip="Shorter-term check. EMA1 must sit at least this ratio above price, e.g. 1.05 = EMA1 is 5% above price.")
-lenL1 = input.int(150, minval=1, title="EMA 1 Length", inline="L1b", group="Long · Signal")
+lenL1 = input.int(300, minval=1, title="EMA 1 Length", inline="L1b", group="Long · Signal")
 tfL1 = input.timeframe("15", title="TF", inline="L1b", group="Long · Signal")
 
-thrL2 = input.float(1.05, "EMA2 / Price min ratio (fires when >)", inline="L2a", group="Long · Signal",
+thrL2 = input.float(1.0025, "EMA2 / Price min ratio (fires when >)", inline="L2a", group="Long · Signal",
   tooltip="Longer-term check. EMA2 must sit at least this ratio above price. BOTH checks must pass on the same bar.")
 lenL2 = input.int(300, minval=1, title="EMA 2 Length", inline="L2b", group="Long · Signal")
 tfL2 = input.timeframe("", title="TF", inline="L2b", group="Long · Signal")
 
 entryQtyL = input.int(1, "Entry Qty", group="Long · Position", minval=1)
 baseTPL = input.float(0.135, "Base TP %", group="Long · Position") / 100
-maxDDL = input.int(7, "Max DD Times", group="Long · Position", minval=1, maxval=11) - 1
-slpercL = input.float(4, "DD SL %", group="Long · Position") / 100
+maxDDL = input.int(5, "Max DD Times", group="Long · Position", minval=1, maxval=11) - 1
+slpercL = input.float(5, "DD SL %", group="Long · Position") / 100
 slAtMaxL = input.bool(true, "Arm SL only at final DD", group="Long · Position",
   tooltip="On: hard stop active only once the last DD leg has filled. Off: stop armed the whole time.")
 tpCatchL = input.bool(true, "Enable TP Catch-Up", group="Long · Position",
@@ -51,7 +57,7 @@ tpCatchL = input.bool(true, "Enable TP Catch-Up", group="Long · Position",
 
 ddCsvL = input.string("0.618, 1.05, 1.35, 1.75, 2.2, 3.2, 0, 0, 0, 0", "DD Distances (CSV, %, from original entry)", group="Long · DD Ladder")
 ddtpCsvL = input.string("0.02, 0.05, 0.05, 0.05, 0.05, 0.05, 0, 0, 0, 0", "DD TPs (CSV, %)", group="Long · DD Ladder")
-mfCsvL = input.string("2, 1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2", "Multipliers (CSV)", group="Long · DD Ladder")
+mfCsvL = input.string("1, 1, 1, 1, 1, 1, 1, 1, 1, 1", "Multipliers (CSV)", group="Long · DD Ladder")
 
 decayCsvL = input.string("0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0", "Decay Window (CSV, min) [0 = off, slot 0 = base]", group="Long · TP Decay")
 mintpCsvL = input.string("0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01", "Min TP % (CSV, slot 0 = base)", group="Long · TP Decay")
