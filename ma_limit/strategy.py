@@ -43,6 +43,9 @@ class Params:
     stop_slip_ticks: int = 1
     session_gap_hours: Optional[float] = None  # flatten / cancel before a gap this long (None: hold over weekends)
     hours: Optional[tuple] = None  # (start, end) "HH:MM" ET: only setup candles opening in this window count
+    # "HH:MM" ET: close any open trade at the open of the first bar at/after this time and cancel working orders
+    # (prop firms like Tradeify close everything before the 17:00 daily break). None: hold overnight.
+    flatten_at: Optional[str] = None
     # Side swapping on an opposite setup while in a trade:
     #   None     - ignore it (stay in the trade until stop/target)
     #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
@@ -63,6 +66,7 @@ class Trade:
     reason: str = ""
     pnl_dollars: float = 0.0
     r_multiple: float = 0.0
+    mae: float = 0.0  # worst adverse move while open, in points (bar extremes; capped at the stop)
 
 
 def resample(df: pd.DataFrame, rule: str) -> pd.DataFrame:
@@ -121,6 +125,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
     sig = signals(sig_bars, p)
     period = pd.Timedelta(rule)
     gap = pd.Timedelta(hours=p.session_gap_hours) if p.session_gap_hours is not None else None
+    flat_min = int(p.flatten_at[:2]) * 60 + int(p.flatten_at[3:]) if p.flatten_at else None
 
     # Map each signal bar's close time -> its values, to be acted on from the next fine bar.
     sb = sig_bars.assign(sig=sig)
@@ -176,6 +181,8 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
         def check_exit(filled_now: bool):
             nonlocal pos
             d = pos.direction
+            adverse = (h[i] - pos.entry) if d == -1 else (pos.entry - l[i])
+            pos.mae = max(pos.mae, min(adverse, abs(pos.entry - pos.stop) + slip))
             stop_hit = h[i] >= pos.stop if d == -1 else l[i] <= pos.stop
             tgt_hit = (l[i] <= pos.target if d == -1 else h[i] >= pos.target) and not filled_now
             if stop_hit:
@@ -186,6 +193,14 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 px = min(o[i], pos.target) if d == -1 else max(o[i], pos.target)
                 close_trade(pos, ts, px, "target")
                 pos = None
+
+        # Prop-firm end of day: out at this bar's open, no working orders until the evening reopen.
+        if flat_min is not None and flat_min <= ts.hour * 60 + ts.minute < 18 * 60:
+            if pos is not None:
+                pos.mae = max(pos.mae, (o[i] - pos.entry) * -pos.direction)
+                close_trade(pos, ts, o[i], "eod_flat")
+                pos = None
+            pending = None
 
         # An open trade's stop/target is checked before a same-bar reversal fill (conservative).
         if pos is not None:
