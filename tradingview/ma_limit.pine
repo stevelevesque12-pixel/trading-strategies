@@ -1,0 +1,83 @@
+//@version=6
+// 9/20 SMA "limit back at the 20" strategy, ported from ma_limit/strategy.py
+// (live_mode="realtime"). Built for MCL1! on the 30-minute chart.
+//
+//   Short: 9 SMA above 20 SMA and a candle closes below both -> sell limit at the 20 SMA.
+//   Long:  9 SMA below 20 SMA and a candle closes above both -> buy limit at the 20 SMA.
+//   Stop = SL x ATR(14) from the entry, target = R multiple of the stop (1:1 by default).
+//
+//   - The limit works for "Entry window" candles after the setup candle closes, then is
+//     cancelled. A new setup while waiting restarts the window at the new 20 SMA.
+//   - It is NOT cancelled when the 9 and 20 cross back.
+//   - One trade at a time, held to SL or TP (also over weekends), then look for the next setup.
+//   - "Trading hours" only filters which setup candles count; open trades still run to SL/TP.
+//
+// The limit sits where price meets the forming candle's live 20 SMA, which is the average of
+// the previous 19 closes (known when the candle opens), and the stop uses the last closed
+// candle's ATR -- so nothing here peeks at a candle before it closes.
+
+strategy("MA 9/20 limit at the 20", overlay = true, initial_capital = 10000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
+     slippage = 1, process_orders_on_close = false)
+
+grpRules = "Rules"
+fastLen  = input.int(9, "Fast SMA", minval = 1, group = grpRules)
+slowLen  = input.int(20, "Slow SMA (entry)", minval = 2, group = grpRules)
+atrLen   = input.int(14, "ATR length", minval = 1, group = grpRules)
+slMult   = input.float(2.0, "Stop loss (x ATR)", minval = 0.1, step = 0.25, group = grpRules)
+rr       = input.float(1.0, "Target (x stop distance)", minval = 0.1, step = 0.25, group = grpRules)
+window   = input.int(5, "Entry window (candles after setup)", minval = 1, group = grpRules)
+
+grpHours = "Trading hours"
+useHours = input.bool(false, "Only take setups during these hours", group = grpHours)
+hours    = input.session("0900-1430", "Hours", group = grpHours)
+hoursTz  = input.string("America/New_York", "Time zone", group = grpHours)
+
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+atr  = ta.atr(atrLen)
+
+inHours    = not useHours or not na(time(timeframe.period, hours, hoursTz))
+shortSetup = fast > slow and close < math.min(fast, slow)
+longSetup  = fast < slow and close > math.max(fast, slow)
+
+var int pendDir  = 0  // 1 = working buy limit, -1 = working sell limit, 0 = none
+var int barsLeft = 0
+flat = strategy.position_size == 0
+
+// The working order filled on this candle, or this candle used up one of its window.
+if not flat
+    pendDir := 0
+if pendDir != 0
+    barsLeft -= 1
+    if barsLeft <= 0
+        pendDir := 0
+
+// A new setup (only while flat) places / re-anchors the order.
+if flat and inHours and (shortSetup or longSetup)
+    pendDir  := shortSetup ? -1 : 1
+    barsLeft := window
+
+// Price for the next candle: where it meets that candle's live 20 SMA.
+touch = math.round_to_mintick(math.sum(close, slowLen - 1) / (slowLen - 1))
+risk  = math.round_to_mintick(slMult * atr)
+
+if flat
+    if pendDir == 1
+        strategy.cancel("Short")
+        strategy.entry("Long", strategy.long, limit = touch)
+        strategy.exit("Long exit", "Long", stop = touch - risk, limit = touch + rr * risk)
+    else if pendDir == -1
+        strategy.cancel("Long")
+        strategy.entry("Short", strategy.short, limit = touch)
+        strategy.exit("Short exit", "Short", stop = touch + risk, limit = touch - rr * risk)
+    else
+        strategy.cancel("Long")
+        strategy.cancel("Short")
+
+plot(fast, "9 SMA", color = color.white)
+plot(slow, "20 SMA", color = color.yellow)
+plot(flat and pendDir != 0 ? touch : na, "Working limit", color = color.orange, style = plot.style_linebr)
+plotshape(flat and inHours and shortSetup, "Short setup", shape.triangledown, location.abovebar, color.red, size = size.tiny)
+plotshape(flat and inHours and longSetup, "Long setup", shape.triangleup, location.belowbar, color.lime, size = size.tiny)

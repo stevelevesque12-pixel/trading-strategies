@@ -42,7 +42,7 @@ class Params:
     commission_rt: float = 1.50  # $ per contract round trip
     stop_slip_ticks: int = 1
     session_gap_hours: Optional[float] = None  # flatten / cancel before a gap this long (None: hold over weekends)
-    hours: Optional[tuple] = None  # (start, end) "HH:MM" ET window for new signals
+    hours: Optional[tuple] = None  # (start, end) "HH:MM" ET: only setup candles opening in this window count
     # Side swapping on an opposite setup while in a trade:
     #   None     - ignore it (stay in the trade until stop/target)
     #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
@@ -111,7 +111,8 @@ def signals(bars: pd.DataFrame, p: Params) -> pd.Series:
         t = bars.index  # bar-open timestamps
         mins = t.hour * 60 + t.minute
         s, e = (int(x[:2]) * 60 + int(x[3:]) for x in p.hours)
-        sig[~((mins >= s) & (mins < e))] = 0
+        inside = (mins >= s) & (mins < e) if s < e else (mins >= s) | (mins < e)  # e.g. 18:00-02:00 wraps midnight
+        sig[~inside] = 0
     return sig
 
 

@@ -94,3 +94,13 @@ def test_replays_hand_marked_mcl_trades_jan_2025():
     ]
     assert trades[0].exit_time.strftime("%d %H:%M") == "03 04:00"
     assert trades[1].exit_time.strftime("%d %H:%M") == "06 00:00"
+
+
+def test_hours_window_wraps_midnight():
+    closes = list(np.linspace(60, 66, 40)) + [63.0]
+    b = indicators(_bars(closes, "30min"), Params())
+    last = b.index[-1]  # 2026-01-05 05:00 ET
+    assert signals(b, Params(hours=("04:00", "06:00"))).iloc[-1] == -1
+    assert signals(b, Params(hours=("09:00", "14:30"))).iloc[-1] == 0
+    assert signals(b, Params(hours=("18:00", "05:30"))).iloc[-1] == -1
+    assert last.hour == 5
