@@ -29,6 +29,34 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third strategy, `momentum_confluence/`**, is a port of a QuantConnect
+algorithm ("Intraday NQ Trend-Filtered Momentum Confluence"): it trades
+1 NQ when the slopes of five momentum indicators all point the same way
+(EMA10, SMA5 of RSI12, EMA3 of Momentum9 and EMA3 of the Ultimate
+Oscillator on 5m bars, plus EMA3 on 1m). An EMA500 slope on 5m sets the
+trend, and counter-trend trades also need the previous 5m bar to agree.
+It skips the first signal each day, trades 08:00-19:30 ET and flattens
+Fridays at 16:58. Indicators follow LEAN's definitions; see the module
+docstring for which QC quirks were kept. Run it with:
+
+```bash
+python -m momentum_confluence.backtest --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet
+```
+
+Results on 3 years of real NQ 1m data (2022-12-26 to 2025-12-11, 1 contract,
+net = $2.25/side commission + 1 tick/side slippage, fills at the signal
+bar's close):
+
+| Variant | Trades | Win % | Gross P&L | Net P&L | PF (net) | Max DD (net) |
+|---|---|---|---|---|---|---|
+| Faithful port (holds overnight) | 6,601 | 35.3 | -$139k | -$235k | 0.91 | $282k |
+| Intraday RTH (09:35-15:50, flat by 15:55) | 4,030 | 37.7 | -$76k | -$135k | 0.92 | $189k |
+
+Both variants lose money even before costs, and in every full year
+(2023-2025). In the faithful port longs roughly break even (+$7k gross)
+while shorts lose $146k in a market that rose ~12,000 points. Not
+recommended to trade as-is.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
