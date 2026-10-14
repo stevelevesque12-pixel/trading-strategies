@@ -104,3 +104,22 @@ def test_hours_window_wraps_midnight():
     assert signals(b, Params(hours=("09:00", "14:30"))).iloc[-1] == 0
     assert signals(b, Params(hours=("18:00", "05:30"))).iloc[-1] == -1
     assert last.hour == 5
+
+
+def test_flatten_closes_everything_before_the_daily_break():
+    from pathlib import Path
+
+    import pytest
+
+    pytest.importorskip("pyarrow")
+    path = Path(__file__).parent.parent / "sample_data/real_multi_instrument/tv_mcl1_30m_2025-01-02_2026-10.parquet"
+    bars = pd.read_parquet(path)[["open", "high", "low", "close"]][:"2025-06-30"]
+    p = dict(expiry_bars=2, live_mode="realtime", atr_mult=2.0, rr=2.0, hours=("10:00", "15:00"))
+    held = backtest(bars, "30min", Params(**p))
+    flat = backtest(bars, "30min", Params(**p, flatten_at="16:30"))
+    assert any(t.exit_time.date() != t.entry_time.date() for t in held)  # off: overnight holds happen
+    for t in flat:
+        assert t.exit_time.date() == t.entry_time.date()
+        assert t.exit_time.hour * 60 + t.exit_time.minute <= 16 * 60 + 30
+    eod = [t for t in flat if t.reason == "eod_flat"]
+    assert eod and all(t.exit_time.strftime("%H:%M") == "16:30" for t in eod)

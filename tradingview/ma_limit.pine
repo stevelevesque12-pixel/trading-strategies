@@ -9,9 +9,13 @@
 //   - The limit works for "Entry window" candles after the setup candle closes, then is
 //     cancelled. A new setup while waiting restarts the window at the new 20 SMA.
 //   - It is NOT cancelled when the 9 and 20 cross back.
-//   - One trade at a time, held to SL or TP (also over weekends), then look for the next setup.
+//   - One trade at a time, held to SL or TP, then look for the next setup. Trades are held overnight
+//     and over weekends unless "Flatten before the close" is on.
 //   - "Trading hours": untick an hour to skip setup candles that open in it (ET by default).
 //     It only filters which setups count; open trades still run to SL/TP.
+//   - "End of day": when "Flatten before the close" is on, any open trade is closed at the open of the
+//     first candle at/after the chosen time (ET), working orders are cancelled, and nothing new is placed
+//     until the 18:00 reopen. Use it for prop firms that don't allow overnight holds (e.g. Tradeify).
 //   - "Position sizing": a fixed number of contracts, or a fixed $ risk per trade
 //     (contracts = $ risk / (stop distance x point value), rounded down, capped at the max).
 //
@@ -32,6 +36,12 @@ atrLen   = input.int(14, "ATR length", minval = 1, group = grpRules)
 slMult   = input.float(2.0, "Stop loss (x ATR)", minval = 0.1, step = 0.25, group = grpRules)
 rr       = input.float(2.0, "Target (x stop distance)", minval = 0.1, step = 0.25, group = grpRules)
 window   = input.int(2, "Entry window (candles after setup)", minval = 1, group = grpRules)
+
+grpEod     = "End of day"
+flatOn     = input.bool(false, "Flatten before the close", group = grpEod,
+     tooltip = "On: close any open trade and cancel working orders at the time below (in the trading-hours time zone), with no new orders until the 18:00 reopen. Off: trades are held overnight and over weekends until SL or TP.")
+flatHour   = input.int(16, "Flatten at (hour)", minval = 0, maxval = 23, group = grpEod, inline = "flat")
+flatMinute = input.int(30, "minute", minval = 0, maxval = 59, step = 15, group = grpEod, inline = "flat")
 
 grpSize   = "Position sizing"
 sizeMode  = input.string("Fixed contracts", "Mode", options = ["Fixed contracts", "Fixed $ risk"], group = grpSize)
@@ -75,6 +85,9 @@ slow = ta.sma(close, slowLen)
 atr  = ta.atr(atrLen)
 
 inHours    = array.get(hourOn, hour(time, hoursTz))
+// The next candle opens when this one closes; flatten if that falls between the flatten time and the 18:00 reopen.
+nextOpenMins = hour(time_close, hoursTz) * 60 + minute(time_close, hoursTz)
+flatWindow   = flatOn and nextOpenMins >= flatHour * 60 + flatMinute and nextOpenMins < 18 * 60
 shortSetup = fast > slow and close < math.min(fast, slow)
 longSetup  = fast < slow and close > math.max(fast, slow)
 
@@ -90,8 +103,14 @@ if pendDir != 0
     if barsLeft <= 0
         pendDir := 0
 
+// End of day: out at the next candle's open, no working orders until the reopen.
+if flatWindow
+    pendDir := 0
+    if not flat
+        strategy.close_all(comment = "EOD flat")
+
 // A new setup (only while flat) places / re-anchors the order.
-if flat and inHours and (shortSetup or longSetup)
+if flat and inHours and not flatWindow and (shortSetup or longSetup)
     pendDir  := shortSetup ? -1 : 1
     barsLeft := window
 
@@ -104,7 +123,7 @@ riskPerContract = risk * syminfo.pointvalue
 rawQty = sizeMode == "Fixed contracts" ? fixedQty : math.floor(riskUsd / riskPerContract)
 qty    = sizeMode == "Fixed contracts" ? fixedQty : math.min(maxQty, rawQty >= 1 ? rawQty : (skipSmall ? 0 : 1))
 
-if flat and qty == 0
+if flat and (qty == 0 or flatWindow)
     strategy.cancel("Long")
     strategy.cancel("Short")
 else if flat
