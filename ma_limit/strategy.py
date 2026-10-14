@@ -26,20 +26,20 @@ class Params:
     atr_len: int = 14
     atr_mult: float = 2.0
     rr: float = 1.0
-    expiry_bars: int = 3  # signal bars a pending limit stays working
+    expiry_bars: int = 3  # "x": the limit must fill within this many candles of the latest close beyond both MAs
     track_ma: bool = False  # move the working limit to each new bar's 20 SMA
-    cancel_on_flip: bool = True  # pull an unfilled limit once the 9/20 order flips
+    cancel_on_flip: bool = False  # pull an unfilled limit once the 9/20 order flips (default: keep it until x expires)
     tick_size: float = 0.01
     point_value: float = 100.0
     commission_rt: float = 1.50  # $ per contract round trip
     stop_slip_ticks: int = 1
-    session_gap_hours: float = 6.0  # flatten / cancel before a gap this long (weekends)
+    session_gap_hours: Optional[float] = None  # flatten / cancel before a gap this long (None: hold over weekends)
     hours: Optional[tuple] = None  # (start, end) "HH:MM" ET window for new signals
     # Side swapping on an opposite setup while in a trade:
     #   None     - ignore it (stay in the trade until stop/target)
     #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
     #   "market" - close at market on the signal, then work the opposite limit as usual
-    reverse: Optional[str] = None
+    reverse: Optional[str] = None  # default: no side swapping; ride to SL/TP, then look for the next setup
 
 
 @dataclass
@@ -98,7 +98,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
     sig_bars = indicators(resample(fine, rule), p)
     sig = signals(sig_bars, p)
     period = pd.Timedelta(rule)
-    gap = pd.Timedelta(hours=p.session_gap_hours)
+    gap = pd.Timedelta(hours=p.session_gap_hours) if p.session_gap_hours is not None else None
 
     # Map each signal bar's close time -> its values, to be acted on from the next fine bar.
     sb = sig_bars.assign(sig=sig)
@@ -179,7 +179,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 check_exit(True)
 
         # Flatten / cancel ahead of a long data gap (weekend / holiday).
-        if i + 1 < len(idx) and idx[i + 1] - ts > gap:
+        if gap is not None and i + 1 < len(idx) and idx[i + 1] - ts > gap:
             if pos is not None:
                 close_trade(pos, ts, c[i], "gap_flat")
                 pos = None

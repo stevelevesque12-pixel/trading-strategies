@@ -18,13 +18,13 @@ def main():
     ap.add_argument("--tf", default="30min")
     ap.add_argument("--atr-mult", type=float, default=2.0)
     ap.add_argument("--rr", type=float, default=1.0)
-    ap.add_argument("--expiry", type=int, default=3)
+    ap.add_argument("--x", type=int, default=3, help="candles the limit stays working after the setup close")
     a = ap.parse_args()
 
     inst = INSTRUMENTS[a.symbol]
     df = pd.read_parquet(a.path).tz_convert("America/New_York")
     df.columns = [c.lower() for c in df.columns]
-    p = Params(atr_mult=a.atr_mult, rr=a.rr, expiry_bars=a.expiry, tick_size=inst.tick_size, point_value=inst.point_value)
+    p = Params(atr_mult=a.atr_mult, rr=a.rr, expiry_bars=a.x, tick_size=inst.tick_size, point_value=inst.point_value)
     trades = backtest(df, a.tf, p)
     print(summarize(trades))
 
