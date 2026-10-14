@@ -46,6 +46,12 @@ class Params:
     # "HH:MM" ET: close any open trade at the open of the first bar at/after this time and cancel working orders
     # (prop firms like Tradeify close everything before the 17:00 daily break). None: hold overnight.
     flatten_at: Optional[str] = None
+    # Intraday refinements (all off by default):
+    be_at: Optional[float] = None  # move the stop to the entry once price has gone this many R in favour
+    vol_min: Optional[float] = None  # only take setups when ATR / its vol_len-bar average is at least this
+    vol_len: int = 200
+    sides: str = "both"  # "both", "long" or "short"
+    skip_days: tuple = ()  # weekdays to skip setups on, 0 = Monday
     # Side swapping on an opposite setup while in a trade:
     #   None     - ignore it (stay in the trade until stop/target)
     #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
@@ -67,6 +73,7 @@ class Trade:
     pnl_dollars: float = 0.0
     r_multiple: float = 0.0
     mae: float = 0.0  # worst adverse move while open, in points (bar extremes; capped at the stop)
+    risk0: float = 0.0  # initial stop distance in points (the stop can move to breakeven)
 
 
 def resample(df: pd.DataFrame, rule: str) -> pd.DataFrame:
@@ -88,6 +95,7 @@ def indicators(bars: pd.DataFrame, p: Params) -> pd.DataFrame:
     out["atr"] = _rma(tr.to_numpy(), p.atr_len)  # Wilder / TradingView ta.atr
     out["touch"] = out["close"].shift().rolling(p.slow - 1).mean()  # price that meets the live 20 SMA
     out["atr_prev"] = out["atr"].shift()
+    out["atr_ratio"] = out["atr"] / out["atr"].rolling(p.vol_len, min_periods=20).mean()
     return out
 
 
@@ -117,6 +125,12 @@ def signals(bars: pd.DataFrame, p: Params) -> pd.Series:
         s, e = (int(x[:2]) * 60 + int(x[3:]) for x in p.hours)
         inside = (mins >= s) & (mins < e) if s < e else (mins >= s) | (mins < e)  # e.g. 18:00-02:00 wraps midnight
         sig[~inside] = 0
+    if p.sides != "both":
+        sig[sig == (-1 if p.sides == "long" else 1)] = 0
+    if p.skip_days:
+        sig[bars.index.weekday.isin(p.skip_days)] = 0
+    if p.vol_min is not None and "atr_ratio" in bars:
+        sig[~(bars["atr_ratio"] >= p.vol_min)] = 0
     return sig
 
 
@@ -143,7 +157,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
         t.exit_time, t.exit, t.reason = when, price, reason
         pts = (price - t.entry) * t.direction
         t.pnl_dollars = pts * p.point_value - p.commission_rt
-        t.r_multiple = pts / abs(t.entry - t.stop)
+        t.r_multiple = pts / (t.risk0 or abs(t.entry - t.stop))
         trades.append(t)
 
     for i in range(len(idx)):
@@ -182,7 +196,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
             nonlocal pos
             d = pos.direction
             adverse = (h[i] - pos.entry) if d == -1 else (pos.entry - l[i])
-            pos.mae = max(pos.mae, min(adverse, abs(pos.entry - pos.stop) + slip))
+            pos.mae = max(pos.mae, min(adverse, (pos.risk0 or abs(pos.entry - pos.stop)) + slip))
             stop_hit = h[i] >= pos.stop if d == -1 else l[i] <= pos.stop
             tgt_hit = (l[i] <= pos.target if d == -1 else h[i] >= pos.target) and not filled_now
             if stop_hit:
@@ -193,6 +207,11 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 px = min(o[i], pos.target) if d == -1 else max(o[i], pos.target)
                 close_trade(pos, ts, px, "target")
                 pos = None
+            elif p.be_at is not None:
+                # Breakeven from the next bar on, once this bar reached +be_at R (stop/target checked first).
+                fav = (pos.entry - l[i]) if d == -1 else (h[i] - pos.entry)
+                if fav >= p.be_at * pos.risk0 and (pos.stop - pos.entry) * d < 0:
+                    pos.stop = pos.entry
 
         # Prop-firm end of day: out at this bar's open, no working orders until the evening reopen.
         if flat_min is not None and flat_min <= ts.hour * 60 + ts.minute < 18 * 60:
@@ -225,7 +244,7 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                     fill = max(o[i], lim) if d == -1 else min(o[i], lim)  # gap through -> better price
                 if pos is not None:
                     close_trade(pos, ts, fill, "reverse")
-                pos = Trade(d, pending["signal_time"], ts, fill, stop, target)
+                pos = Trade(d, pending["signal_time"], ts, fill, stop, target, risk0=abs(fill - stop))
                 pending = None
                 check_exit(True)
 

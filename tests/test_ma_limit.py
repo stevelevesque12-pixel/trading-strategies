@@ -125,3 +125,22 @@ def test_flatten_closes_everything_before_the_daily_break():
     assert eod and all(t.exit_time.strftime("%H:%M") == "16:30" for t in eod if t.exit_time.day not in (17, 26))
     # Presidents Day (Feb 17) and Memorial Day (May 26) close early: out on the last bar before the halt.
     assert any(t.exit_time.strftime("%m-%d") in ("02-17", "05-26") for t in eod)
+
+
+def test_setup_filters_sides_weekdays_and_volatility():
+    from pathlib import Path
+
+    import pytest
+
+    pytest.importorskip("pyarrow")
+    path = Path(__file__).parent.parent / "sample_data/real_multi_instrument/tv_mcl1_30m_2025-01-02_2026-10.parquet"
+    bars = pd.read_parquet(path)[["open", "high", "low", "close"]][:"2025-04-30"]
+    base = Params(hours=("10:00", "15:00"))
+    b = indicators(bars, base)
+    s = signals(b, base)
+    assert (s == -1).any() and (s == 1).any() and (s[s.index.weekday == 0] != 0).any()
+    assert not (signals(b, Params(hours=("10:00", "15:00"), sides="long")) == -1).any()
+    assert (signals(b, Params(hours=("10:00", "15:00"), skip_days=(0,)))[s.index.weekday == 0] == 0).all()
+    v = Params(hours=("10:00", "15:00"), vol_min=1.0, vol_len=1000)
+    sv = signals(indicators(bars, v), v)
+    assert 0 < (sv != 0).sum() < (s != 0).sum()

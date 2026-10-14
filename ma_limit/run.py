@@ -23,6 +23,9 @@ def main():
                     help="chart: entry/stop from the touching candle (matches hand-marked trades); realtime: no look-ahead")
     ap.add_argument("--hours", help='only take setups in this ET window, e.g. "09:00-14:30" or "18:00-02:00"')
     ap.add_argument("--flatten", metavar="HH:MM", help='close open trades and cancel orders at this ET time each day, e.g. "16:30" (default: hold overnight)')
+    ap.add_argument("--vol-min", type=float, help="only take setups when ATR >= this x its --vol-len-candle average")
+    ap.add_argument("--vol-len", type=int, default=1000)
+    ap.add_argument("--skip-days", default="", help='weekdays to skip setups on, e.g. "0" for Monday or "0,4"')
     a = ap.parse_args()
 
     inst = INSTRUMENTS[a.symbol]
@@ -30,7 +33,8 @@ def main():
     df.columns = [c.lower() for c in df.columns]
     df = df[[c for c in ("open", "high", "low", "close", "volume") if c in df]]
     hours = tuple(a.hours.split("-")) if a.hours else None
-    p = Params(flatten_at=a.flatten, commission_rt=inst.round_trip_fee, atr_mult=a.sl, hours=hours, rr=a.rr, expiry_bars=a.x, live_mode=a.mode, tick_size=inst.tick_size, point_value=inst.point_value)
+    p = Params(vol_min=a.vol_min, vol_len=a.vol_len, skip_days=tuple(int(x) for x in a.skip_days.split(",") if x),
+               flatten_at=a.flatten, commission_rt=inst.round_trip_fee, atr_mult=a.sl, hours=hours, rr=a.rr, expiry_bars=a.x, live_mode=a.mode, tick_size=inst.tick_size, point_value=inst.point_value)
     trades = backtest(df, a.tf, p)
     print(summarize(trades))
 

@@ -18,6 +18,8 @@
 //     until the 18:00 reopen. Use it for prop firms that don't allow overnight holds (e.g. Tradeify).
 //     On early-close holidays (e.g. Presidents Day) the market halts before the flatten time; the script
 //     can't see that coming, so a trade still open then is carried (the firm closes it at its cutoff).
+//   - "Filters": a volatility filter (only take setups when ATR is at least X times its average over the
+//     last N candles; 1000 x 30m is about a month) and weekday switches. Both off by default.
 //   - "Position sizing": a fixed number of contracts, or a fixed $ risk per trade
 //     (contracts = $ risk / (stop distance x point value), rounded down, capped at the max).
 //
@@ -44,6 +46,17 @@ flatOn     = input.bool(false, "Flatten before the close", group = grpEod,
      tooltip = "On: close any open trade and cancel working orders at the time below (in the trading-hours time zone), with no new orders until the 18:00 reopen. Off: trades are held overnight and over weekends until SL or TP.")
 flatHour   = input.int(16, "Flatten at (hour)", minval = 0, maxval = 23, group = grpEod, inline = "flat")
 flatMinute = input.int(30, "minute", minval = 0, maxval = 59, step = 15, group = grpEod, inline = "flat")
+
+grpFilt  = "Filters"
+volOn    = input.bool(false, "Volatility filter", group = grpFilt,
+     tooltip = "Only take setups when ATR(14) is at least the multiple below times its average over the last N candles. Needs N candles of history before it allows any trade.")
+volMult  = input.float(1.0, "ATR at least x its average", minval = 0.1, step = 0.1, group = grpFilt, inline = "vol")
+volLen   = input.int(1000, "over N candles", minval = 2, group = grpFilt, inline = "vol")
+skipMon  = input.bool(false, "Skip Mon", group = grpFilt, inline = "days")
+skipTue  = input.bool(false, "Tue", group = grpFilt, inline = "days")
+skipWed  = input.bool(false, "Wed", group = grpFilt, inline = "days")
+skipThu  = input.bool(false, "Thu", group = grpFilt, inline = "days")
+skipFri  = input.bool(false, "Fri", group = grpFilt, inline = "days")
 
 grpSize   = "Position sizing"
 sizeMode  = input.string("Fixed contracts", "Mode", options = ["Fixed contracts", "Fixed $ risk"], group = grpSize)
@@ -90,8 +103,13 @@ inHours    = array.get(hourOn, hour(time, hoursTz))
 // The next candle opens when this one closes; flatten if that falls between the flatten time and the 18:00 reopen.
 nextOpenMins = hour(time_close, hoursTz) * 60 + minute(time_close, hoursTz)
 flatWindow   = flatOn and nextOpenMins >= flatHour * 60 + flatMinute and nextOpenMins < 18 * 60
-shortSetup = fast > slow and close < math.min(fast, slow)
-longSetup  = fast < slow and close > math.max(fast, slow)
+dow        = dayofweek(time, hoursTz)
+daySkipped = (dow == dayofweek.monday and skipMon) or (dow == dayofweek.tuesday and skipTue) or
+     (dow == dayofweek.wednesday and skipWed) or (dow == dayofweek.thursday and skipThu) or (dow == dayofweek.friday and skipFri)
+atrAvg     = ta.sma(atr, volLen)
+volOk      = not volOn or (not na(atrAvg) and atr >= volMult * atrAvg)
+shortSetup = fast > slow and close < math.min(fast, slow) and volOk and not daySkipped
+longSetup  = fast < slow and close > math.max(fast, slow) and volOk and not daySkipped
 
 var int pendDir  = 0  // 1 = working buy limit, -1 = working sell limit, 0 = none
 var int barsLeft = 0
