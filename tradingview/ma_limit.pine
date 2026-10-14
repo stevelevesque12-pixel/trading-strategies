@@ -16,6 +16,8 @@
 //   - "End of day": when "Flatten before the close" is on, any open trade is closed at the open of the
 //     first candle at/after the chosen time (ET), working orders are cancelled, and nothing new is placed
 //     until the 18:00 reopen. Use it for prop firms that don't allow overnight holds (e.g. Tradeify).
+//     On early-close holidays (e.g. Presidents Day) the market halts before the flatten time; the script
+//     can't see that coming, so a trade still open then is carried (the firm closes it at its cutoff).
 //   - "Position sizing": a fixed number of contracts, or a fixed $ risk per trade
 //     (contracts = $ risk / (stop distance x point value), rounded down, capped at the max).
 //

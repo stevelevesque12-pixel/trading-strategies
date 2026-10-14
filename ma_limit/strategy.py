@@ -229,6 +229,17 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 pending = None
                 check_exit(True)
 
+        # Early (holiday) close: the session stops before the flatten time, so get out on this bar's close.
+        if flat_min is not None and i + 1 < len(idx):
+            nxt = idx[i + 1]
+            ends_early = nxt - ts > period and (nxt.date() != ts.date() or nxt.hour * 60 + nxt.minute >= 18 * 60)
+            if ends_early and ts.hour * 60 + ts.minute < flat_min and ts.hour < 17:
+                if pos is not None:
+                    pos.mae = max(pos.mae, (c[i] - pos.entry) * -pos.direction)
+                    close_trade(pos, ts, c[i], "eod_flat")
+                    pos = None
+                pending = None
+
         # Flatten / cancel ahead of a long data gap (weekend / holiday).
         if gap is not None and i + 1 < len(idx) and idx[i + 1] - ts > gap:
             if pos is not None:

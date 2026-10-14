@@ -122,4 +122,6 @@ def test_flatten_closes_everything_before_the_daily_break():
         assert t.exit_time.date() == t.entry_time.date()
         assert t.exit_time.hour * 60 + t.exit_time.minute <= 16 * 60 + 30
     eod = [t for t in flat if t.reason == "eod_flat"]
-    assert eod and all(t.exit_time.strftime("%H:%M") == "16:30" for t in eod)
+    assert eod and all(t.exit_time.strftime("%H:%M") == "16:30" for t in eod if t.exit_time.day not in (17, 26))
+    # Presidents Day (Feb 17) and Memorial Day (May 26) close early: out on the last bar before the halt.
+    assert any(t.exit_time.strftime("%m-%d") in ("02-17", "05-26") for t in eod)
