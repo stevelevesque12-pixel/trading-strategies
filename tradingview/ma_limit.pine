@@ -12,13 +12,15 @@
 //   - One trade at a time, held to SL or TP (also over weekends), then look for the next setup.
 //   - "Trading hours": untick an hour to skip setup candles that open in it (ET by default).
 //     It only filters which setups count; open trades still run to SL/TP.
+//   - "Position sizing": a fixed number of contracts, or a fixed $ risk per trade
+//     (contracts = $ risk / (stop distance x point value), rounded down, capped at the max).
 //
 // The limit sits where price meets the forming candle's live 20 SMA, which is the average of
 // the previous 19 closes (known when the candle opens), and the stop uses the last closed
 // candle's ATR -- so nothing here peeks at a candle before it closes.
 
 strategy("MA 9/20 limit at the 20", overlay = true, initial_capital = 10000,
-     default_qty_type = strategy.fixed, default_qty_value = 1,
+     default_qty_type = strategy.fixed, default_qty_value = 1, margin_long = 0, margin_short = 0,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
      slippage = 1, process_orders_on_close = false)
 
@@ -27,35 +29,43 @@ fastLen  = input.int(9, "Fast SMA", minval = 1, group = grpRules)
 slowLen  = input.int(20, "Slow SMA (entry)", minval = 2, group = grpRules)
 atrLen   = input.int(14, "ATR length", minval = 1, group = grpRules)
 slMult   = input.float(2.0, "Stop loss (x ATR)", minval = 0.1, step = 0.25, group = grpRules)
-rr       = input.float(1.0, "Target (x stop distance)", minval = 0.1, step = 0.25, group = grpRules)
-window   = input.int(5, "Entry window (candles after setup)", minval = 1, group = grpRules)
+rr       = input.float(2.0, "Target (x stop distance)", minval = 0.1, step = 0.25, group = grpRules)
+window   = input.int(2, "Entry window (candles after setup)", minval = 1, group = grpRules)
+
+grpSize   = "Position sizing"
+sizeMode  = input.string("Fixed contracts", "Mode", options = ["Fixed contracts", "Fixed $ risk"], group = grpSize)
+fixedQty  = input.int(1, "Contracts (fixed contracts mode)", minval = 1, group = grpSize)
+riskUsd   = input.float(100, "$ risk per trade (fixed $ risk mode)", minval = 1, step = 25, group = grpSize)
+maxQty    = input.int(50, "Max contracts (fixed $ risk mode)", minval = 1, group = grpSize)
+skipSmall = input.bool(true, "Skip trade if the stop is too wide for 1 contract", group = grpSize,
+     tooltip = "Fixed $ risk mode: when one contract would already risk more than the $ amount, skip the trade (on) or take 1 contract anyway (off).")
 
 grpHours = "Trading hours (hour the setup candle opens in)"
 hoursTz  = input.string("America/New_York", "Time zone", group = grpHours)
-h00 = input.bool(true, "00:00", group = grpHours, inline = "row0")
-h01 = input.bool(true, "01:00", group = grpHours, inline = "row0")
-h02 = input.bool(true, "02:00", group = grpHours, inline = "row0")
-h03 = input.bool(true, "03:00", group = grpHours, inline = "row0")
-h04 = input.bool(true, "04:00", group = grpHours, inline = "row1")
-h05 = input.bool(true, "05:00", group = grpHours, inline = "row1")
-h06 = input.bool(true, "06:00", group = grpHours, inline = "row1")
-h07 = input.bool(true, "07:00", group = grpHours, inline = "row1")
-h08 = input.bool(true, "08:00", group = grpHours, inline = "row2")
-h09 = input.bool(true, "09:00", group = grpHours, inline = "row2")
+h00 = input.bool(false, "00:00", group = grpHours, inline = "row0")
+h01 = input.bool(false, "01:00", group = grpHours, inline = "row0")
+h02 = input.bool(false, "02:00", group = grpHours, inline = "row0")
+h03 = input.bool(false, "03:00", group = grpHours, inline = "row0")
+h04 = input.bool(false, "04:00", group = grpHours, inline = "row1")
+h05 = input.bool(false, "05:00", group = grpHours, inline = "row1")
+h06 = input.bool(false, "06:00", group = grpHours, inline = "row1")
+h07 = input.bool(false, "07:00", group = grpHours, inline = "row1")
+h08 = input.bool(false, "08:00", group = grpHours, inline = "row2")
+h09 = input.bool(false, "09:00", group = grpHours, inline = "row2")
 h10 = input.bool(true, "10:00", group = grpHours, inline = "row2")
 h11 = input.bool(true, "11:00", group = grpHours, inline = "row2")
 h12 = input.bool(true, "12:00", group = grpHours, inline = "row3")
 h13 = input.bool(true, "13:00", group = grpHours, inline = "row3")
 h14 = input.bool(true, "14:00", group = grpHours, inline = "row3")
-h15 = input.bool(true, "15:00", group = grpHours, inline = "row3")
-h16 = input.bool(true, "16:00", group = grpHours, inline = "row4")
-h17 = input.bool(true, "17:00", group = grpHours, inline = "row4")
-h18 = input.bool(true, "18:00", group = grpHours, inline = "row4")
-h19 = input.bool(true, "19:00", group = grpHours, inline = "row4")
-h20 = input.bool(true, "20:00", group = grpHours, inline = "row5")
-h21 = input.bool(true, "21:00", group = grpHours, inline = "row5")
-h22 = input.bool(true, "22:00", group = grpHours, inline = "row5")
-h23 = input.bool(true, "23:00", group = grpHours, inline = "row5")
+h15 = input.bool(false, "15:00", group = grpHours, inline = "row3")
+h16 = input.bool(false, "16:00", group = grpHours, inline = "row4")
+h17 = input.bool(false, "17:00", group = grpHours, inline = "row4")
+h18 = input.bool(false, "18:00", group = grpHours, inline = "row4")
+h19 = input.bool(false, "19:00", group = grpHours, inline = "row4")
+h20 = input.bool(false, "20:00", group = grpHours, inline = "row5")
+h21 = input.bool(false, "21:00", group = grpHours, inline = "row5")
+h22 = input.bool(false, "22:00", group = grpHours, inline = "row5")
+h23 = input.bool(false, "23:00", group = grpHours, inline = "row5")
 hourOn = array.from(h00, h01, h02, h03, h04, h05, h06, h07, h08, h09, h10, h11,
      h12, h13, h14, h15, h16, h17, h18, h19, h20, h21, h22, h23)
 
@@ -88,14 +98,22 @@ if flat and inHours and (shortSetup or longSetup)
 touch = math.round_to_mintick(math.sum(close, slowLen - 1) / (slowLen - 1))
 risk  = math.round_to_mintick(slMult * atr)
 
-if flat
+// Contracts for this order. Commission and slippage are not included in the $ risk.
+riskPerContract = risk * syminfo.pointvalue
+rawQty = sizeMode == "Fixed contracts" ? fixedQty : math.floor(riskUsd / riskPerContract)
+qty    = sizeMode == "Fixed contracts" ? fixedQty : math.min(maxQty, rawQty >= 1 ? rawQty : (skipSmall ? 0 : 1))
+
+if flat and qty == 0
+    strategy.cancel("Long")
+    strategy.cancel("Short")
+else if flat
     if pendDir == 1
         strategy.cancel("Short")
-        strategy.entry("Long", strategy.long, limit = touch)
+        strategy.entry("Long", strategy.long, qty = qty, limit = touch)
         strategy.exit("Long exit", "Long", stop = touch - risk, limit = touch + rr * risk)
     else if pendDir == -1
         strategy.cancel("Long")
-        strategy.entry("Short", strategy.short, limit = touch)
+        strategy.entry("Short", strategy.short, qty = qty, limit = touch)
         strategy.exit("Short exit", "Short", stop = touch + risk, limit = touch - rr * risk)
     else
         strategy.cancel("Long")
