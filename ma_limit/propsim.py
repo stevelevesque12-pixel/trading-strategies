@@ -99,7 +99,8 @@ def simulate(plan, tot, low, n_eval, n_fund, idx):
         q = np.where(e, n_eval, n_fund)
         t, m = tot[idx[:, k]] * q, low[idx[:, k]] * q
         if p["dll"] is not None:  # soft daily loss limit: the day stops there, the account survives
-            t = np.maximum(t, -p["dll"]); m = np.maximum(m, -p["dll"])
+            hit = m <= -p["dll"]  # liquidated at the limit: the day ends there even if the trade later recovered
+            t = np.where(hit, -p["dll"], t); m = np.maximum(m, -p["dll"])
         line = np.minimum(peak - p["dd"], 0.0)
         dead = bal + m <= line
         lost += dead & ~e
