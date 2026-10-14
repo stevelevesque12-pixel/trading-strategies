@@ -78,13 +78,19 @@ def test_replays_hand_marked_mcl_trades_jan_2025():
     path = Path(__file__).parent.parent / "sample_data/real_multi_instrument/tv_mcl1_30m_2025-01-02_2026-10.parquet"
     pytest.importorskip("pyarrow")
     bars = pd.read_parquet(path)[["open", "high", "low", "close"]]
-    trades = backtest(bars[:"2025-01-09 12:00"], "30min", Params())
+    # Every setup is taken, even a close 1 cent beyond the MA (Wed 8 22:00); the two Jan 9-10 shorts
+    # are confirmed losers.
+    trades = backtest(bars[:"2025-01-13"], "30min", Params())
     got = [(t.direction, t.entry_time.strftime("%d %H:%M"), round(t.entry, 2), round(abs(t.entry - t.stop), 2), t.reason) for t in trades]
-    assert got[:4] == [
+    assert got[:8] == [
         (-1, "02 18:00", 73.21, 0.46, "target"),
         (-1, "05 20:00", 74.02, 0.42, "target"),
         (-1, "06 11:30", 74.13, 0.59, "target"),
         (1, "06 23:00", 73.42, 0.36, "target"),
+        (-1, "08 07:30", 74.79, 0.49, "target"),
+        (1, "08 22:30", 73.23, 0.39, "target"),
+        (-1, "09 21:00", 74.17, 0.35, "stop"),
+        (-1, "10 11:30", 75.99, 0.98, "stop"),
     ]
     assert trades[0].exit_time.strftime("%d %H:%M") == "03 04:00"
     assert trades[1].exit_time.strftime("%d %H:%M") == "06 00:00"
