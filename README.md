@@ -150,7 +150,8 @@ Both CLIs support `--symbol` (MES, ES, MNQ, NQ, MCL, CL, MGC, GC),
 **Backtest assumptions/limitations** (so you know what you're looking at):
 fills are simulated at the triggering bar's close and stop/target hits are
 checked on subsequent entry-timeframe bars' high/low (one bar of latency, no
-slippage/commission modeled); if a bar's range hits both stop and target the
+slippage modeled; each trade pays the broker's round-trip fee per contract,
+Tradeify's schedule, set in `failed2s/instruments.py`); if a bar's range hits both stop and target the
 stop is assumed to fill first (conservative). 4-hour resampling floors to
 UTC-clock-hour boundaries via pandas, which may not perfectly match how your
 data provider aligns 4H candles. The engine force-closes any open position

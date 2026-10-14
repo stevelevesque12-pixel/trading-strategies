@@ -39,7 +39,7 @@ class Params:
     cancel_on_flip: bool = False  # pull an unfilled limit once the 9/20 order flips (default: keep it until x expires)
     tick_size: float = 0.01
     point_value: float = 100.0
-    commission_rt: float = 1.50  # $ per contract round trip
+    commission_rt: float = 2.12  # $ per contract round trip (Tradeify MCL; see failed2s/instruments.py)
     stop_slip_ticks: int = 1
     session_gap_hours: Optional[float] = None  # flatten / cancel before a gap this long (None: hold over weekends)
     hours: Optional[tuple] = None  # (start, end) "HH:MM" ET: only setup candles opening in this window count

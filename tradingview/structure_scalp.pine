@@ -40,8 +40,10 @@
 // function call", webhook URL = your TradersPost strategy's webhook URL
 // (auth is in that URL, not a JSON field). See ../TRADINGVIEW_WEBHOOK.md.
 
+// Commission: Tradeify MES/MNQ, $1.82 round trip per contract = $0.91 per side.
 strategy("Structure Pullback + AVWAP Scalp", overlay=true, initial_capital=50000,
-     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.91)
 
 // ---- Inputs ----
 minMSSBodyPct     = input.float(0.5, "Min MSS body %", minval=0.0, maxval=1.0, step=0.05)

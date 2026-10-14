@@ -10,9 +10,6 @@ import pandas as pd
 from failed2s.instruments import INSTRUMENTS
 from .strategy import Params, backtest, summarize
 
-# Round-trip cost per contract (exchange + NFA + clearing + commission), broker schedule Apr 2026.
-ROUND_TRIP_FEES = {"MCL": 2.12, "CL": 6.00, "MNQ": 1.82, "MES": 1.82, "NQ": 5.76, "ES": 5.76, "MGC": 2.12, "GC": 6.20}
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -32,7 +29,7 @@ def main():
     df.columns = [c.lower() for c in df.columns]
     df = df[[c for c in ("open", "high", "low", "close", "volume") if c in df]]
     hours = tuple(a.hours.split("-")) if a.hours else None
-    p = Params(commission_rt=ROUND_TRIP_FEES.get(a.symbol, 1.50), atr_mult=a.sl, hours=hours, rr=a.rr, expiry_bars=a.x, live_mode=a.mode, tick_size=inst.tick_size, point_value=inst.point_value)
+    p = Params(commission_rt=inst.round_trip_fee, atr_mult=a.sl, hours=hours, rr=a.rr, expiry_bars=a.x, live_mode=a.mode, tick_size=inst.tick_size, point_value=inst.point_value)
     trades = backtest(df, a.tf, p)
     print(summarize(trades))
 

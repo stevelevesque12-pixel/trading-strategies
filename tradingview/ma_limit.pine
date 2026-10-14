@@ -19,6 +19,7 @@
 // the previous 19 closes (known when the candle opens), and the stop uses the last closed
 // candle's ATR -- so nothing here peeks at a candle before it closes.
 
+// Commission: Tradeify MCL, $2.12 round trip per contract = $1.06 per side.
 strategy("MA 9/20 limit at the 20", overlay = true, initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1, margin_long = 0, margin_short = 0,
      commission_type = strategy.commission.cash_per_contract, commission_value = 1.06,

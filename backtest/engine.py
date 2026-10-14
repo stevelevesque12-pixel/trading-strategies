@@ -145,7 +145,7 @@ class BacktestEngine:
 
         sign = 1 if direction == "long" else -1
         pnl_points = (exit_price - entry_price) * sign
-        pnl_dollars = pnl_points * self.instrument.point_value * self.contracts
+        pnl_dollars = (pnl_points * self.instrument.point_value - self.instrument.round_trip_fee) * self.contracts
         risk_points = abs(entry_price - stop_price)
         r_multiple = pnl_points / risk_points if risk_points else 0.0
 

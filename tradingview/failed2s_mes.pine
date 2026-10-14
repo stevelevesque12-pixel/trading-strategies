@@ -30,8 +30,10 @@
 // riskUsd / (stopDistancePoints * pointValuePerContract), floored, clamped
 // to maxContracts.
 
+// Commission: Tradeify MES/MNQ, $1.82 round trip per contract = $0.91 per side.
 strategy("Failed 2s (TheStrat) - MES", overlay=true, initial_capital=50000,
-     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false)
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.91)
 
 // ---- Inputs ----
 biasTF          = input.timeframe("60", "Bias Timeframe")
