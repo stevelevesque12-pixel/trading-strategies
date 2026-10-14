@@ -57,7 +57,7 @@ Cells show net points per trade / profit factor, after costs.
 3. **Stops don't help it.** 2, 3 and 4×ATR stops cut the edge in most cells. The worst losses
    (NQ −1442 pts, early 2020) gap through any stop. Risk control has to come from position size.
 4. **It's small and infrequent.** About 7–10 trades per year per instrument, held around
-   5 days, so it's in the market about 15% of the time. Per contract it made about $5–8k/yr (ES)
+   5 days, so it's in the market about 15% of the time. Per contract it made about $5–21k/yr (ES)
    and $6–23k/yr (NQ). It's long equity beta in uptrends, so it is **not** anti-correlated
    with Gear 1.
 
