@@ -52,6 +52,11 @@ class Params:
     vol_len: int = 200
     sides: str = "both"  # "both", "long" or "short"
     skip_days: tuple = ()  # weekdays to skip setups on, 0 = Monday
+    # Trend filter: longs only when the setup candle closes above the trend SMA, shorts only below it.
+    # trend_tf "D" uses the trend_len-day SMA of daily closes (sessions roll at 18:00 ET) as of the last
+    # completed day; None uses a trend_len-candle SMA on the signal timeframe.
+    trend_len: Optional[int] = None
+    trend_tf: Optional[str] = "D"
     # Side swapping on an opposite setup while in a trade:
     #   None     - ignore it (stay in the trade until stop/target)
     #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
@@ -96,6 +101,14 @@ def indicators(bars: pd.DataFrame, p: Params) -> pd.DataFrame:
     out["touch"] = out["close"].shift().rolling(p.slow - 1).mean()  # price that meets the live 20 SMA
     out["atr_prev"] = out["atr"].shift()
     out["atr_ratio"] = out["atr"] / out["atr"].rolling(p.vol_len, min_periods=20).mean()
+    if p.trend_len:
+        if p.trend_tf == "D":
+            session = (out.index + pd.Timedelta(hours=6)).normalize()  # 18:00 ET opens the next day's session
+            daily = out["close"].groupby(session).last()
+            sma = daily.rolling(p.trend_len).mean().shift()  # last completed session's value
+            out["trend"] = sma.reindex(session).to_numpy()
+        else:
+            out["trend"] = out["close"].rolling(p.trend_len).mean()
     return out
 
 
@@ -129,6 +142,9 @@ def signals(bars: pd.DataFrame, p: Params) -> pd.Series:
         sig[sig == (-1 if p.sides == "long" else 1)] = 0
     if p.skip_days:
         sig[bars.index.weekday.isin(p.skip_days)] = 0
+    if p.trend_len:
+        sig[(sig == 1) & ~(bars["close"] > bars["trend"])] = 0
+        sig[(sig == -1) & ~(bars["close"] < bars["trend"])] = 0
     if p.vol_min is not None and "atr_ratio" in bars:
         sig[~(bars["atr_ratio"] >= p.vol_min)] = 0
     return sig
