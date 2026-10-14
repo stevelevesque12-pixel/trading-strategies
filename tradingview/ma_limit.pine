@@ -21,7 +21,7 @@
 
 strategy("MA 9/20 limit at the 20", overlay = true, initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1, margin_long = 0, margin_short = 0,
-     commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 1.06,
      slippage = 1, process_orders_on_close = false)
 
 grpRules = "Rules"
