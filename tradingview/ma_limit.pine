@@ -10,7 +10,8 @@
 //     cancelled. A new setup while waiting restarts the window at the new 20 SMA.
 //   - It is NOT cancelled when the 9 and 20 cross back.
 //   - One trade at a time, held to SL or TP (also over weekends), then look for the next setup.
-//   - "Trading hours" only filters which setup candles count; open trades still run to SL/TP.
+//   - "Trading hours": untick an hour to skip setup candles that open in it (ET by default).
+//     It only filters which setups count; open trades still run to SL/TP.
 //
 // The limit sits where price meets the forming candle's live 20 SMA, which is the average of
 // the previous 19 closes (known when the candle opens), and the stop uses the last closed
@@ -29,16 +30,40 @@ slMult   = input.float(2.0, "Stop loss (x ATR)", minval = 0.1, step = 0.25, grou
 rr       = input.float(1.0, "Target (x stop distance)", minval = 0.1, step = 0.25, group = grpRules)
 window   = input.int(5, "Entry window (candles after setup)", minval = 1, group = grpRules)
 
-grpHours = "Trading hours"
-useHours = input.bool(false, "Only take setups during these hours", group = grpHours)
-hours    = input.session("0900-1430", "Hours", group = grpHours)
+grpHours = "Trading hours (hour the setup candle opens in)"
 hoursTz  = input.string("America/New_York", "Time zone", group = grpHours)
+h00 = input.bool(true, "00:00", group = grpHours, inline = "row0")
+h01 = input.bool(true, "01:00", group = grpHours, inline = "row0")
+h02 = input.bool(true, "02:00", group = grpHours, inline = "row0")
+h03 = input.bool(true, "03:00", group = grpHours, inline = "row0")
+h04 = input.bool(true, "04:00", group = grpHours, inline = "row1")
+h05 = input.bool(true, "05:00", group = grpHours, inline = "row1")
+h06 = input.bool(true, "06:00", group = grpHours, inline = "row1")
+h07 = input.bool(true, "07:00", group = grpHours, inline = "row1")
+h08 = input.bool(true, "08:00", group = grpHours, inline = "row2")
+h09 = input.bool(true, "09:00", group = grpHours, inline = "row2")
+h10 = input.bool(true, "10:00", group = grpHours, inline = "row2")
+h11 = input.bool(true, "11:00", group = grpHours, inline = "row2")
+h12 = input.bool(true, "12:00", group = grpHours, inline = "row3")
+h13 = input.bool(true, "13:00", group = grpHours, inline = "row3")
+h14 = input.bool(true, "14:00", group = grpHours, inline = "row3")
+h15 = input.bool(true, "15:00", group = grpHours, inline = "row3")
+h16 = input.bool(true, "16:00", group = grpHours, inline = "row4")
+h17 = input.bool(true, "17:00", group = grpHours, inline = "row4")
+h18 = input.bool(true, "18:00", group = grpHours, inline = "row4")
+h19 = input.bool(true, "19:00", group = grpHours, inline = "row4")
+h20 = input.bool(true, "20:00", group = grpHours, inline = "row5")
+h21 = input.bool(true, "21:00", group = grpHours, inline = "row5")
+h22 = input.bool(true, "22:00", group = grpHours, inline = "row5")
+h23 = input.bool(true, "23:00", group = grpHours, inline = "row5")
+hourOn = array.from(h00, h01, h02, h03, h04, h05, h06, h07, h08, h09, h10, h11,
+     h12, h13, h14, h15, h16, h17, h18, h19, h20, h21, h22, h23)
 
 fast = ta.sma(close, fastLen)
 slow = ta.sma(close, slowLen)
 atr  = ta.atr(atrLen)
 
-inHours    = not useHours or not na(time(timeframe.period, hours, hoursTz))
+inHours    = array.get(hourOn, hour(time, hoursTz))
 shortSetup = fast > slow and close < math.min(fast, slow)
 longSetup  = fast < slow and close > math.max(fast, slow)
 
