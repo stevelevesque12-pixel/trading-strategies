@@ -1,0 +1,141 @@
+//@version=6
+// Noise Band Trend: Pine port of the NinjaScript Lab_NoiseBandTrendV1 (Python mirror: noise_band_trend/sim.py).
+// Noise-area breakout with a session-VWAP stop, 1 contract.
+//
+// Run on a 1-MINUTE chart with extended hours ON (CME index futures, session 18:00-17:00 ET).
+// All times are America/New_York; bar times are bar-open times (same as the engine).
+//
+// - sigma(m) = mean over the previous N regular sessions of |close of the 1m bar at m / that session's 09:30 open - 1|.
+//   A session missing the bar at m makes the band absent there (no partial averages). Needs N sessions of history.
+// - upper = max(today's 09:30 open, prior RTH close) * (1 + sigma); lower = min(...) * (1 - sigma).
+// - VWAP = typical-price VWAP over 1m bars opening 09:30..15:59, carried afterwards.
+// - Decisions at every 1m bar closing on :00/:30. Flat: long if close > upper, short if close < lower, only for decision
+//   closes in [10:00, 15:30), max 3 entries per trading day. Market order, fills at the next 1m open.
+// - In a position: stop = VWAP rounded to tick, re-placed at every decision. Stop on the wrong side of the close = market exit.
+// - Flatten at the 15:55 open; no entries afterwards today.
+strategy("Noise Band Trend", overlay = true, pyramiding = 0, default_qty_type = strategy.fixed, default_qty_value = 1,
+     process_orders_on_close = false, calc_on_every_tick = false, commission_type = strategy.commission.cash_per_contract,
+     commission_value = 2.25, slippage = 1)
+
+nDays     = input.int(14, "N days (noise lookback)", minval = 1, maxval = 60)
+maxTrades = input.int(3, "Max entries per day", minval = 1)
+showBands = input.bool(true, "Plot bands / VWAP")
+
+const string TZ = "America/New_York"
+const int RTH_START = 570    // 09:30
+const int RTH_END   = 960    // 16:00
+const int SLOTS     = 390
+const int WIN_FROM  = 600    // 10:00 close
+const int WIN_TO    = 930    // 15:30 close (exclusive)
+const int FLATTEN   = 955    // 15:55
+
+int m = hour(time, TZ) * 60 + minute(time, TZ)
+int tdT = time + 6 * 3600000
+int dayId = year(tdT, TZ) * 10000 + month(tdT, TZ) * 100 + dayofmonth(tdT, TZ)
+
+// History of completed regular sessions: opens + flattened per-minute closes (oldest first).
+var array<float> histOpen   = array.new<float>()
+var array<float> histCloses = array.new<float>()
+var array<float> closes     = array.new<float>(SLOTS, na)
+var int   curDay       = -1
+var float curOpen      = na
+var int   rthDay       = -1
+var float rthClose     = na
+var float prevRthClose = na
+var float sumPV        = 0.0
+var float sumV         = 0.0
+var float vwap         = na
+var int   tradesToday  = 0
+var bool  flattened    = false
+
+// Entries are counted when they fill (position goes flat -> open).
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    tradesToday += 1
+
+if dayId != curDay
+    if not na(curOpen)
+        histOpen.push(curOpen)
+        for k = 0 to SLOTS - 1
+            histCloses.push(closes.get(k))
+        if histOpen.size() > nDays
+            histOpen.shift()
+            for k = 0 to SLOTS - 1
+                histCloses.shift()
+    closes.fill(na)
+    curOpen := na
+    curDay := dayId
+    sumPV := 0.0
+    sumV := 0.0
+    vwap := na
+    tradesToday := strategy.position_size != 0 and strategy.position_size[1] == 0 ? 1 : 0
+    flattened := false
+
+float sigma = na
+if m >= RTH_START and m < RTH_END
+    if rthDay != dayId
+        if rthDay != -1
+            prevRthClose := rthClose
+        rthDay := dayId
+    rthClose := close
+    sumPV += hlc3 * volume
+    sumV += volume
+    if sumV > 0
+        vwap := sumPV / sumV
+    int slot = m - RTH_START
+    closes.set(slot, close)
+    if na(curOpen)
+        curOpen := open
+    int nh = histOpen.size()
+    if nh >= nDays
+        float s = 0.0
+        bool ok = true
+        for i = 0 to nh - 1
+            float hc = histCloses.get(i * SLOTS + slot)
+            if na(hc)
+                ok := false
+                break
+            s += math.abs(hc / histOpen.get(i) - 1.0)
+        if ok
+            sigma := s / nDays
+
+float upper = na
+float lower = na
+if not na(sigma) and rthDay == dayId and not na(prevRthClose)
+    upper := math.max(curOpen, prevRthClose) * (1.0 + sigma)
+    lower := math.min(curOpen, prevRthClose) * (1.0 - sigma)
+
+// Forced flatten: order on the bar closing 15:55 -> fills at the 15:55 open.
+if not flattened and m >= FLATTEN - 1 and m < 1020
+    flattened := true
+    if strategy.position_size != 0
+        strategy.close_all(comment = "NBFlat")
+
+int closeMin = m + 1
+bool decision = closeMin % 30 == 0 and not session.islastbar
+if decision and not (flattened and strategy.position_size != 0)
+    if strategy.position_size == 0
+        if not flattened and closeMin >= WIN_FROM and closeMin < WIN_TO and tradesToday < maxTrades and not na(upper)
+            if close > upper
+                strategy.entry("NBL", strategy.long)
+            else if close < lower
+                strategy.entry("NBS", strategy.short)
+    else if not na(vwap)
+        float stopPx = math.round(vwap / syminfo.mintick) * syminfo.mintick
+        if strategy.position_size > 0
+            if stopPx >= close
+                strategy.close("NBL", comment = "NBSX")
+            else
+                strategy.exit("NBSX", from_entry = "NBL", stop = stopPx)
+        else
+            if stopPx <= close
+                strategy.close("NBS", comment = "NBSX")
+            else
+                strategy.exit("NBSX", from_entry = "NBS", stop = stopPx)
+
+// Exit on session close (early-close days never reach 15:55).
+if session.islastbar and strategy.position_size != 0
+    strategy.close_all(comment = "SessClose", immediately = true)
+
+plot(showBands ? upper : na, "Upper", color.new(color.green, 0), style = plot.style_linebr)
+plot(showBands ? lower : na, "Lower", color.new(color.red, 0), style = plot.style_linebr)
+plot(showBands and m >= RTH_START and m < 1020 ? vwap : na, "VWAP", color.new(color.orange, 0), style = plot.style_linebr)
