@@ -33,3 +33,37 @@ def test_short_limit_fills_at_slow_ma_and_hits_target():
     assert t.direction == -1 and sig_bar[t.signal_time] == -1
     assert t.entry >= sb.loc[t.signal_time, "slow"] - 1e-9  # sell limit fills at the 20 SMA or better
     assert t.reason == "target" and t.r_multiple > 0.99
+
+
+
+def test_reverse_limit_closes_open_trade_at_the_flip_fill(monkeypatch):
+    # Hand-built signal bars: a long setup, then a short setup while the long is still open.
+    import ma_limit.strategy as st
+
+    idx = pd.date_range("2026-01-05 09:00", periods=8, freq="30min", tz="America/New_York")
+    fine = pd.DataFrame(
+        {
+            "open": [100, 100.2, 100.2, 100.5, 100.8, 100.8, 100.9, 100.8],
+            "high": [100.1, 100.0, 100.4, 100.6, 101.0, 101.2, 101.0, 100.9],
+            "low": [99.5, 99.9, 100.0, 100.3, 100.6, 100.7, 100.7, 100.6],
+            "close": [99.6, 100.2, 100.3, 100.5, 101.0, 100.9, 100.8, 100.7],
+        },
+        index=idx,
+    )
+    ind = pd.DataFrame(index=idx, data={"fast": 0.0, "slow": 0.0, "atr": 10.0})
+    ind.loc[idx[0], ["fast", "slow"]] = [99.0, 100.0]  # long setup: limit 100.0
+    ind.loc[idx[4], ["fast", "slow"]] = [101.0, 100.9]  # short setup: limit 100.9
+    sig = pd.Series(0, index=idx)
+    sig[idx[0]], sig[idx[4]] = 1, -1
+    monkeypatch.setattr(st, "indicators", lambda b, p: b.join(ind))
+    monkeypatch.setattr(st, "signals", lambda b, p: sig)
+
+    p = Params(commission_rt=0, stop_slip_ticks=0, reverse="limit", cancel_on_flip=False)
+    trades = backtest(fine, "30min", p)
+    assert trades[0].direction == 1 and trades[0].entry == 100.0
+    assert trades[0].reason == "reverse" and trades[0].exit == 100.9
+    assert trades[0].exit_time == idx[5]
+
+    # Without side swapping the short setup is ignored while the long is open.
+    plain = backtest(fine, "30min", Params(commission_rt=0, stop_slip_ticks=0, cancel_on_flip=False))
+    assert all(t.reason != "reverse" for t in plain)

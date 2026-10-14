@@ -28,12 +28,18 @@ class Params:
     rr: float = 1.0
     expiry_bars: int = 3  # signal bars a pending limit stays working
     track_ma: bool = False  # move the working limit to each new bar's 20 SMA
+    cancel_on_flip: bool = True  # pull an unfilled limit once the 9/20 order flips
     tick_size: float = 0.01
     point_value: float = 100.0
     commission_rt: float = 1.50  # $ per contract round trip
     stop_slip_ticks: int = 1
     session_gap_hours: float = 6.0  # flatten / cancel before a gap this long (weekends)
     hours: Optional[tuple] = None  # (start, end) "HH:MM" ET window for new signals
+    # Side swapping on an opposite setup while in a trade:
+    #   None     - ignore it (stay in the trade until stop/target)
+    #   "limit"  - work the opposite limit at the 20 SMA; its fill closes the trade and flips
+    #   "market" - close at market on the signal, then work the opposite limit as usual
+    reverse: Optional[str] = None
 
 
 @dataclass
@@ -121,13 +127,17 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 still_valid = (pending["direction"] == -1 and row.fast > row.slow) or (
                     pending["direction"] == 1 and row.fast < row.slow
                 )
-                if not still_valid or ts >= pending["expires"]:
+                if (p.cancel_on_flip and not still_valid) or ts >= pending["expires"]:
                     pending = None
                 elif p.track_ma:
                     d = pending["direction"]
                     risk = p.atr_mult * row.atr
                     pending.update(limit=row.slow, stop=row.slow - d * risk, target=row.slow + d * p.rr * risk)
-            if pos is None and row.sig != 0:
+            opposite = pos is not None and p.reverse and row.sig == -pos.direction
+            if opposite and p.reverse == "market":
+                close_trade(pos, ts, o[i], "reverse")
+                pos = None
+            if row.sig != 0 and (pos is None or opposite):
                 d = int(row.sig)
                 risk = p.atr_mult * row.atr
                 pending = dict(
@@ -139,17 +149,8 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                     signal_time=row.Index,
                 )
 
-        filled_now = False
-        if pos is None and pending is not None:
-            d, lim = pending["direction"], pending["limit"]
-            hit = h[i] >= lim if d == -1 else l[i] <= lim
-            if hit:
-                fill = max(o[i], lim) if d == -1 else min(o[i], lim)  # gap through -> better price
-                pos = Trade(d, pending["signal_time"], ts, fill, pending["stop"], pending["target"])
-                pending = None
-                filled_now = True
-
-        if pos is not None:
+        def check_exit(filled_now: bool):
+            nonlocal pos
             d = pos.direction
             stop_hit = h[i] >= pos.stop if d == -1 else l[i] <= pos.stop
             tgt_hit = (l[i] <= pos.target if d == -1 else h[i] >= pos.target) and not filled_now
@@ -158,9 +159,24 @@ def backtest(fine: pd.DataFrame, rule: str, p: Params) -> List[Trade]:
                 close_trade(pos, ts, px - d * slip, "stop")
                 pos = None
             elif tgt_hit:
-                px = (min(o[i], pos.target) if d == -1 else max(o[i], pos.target))
+                px = min(o[i], pos.target) if d == -1 else max(o[i], pos.target)
                 close_trade(pos, ts, px, "target")
                 pos = None
+
+        # An open trade's stop/target is checked before a same-bar reversal fill (conservative).
+        if pos is not None:
+            check_exit(False)
+
+        if pending is not None and (pos is None or pending["direction"] == -pos.direction):
+            d, lim = pending["direction"], pending["limit"]
+            hit = h[i] >= lim if d == -1 else l[i] <= lim
+            if hit:
+                fill = max(o[i], lim) if d == -1 else min(o[i], lim)  # gap through -> better price
+                if pos is not None:
+                    close_trade(pos, ts, fill, "reverse")
+                pos = Trade(d, pending["signal_time"], ts, fill, pending["stop"], pending["target"])
+                pending = None
+                check_exit(True)
 
         # Flatten / cancel ahead of a long data gap (weekend / holiday).
         if i + 1 < len(idx) and idx[i + 1] - ts > gap:
