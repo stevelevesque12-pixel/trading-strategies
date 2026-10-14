@@ -26,7 +26,7 @@ class Params:
     atr_len: int = 14
     atr_mult: float = 2.0
     rr: float = 1.0
-    expiry_bars: int = 3  # "x": the limit must fill within this many candles of the latest close beyond both MAs
+    expiry_bars: int = 5  # "x": the limit must fill within this many candles of the latest close beyond both MAs
     track_ma: bool = False  # move the working limit to each new bar's 20 SMA
     cancel_on_flip: bool = False  # pull an unfilled limit once the 9/20 order flips (default: keep it until x expires)
     tick_size: float = 0.01

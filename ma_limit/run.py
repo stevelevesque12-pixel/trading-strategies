@@ -18,7 +18,7 @@ def main():
     ap.add_argument("--tf", default="30min")
     ap.add_argument("--atr-mult", type=float, default=2.0)
     ap.add_argument("--rr", type=float, default=1.0)
-    ap.add_argument("--x", type=int, default=3, help="candles the limit stays working after the setup close")
+    ap.add_argument("--x", type=int, default=5, help="candles the limit stays working after the setup close")
     a = ap.parse_args()
 
     inst = INSTRUMENTS[a.symbol]
