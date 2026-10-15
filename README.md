@@ -230,3 +230,48 @@ in). Don't rely on the daily loss limit unattended until that's wired up.
 ```bash
 pytest
 ```
+
+## IB Break (Initial Balance breakout) -- `ib_break/`
+
+The IB is the 09:30-10:30 ET high/low. `ib_break/stats.py` reproduces the
+breach-rate study it's based on (10y NQ 15m, 2,633 days): either side breaks
+by noon 82.6% / by close 96.0%; IB high 47.1% / 62.6%; IB low 40.0% / 54.8%.
+Two confluences pick the side: IB closing above its midpoint, and the IB high
+being printed *last* (low first). Both bullish -> IB high breaks 74.5% by noon /
+83.9% by close (bearish mirror: low 67.8% / 77.9%).
+
+**A breach is not a winning trade.** After the high breaks, price reaches
++0.5x IB range before returning to IB mid only ~45% of the time (the `follow`
+columns), so a "breakout, stop at mid, 1:1" trade loses money: unfiltered
+close-entry / mid-stop / 1R / noon cutoff on 3y of 1m NQ = 614 trades, PF 0.99,
+-$5.8k net.
+
+What does hold up (`CONFLUENCE_PRESET`, `--preset`):
+- trade only the side both confluences agree on (no trade on conflicting days, ~16%)
+- buy-stop at IB high / sell-stop at IB low, any time 10:30-15:45
+- stop at the *opposite* IB extreme (full IB range of risk, median ~100 NQ pts)
+- 2R target, which is rarely hit -- ~75% of trades exit at the 15:55 flatten,
+  so in effect "take the confluence-side break, hold to the close"
+
+| NQ, 1 contract, net of $4.50 RT + 1 tick/side | trades | win% | avg R | net PF | net P&L | max DD |
+|---|---|---|---|---|---|---|
+| 15m, 2016-05 .. 2026-08, preset | 1681 | 51.7 | +0.066 (t=3.3) | 1.20 | $217k | $54k |
+| 15m, same, no confluence filter | 2512 | 49.9 | +0.035 (t=2.1) | 1.10 | $160k | $67k |
+| 1m, 2022-12 .. 2025-12, preset | 516 | 52.9 | +0.071 (t=2.0) | 1.21 | $86k | $48k |
+| 1m, same, no confluence filter | 736 | 51.0 | +0.047 (t=1.6) | 1.14 | $80k | $63k |
+
+Positive in both directions (15m: longs +0.068R, shorts +0.062R) and in 9 of
+11 calendar years (losers: 2020 and 2025). Caveats: the edge is thin (~0.07R
+per trade) against a full-IB-range stop, so drawdowns are large -- $50k on one
+NQ is ~$5k on one MNQ, which is already most of a typical prop-firm trailing
+drawdown; size accordingly. The preset was chosen as the best of a 64-config
+sweep (`--sweep`), but its whole neighbourhood (touch entry + opposite stop)
+is positive on both datasets, and the 1m and 15m files overlap for 2023-2025
+so they're not independent tests. Touch fills on 15m bars ignore a same-bar
+stop-out (unlikely with a full-IB stop, but slightly optimistic).
+
+```
+python -m ib_break.stats --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet
+python -m ib_break.run --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet --entry-tf 15 --preset
+python -m ib_break.run --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet --sweep
+```

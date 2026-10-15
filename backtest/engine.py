@@ -1,7 +1,7 @@
 """Event-driven backtest engine for the Failed-2s strategy."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pandas as pd
 
@@ -58,11 +58,12 @@ class BacktestEngine:
         self.trades: List[Trade] = []
         self.position: Optional[dict] = None
 
-    def run(self, csv_path: str) -> List[Trade]:
+    def run(self, data: Union[str, pd.DataFrame]) -> List[Trade]:
+        """`data` is a CSV/parquet path, or an already-loaded load_1m_csv() frame (lets parameter sweeps load once)."""
         self.trades = []
         self.position = None
 
-        base = load_1m_csv(csv_path, tz=self.session.tz)
+        base = data if isinstance(data, pd.DataFrame) else load_1m_csv(data, tz=self.session.tz)
         entry_df = resample_ohlc(base, self.pair.entry_tf)
         bias_df = resample_ohlc(base, self.pair.bias_tf)
         bias_period_len = pd.Timedelta(self.pair.bias_tf)
