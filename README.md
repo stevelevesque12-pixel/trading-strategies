@@ -275,3 +275,9 @@ python -m ib_break.stats --data sample_data/real_multi_instrument/real_nq_15m_20
 python -m ib_break.run --data sample_data/real_multi_instrument/real_nq_15m_2016-05-29_2026-08-25.parquet --entry-tf 15 --preset
 python -m ib_break.run --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet --sweep
 ```
+
+TradingView port: `tradingview/ib_break.pine` (preset defaults, 1m or 5m
+chart, NQ or MNQ). It sends a resting stop-entry order with a bracket to
+TradersPost at 10:30, a cancel at 15:45 if unfilled, and an exit at 15:55.
+Alerts are only sent for the single-direction filter modes. See the header
+of the file and TRADINGVIEW_WEBHOOK.md.

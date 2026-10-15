@@ -136,3 +136,18 @@ risk-based sizing logic in `webhook/sizing.py`. It needs its own Pine
 script variant (the current `.pine` file is TradersPost-formatted) and a
 public host for the server (Railway config: `nixpacks.toml`). Ask if you
 want that path built out again when you're there.
+
+## IB Break script (`tradingview/ib_break.pine`)
+
+Same TradersPost setup, different message flow. Use a 1- or 5-minute chart
+and one "Any alert() function call" alert. Unlike the other scripts, which
+send a market order on a signal, this one sends a **resting stop-entry order**
+at 10:30 ET (`"orderType":"stop"` with `stopPrice` = the IB extreme, plus
+`stopLoss`/`takeProfit`). Then it sends `{"action":"cancel"}` at 15:45 if the
+order never filled, and `{"action":"exit"}` at 15:55 if a position is still
+open. Before going live, paper-trade it on TradersPost to confirm two things:
+that Tradovate accepts a stop entry with an attached bracket through
+TradersPost, and that "cancel" removes only the unfilled entry. The
+script never sends cancel after a fill, so it can't hit a live bracket.
+Set "Risk per trade" with the full-IB stop in mind (median ~100 NQ points,
+~$200 per MNQ). Days where 1 contract exceeds the budget are skipped.

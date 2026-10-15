@@ -1,0 +1,207 @@
+//@version=6
+// IB Break (Initial Balance breakout, confluence-filtered), ported from
+// ib_break/strategy.py with its CONFLUENCE_PRESET defaults. Works on NQ/MNQ
+// (or any futures symbol -- point value is read from the symbol).
+//
+// Rules (defaults = the backtested preset; see README "IB Break"):
+//   1. IB = high/low of 09:30-10:30 America/New_York.
+//   2. At the close of the last IB bar, pick a side:
+//        - IB closed above its midpoint  -> long;  below -> short
+//        - IB high printed last          -> long;  IB low printed last -> short
+//      "Both" (default) trades only when the two agree; otherwise no trade.
+//   3. Place a resting stop order at the IB extreme on that side
+//      (buy stop at IB high / sell stop at IB low), live 10:30-15:45.
+//   4. Stop loss = the opposite IB extreme. Target = 2R (rarely hit --
+//      most trades are closed by the 15:55 flatten).
+//   5. One trade per day. An unfilled order is cancelled at 15:45.
+//
+// Chart: use a 1- or 5-minute chart (the timeframe must divide 60 so a bar
+// ends exactly at 10:30). Extended or RTH-only session both work.
+//
+// Differences from the Python backtest: the target is computed from the
+// order level, not the actual fill (they differ only when price gaps
+// through the level), and the default 1-tick entry buffer keeps the buy
+// stop strictly above the 10:30 price so the broker won't reject it (the
+// backtest used 0). TradingView's tester also fills stop orders intrabar.
+//
+// Alerting (TradersPost -> Tradovate, same as the other scripts here):
+// create one alert with condition "Any alert() function call" and paste the
+// TradersPost webhook URL. Messages sent:
+//   10:30  {"action":"buy"|"sell","orderType":"stop","stopPrice":...,
+//           "quantity":...,"stopLoss":{...},"takeProfit":{...}}
+//   15:45  {"action":"cancel"}  -- only if the entry never filled
+//   15:55  {"action":"exit"}    -- only if a position is still open
+// Webhooks are only sent in single-direction modes ("Both", "Midpoint",
+// "HL order"). "None" (both sides, OCA) is tester-only: TradersPost has no
+// OCA, and a cancel after one side fills would also kill its bracket.
+// Paper-trade the TradersPost side first: confirm your broker accepts the
+// stop-entry-with-bracket order and that "cancel" behaves as expected.
+//
+// Sizing: contracts = floor(risk USD / (IB range + buffer) * point value),
+// capped at Max contracts. If even 1 contract exceeds the risk budget the
+// day is skipped (unless "Force 1 contract" is on) -- the full-IB stop is
+// wide (median ~100 NQ points = ~$200 per MNQ, ~$2,000 per NQ).
+
+strategy("IB Break - confluence", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.62, slippage=1)
+
+// ---- Inputs ----
+ibStartHour     = input.int(9,  "IB start hour (NY)",   minval=0, maxval=23, group="Initial Balance")
+ibStartMinute   = input.int(30, "IB start minute (NY)", minval=0, maxval=59, group="Initial Balance")
+ibMinutes       = input.int(60, "IB length (minutes)",  minval=5, group="Initial Balance")
+maxIbRange      = input.float(0.0, "Max IB range (points, 0 = off)", minval=0.0, group="Initial Balance")
+minIbRange      = input.float(0.0, "Min IB range (points, 0 = off)", minval=0.0, group="Initial Balance")
+
+biasFilter      = input.string("Both", "Direction filter", options=["Both", "Midpoint", "HL order", "None"], group="Rules")
+bufferTicks     = input.int(1, "Entry buffer (ticks beyond IB)", minval=0, group="Rules")
+targetR         = input.float(2.0, "Target R multiple", minval=0.1, step=0.5, group="Rules")
+cutoffHour      = input.int(15, "Last entry hour (NY)", group="Rules")
+cutoffMinute    = input.int(45, "Last entry minute (NY)", group="Rules")
+flattenHour     = input.int(15, "Flatten hour (NY)", group="Rules")
+flattenMinute   = input.int(55, "Flatten minute (NY)", group="Rules")
+
+riskPerTradeUsd = input.float(500.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueIn    = input.float(0.0, "Point value (USD/point, 0 = from symbol)", minval=0.0, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+forceOne        = input.bool(false, "Force 1 contract when risk budget is too small", group="Position sizing")
+
+// ---- Time helpers (explicit America/New_York) ----
+TZ = "America/New_York"
+barOpenMin  = hour(time, TZ) * 60 + minute(time, TZ)
+barCloseMin = hour(time_close, TZ) * 60 + minute(time_close, TZ)
+ibStartMin  = ibStartHour * 60 + ibStartMinute
+ibEndMin    = ibStartMin + ibMinutes
+cutoffMin   = cutoffHour * 60 + cutoffMinute
+flattenMin  = flattenHour * 60 + flattenMinute
+
+inIB      = barOpenMin >= ibStartMin and barOpenMin < ibEndMin
+ibFirst   = inIB and not inIB[1]
+ibLastBar = inIB and (barCloseMin >= ibEndMin or barCloseMin < barOpenMin)
+
+pointValue = pointValueIn > 0 ? pointValueIn : syminfo.pointvalue
+buffer     = bufferTicks * syminfo.mintick
+
+// ---- IB state (reset at the first IB bar of each day) ----
+var float ibH     = na
+var float ibL     = na
+var int   hiBar   = na
+var int   loBar   = na
+var bool  ibDone  = false
+var string side   = ""      // "long" / "short" / "both" / "" (no trade)
+var bool  pending = false   // entry order working, not yet filled
+var float entryLvl  = na
+var float stopLvl   = na
+var float targetLvl = na
+var float entryLvlS  = na   // short-side levels, only used in "None" mode
+var float stopLvlS   = na
+var float targetLvlS = na
+
+if ibFirst
+    ibH     := high
+    ibL     := low
+    hiBar   := bar_index
+    loBar   := bar_index
+    ibDone  := false
+    side    := ""
+    pending := false
+    entryLvl  := na
+    stopLvl   := na
+    targetLvl := na
+    entryLvlS  := na
+    stopLvlS   := na
+    targetLvlS := na
+else if inIB and not ibDone
+    // bar index of the FIRST print of each extreme, for HL order
+    if high > ibH
+        ibH   := high
+        hiBar := bar_index
+    if low < ibL
+        ibL   := low
+        loBar := bar_index
+
+ibMid   = (ibH + ibL) / 2
+ibRange = ibH - ibL
+
+sizeFor(riskPts) =>
+    perContract = riskPts * pointValue
+    raw = perContract > 0 ? math.floor(riskPerTradeUsd / perContract) : 0
+    q = math.min(raw, maxContracts)
+    q < 1 and forceOne ? 1 : q
+
+orderMsg(action, qty, entry, stop, target) =>
+    '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"stop"' +
+     ',"stopPrice":' + str.tostring(entry) +
+     ',"quantity":' + str.tostring(qty) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(stop) + '}' +
+     ',"takeProfit":{"limitPrice":' + str.tostring(target) + '}}'
+
+// ---- At the close of the last IB bar: pick the side and place the order ----
+if ibLastBar and not ibDone and not na(ibH)
+    ibDone := true
+    byMid   = close > ibMid ? "long" : close < ibMid ? "short" : ""
+    byOrder = hiBar > loBar ? "long" : loBar > hiBar ? "short" : ""
+    side := switch biasFilter
+        "Both"     => byMid == byOrder ? byMid : ""
+        "Midpoint" => byMid
+        "HL order" => byOrder
+        => "both"
+
+    rangeOk = ibRange > 0 and (maxIbRange == 0 or ibRange <= maxIbRange) and (minIbRange == 0 or ibRange >= minIbRange)
+    if not rangeOk
+        side := ""
+
+    if side == "long" or side == "both"
+        entryLvl  := ibH + buffer
+        stopLvl   := ibL
+        targetLvl := entryLvl + targetR * (entryLvl - stopLvl)
+        qL = sizeFor(entryLvl - stopLvl)
+        if qL >= 1
+            strategy.entry("IB Long", strategy.long, qty=qL, stop=entryLvl, oca_name="IB", oca_type=strategy.oca.cancel)
+            pending := true
+            if side == "long"
+                alert(orderMsg("buy", qL, entryLvl, stopLvl, targetLvl), alert.freq_once_per_bar_close)
+
+    if side == "short" or side == "both"
+        entryLvlS  := ibL - buffer
+        stopLvlS   := ibH
+        targetLvlS := entryLvlS - targetR * (stopLvlS - entryLvlS)
+        qS = sizeFor(stopLvlS - entryLvlS)
+        if qS >= 1
+            strategy.entry("IB Short", strategy.short, qty=qS, stop=entryLvlS, oca_name="IB", oca_type=strategy.oca.cancel)
+            pending := true
+            if side == "short"
+                alert(orderMsg("sell", qS, entryLvlS, stopLvlS, targetLvlS), alert.freq_once_per_bar_close)
+
+// ---- Brackets (re-issued each bar; they only act once the entry fills) ----
+if strategy.position_size > 0
+    pending := false
+    strategy.exit("IB Long Exit", from_entry="IB Long", stop=stopLvl, limit=targetLvl)
+if strategy.position_size < 0
+    pending := false
+    strategy.exit("IB Short Exit", from_entry="IB Short", stop=stopLvlS, limit=targetLvlS)
+
+// ---- Entry cutoff: cancel an unfilled order ----
+singleSide = side == "long" or side == "short"
+if pending and ibDone and not inIB and barOpenMin >= cutoffMin and strategy.position_size == 0
+    strategy.cancel("IB Long")
+    strategy.cancel("IB Short")
+    pending := false
+    if singleSide
+        alert('{"ticker":"' + syminfo.ticker + '","action":"cancel"}', alert.freq_once_per_bar_close)
+
+// ---- Session flatten ----
+if strategy.position_size != 0 and not inIB and barOpenMin >= flattenMin
+    strategy.close_all(comment="session_flatten")
+    if singleSide
+        alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+showLevels = ibDone and barOpenMin >= ibEndMin and barOpenMin < flattenMin + 5
+plot(showLevels ? ibH : na,   "IB High", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plot(showLevels ? ibL : na,   "IB Low",  color=color.new(color.red, 0),   style=plot.style_linebr, linewidth=2)
+plot(showLevels ? ibMid : na, "IB Mid",  color=color.new(color.gray, 30), style=plot.style_linebr)
+bgcolor(inIB ? color.new(color.blue, 92) : na, title="IB window")
+plotshape(ibLastBar and side == "long",  "Bias long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(ibLastBar and side == "short", "Bias short", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.small)
+plotshape(ibLastBar and side == "",      "No trade",   shape.xcross,       location.abovebar, color.new(color.gray, 0),  size=size.tiny)
