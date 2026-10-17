@@ -214,17 +214,21 @@ def summary(t, rt_cost_per_contract=0.0):
 
 
 def sweep_rr(grid, cost):
-    """Net-of-cost results per R:R on every dataset, plus each year of NQ."""
+    return sweep("rr", grid, cost)
+
+
+def sweep(field, grid, cost, **base):
+    """Net-of-cost results per value of one Params field on every dataset, plus each year of NQ."""
     nq1 = load(DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet")
     nq5 = to_5m(nq1)
     mnq5 = load(DATA / "real_mnq_5m_2026-05-10_2026-08-25.parquet")
     mnq1 = load(DATA / "real_mnq_1m_2026-08-02_2026-08-25.parquet")
     rows = []
     for rr in grid:
-        p = Params(rr=rr)
+        p = Params(**{**base, field: rr})
         t = run(nq5, nq1, p)
         s = summary(t, cost)
-        row = {"rr": rr, "trades": s["trades"], "win%": s["win%"], "PF": s["PF"], "net$": s["net$"],
+        row = {**base, field: hhmm(rr) if field == "last_entry" else rr, "trades": s["trades"], "win%": s["win%"], "PF": s["PF"], "net$": s["net$"],
                "maxDD$": s["maxDD$"], "sharpe": s["sharpe_daily"]}
         for y, g in t.groupby(t.entry_time.dt.year):
             if y >= 2023:
@@ -294,11 +298,18 @@ def main():
     ap.add_argument("--cost", type=float, default=1.24, help="round-turn $ per contract for the net line")
     ap.add_argument("--sweep-rr", nargs="*", type=float, default=None,
                     help="sweep the R:R target (no values = a default grid) instead of the default report")
+    ap.add_argument("--sweep-cutoff", nargs="*", default=None, metavar="HH:MM",
+                    help="sweep the no-new-entries time (no values = a default grid), at R:R --rr")
+    ap.add_argument("--rr", type=float, default=0.3, help="R:R used by --sweep-cutoff")
     ap.add_argument("--grid", action="store_true",
                     help="sweep breakout margin x range window (x R:R 0.3/0.55); writes --out/grid.csv")
     args = ap.parse_args()
     if args.grid:
         return grid(args.cost, args.out)
+    if args.sweep_cutoff is not None:
+        cut = args.sweep_cutoff or ["10:00", "10:15", "10:30", "10:45", "11:00", "11:30", "12:00",
+                                    "13:00", "14:00", "15:00", "16:00"]
+        return sweep("last_entry", [int(c[:2]) * 60 + int(c[3:]) for c in cut], args.cost, rr=args.rr)
     if args.sweep_rr is not None:
         return sweep_rr(args.sweep_rr or [0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0], args.cost)
 
