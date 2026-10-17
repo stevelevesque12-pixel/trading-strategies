@@ -1,0 +1,170 @@
+//@version=6
+// Bellows, ported from bellows/bellows.py: an opening-range breakout taken only
+// on days whose 09:30-09:45 range is "normal size" (the middle tercile) for the
+// market's recent volatility.
+//
+// Defaults are the best version tested: NQ on 15-minute candles, 25-tick entry
+// buffer, target 2 x OR width, flatten at the 15:45 open. Python backtest on NQ
+// 15m Aug 2016 - Aug 2026: 838 trades, PF 1.41, net $207,941, max DD $26,226
+// (1 contract, $2.18/side, 2 ticks slippage).
+// For 5-minute candles the Python file uses: buffer 15, target 3.0, flatten 1550.
+//
+// Rules (New York time):
+//   Regime, decided at 09:45:
+//     OR = high/low of 09:30-09:45. Session ATR = Wilder ATR(28) of daily
+//     09:30-16:00 candles up to yesterday. w = OR width / session ATR.
+//     Compared with the 1/3 and 2/3 quantiles of the previous 504 days' w
+//     (needs 63 earlier days): low / mid / high. Only "mid" days trade.
+//   Entry, at a candle's close from 09:45 until the flatten time, one per day:
+//     long when high >= OR high + buffer, short when low <= OR low - buffer;
+//     a candle reaching both counts as long if close >= open. Market order at
+//     the next open.
+//   Exits, measured from the fill:
+//     stop = OR width + 2 x buffer, kept between 0.10x and 0.6x session ATR;
+//     target = 2 x OR width; flatten at the next open once a candle closes at
+//     or after the flatten time.
+//
+// Differences from the Python backtest to expect:
+//   * History: grading needs 63 earlier sessions on the chart, and the 504-day
+//     window needs ~2 years of 15m bars. With less history loaded the terciles
+//     come from fewer days and some days get a different label. Use Deep
+//     Backtesting (or the longest history your plan allows).
+//   * Candles that reach both stop and target: Python counts the stop first;
+//     TradingView guesses the path from the open. Turn on "Bar magnifier" in
+//     Properties for a closer match.
+//   * The Python data was a back-adjusted continuous contract; NQ1! on TradingView
+//     is not adjusted unless you turn that on. Point distances are the same.
+//   * For MNQ, set the commission in Properties to the micro rate.
+strategy("Bellows", overlay = true, initial_capital = 100000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 2.18,
+     slippage = 2, process_orders_on_close = false)
+
+regime    = input.string("mid", "Trade regime", options = ["all", "low", "mid", "high"])
+lookback  = input.int(504, "Tercile lookback (days)", minval = 63)
+atrLen    = input.int(28, "Session ATR length (days)", minval = 1)
+bufTicks  = input.int(25, "Entry buffer (ticks)", minval = 1)
+tpMult    = input.float(2.0, "Target (x OR width)", step = 0.5)
+stopCap   = input.float(0.6, "Stop cap (x session ATR)", step = 0.05)
+orEndIn   = input.int(945, "Opening range ends (HHMM, New York)")
+flatIn    = input.int(1530, "Flatten after the candle at (HHMM, New York)")
+direction = input.string("both", "Direction", options = ["both", "long", "short"])
+
+TZ = "America/New_York"
+RTH_OPEN = 9 * 60 + 30
+RTH_CLOSE = 16 * 60
+orEnd = math.floor(orEndIn / 100) * 60 + orEndIn % 100
+flatMin = math.floor(flatIn / 100) * 60 + flatIn % 100
+tick = syminfo.mintick
+buf = bufTicks * tick
+
+// Linear-interpolated quantile of a sorted array (same as pandas/numpy "linear").
+quantile(array<float> s, float q) =>
+    pos = q * (s.size() - 1)
+    lo = math.floor(pos)
+    hi = math.min(lo + 1, s.size() - 1)
+    s.get(lo) + (s.get(hi) - s.get(lo)) * (pos - lo)
+
+dayKey = year(time, TZ) * 10000 + month(time, TZ) * 100 + dayofmonth(time, TZ)
+mod = hour(time, TZ) * 60 + minute(time, TZ)
+
+var int curDay = na
+var float rthH = na
+var float rthL = na
+var float rthC = na
+var float prevRthC = na
+var float atr = na          // session ATR through the last finished day
+var float orH = na
+var float orL = na
+var float width = na
+var float aPrior = na
+var bool decided = false
+var bool dayOk = false
+var bool signalDone = false
+var wHist = array.new<float>()
+
+// New calendar day: fold yesterday's 09:30-16:00 candle into the session ATR.
+// A session day without an opening range still takes a (blank) slot in the window.
+if na(curDay) or dayKey != curDay
+    if not na(rthC)
+        if not decided
+            wHist.push(na)
+            if wHist.size() > lookback
+                wHist.shift()
+        tr = na(prevRthC) ? rthH - rthL : math.max(rthH - rthL, math.abs(rthH - prevRthC), math.abs(rthL - prevRthC))
+        atr := na(atr) ? tr : atr + (tr - atr) / atrLen
+        prevRthC := rthC
+    curDay := dayKey
+    rthH := na
+    rthL := na
+    rthC := na
+    orH := na
+    orL := na
+    decided := false
+    dayOk := false
+    signalDone := false
+
+if mod >= RTH_OPEN and mod < RTH_CLOSE
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+    rthC := close
+    if mod < orEnd
+        orH := na(orH) ? high : math.max(orH, high)
+        orL := na(orL) ? low : math.min(orL, low)
+
+// Regime label, once the opening range is complete.
+if not decided and mod >= orEnd and not na(orH)
+    decided := true
+    width := orH - orL
+    aPrior := atr
+    float w = not na(aPrior) and aPrior > 0 ? width / aPrior : na
+    if width > 0 and not na(w)
+        s = array.new<float>()
+        for v in wHist
+            if not na(v)
+                s.push(v)
+        if regime == "all"
+            dayOk := true
+        else if s.size() >= math.min(lookback, 63)
+            s.sort(order.ascending)
+            q33 = quantile(s, 1.0 / 3.0)
+            q66 = quantile(s, 2.0 / 3.0)
+            dayOk := regime == "low" ? w <= q33 : regime == "high" ? w > q66 : w > q33 and w <= q66
+    wHist.push(w)
+    if wHist.size() > lookback
+        wHist.shift()
+
+// Entry: first breakout of the day, market order at the next open.
+longLvl = orH + buf
+shortLvl = orL - buf
+armed = dayOk and not signalDone and mod >= orEnd and mod < flatMin
+hitL = armed and high >= longLvl
+hitS = armed and low <= shortLvl
+if hitL and hitS
+    hitL := close >= open
+    hitS := not hitL
+if direction == "long"
+    hitS := false
+if direction == "short"
+    hitL := false
+
+if hitL or hitS
+    signalDone := true
+    stopDist = math.max(tick, math.round(math.min(math.max(width + 2 * buf, 0.10 * aPrior), stopCap * aPrior) / tick) * tick)
+    tgtDist = math.max(tick, math.round(tpMult * width / tick) * tick)
+    if strategy.position_size == 0
+        if hitL
+            strategy.entry("Long", strategy.long)
+            strategy.exit("Long exit", "Long", loss = math.round(stopDist / tick), profit = math.round(tgtDist / tick))
+        else
+            strategy.entry("Short", strategy.short)
+            strategy.exit("Short exit", "Short", loss = math.round(stopDist / tick), profit = math.round(tgtDist / tick))
+
+if mod >= flatMin and strategy.position_size != 0
+    strategy.close_all(comment = "flat")
+
+show = dayOk and mod >= orEnd and mod < RTH_CLOSE
+plot(show ? orH : na, "OR high", color.gray, style = plot.style_linebr)
+plot(show ? orL : na, "OR low", color.gray, style = plot.style_linebr)
+plot(show ? longLvl : na, "Long trigger", color.green, style = plot.style_linebr)
+plot(show ? shortLvl : na, "Short trigger", color.red, style = plot.style_linebr)
