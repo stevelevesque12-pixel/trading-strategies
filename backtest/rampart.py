@@ -63,20 +63,20 @@ def rnd(px):
 _1M_CACHE = {}
 
 
-def _index_1m(bars5, bars1):
+def _index_1m(bars5, bars1, bar_mins=5):
     """For each 5m bar, the [start, end) slice of the 1m bars inside it. Cached: sweeps reuse it."""
-    key = (id(bars5), id(bars1))
+    key = (id(bars5), id(bars1), bar_mins)
     if key not in _1M_CACHE:
         idx = bars5.index
-        b1 = bars1.loc[(bars1.index >= idx[0]) & (bars1.index < idx[-1] + pd.Timedelta("5min"))]
-        key1 = b1.index.floor("5min").to_numpy()
+        b1 = bars1.loc[(bars1.index >= idx[0]) & (bars1.index < idx[-1] + pd.Timedelta(minutes=bar_mins))]
+        key1 = b1.index.floor(f"{bar_mins}min").to_numpy()
         _1M_CACHE[key] = (np.searchsorted(key1, idx.to_numpy(), side="left"),
                           np.searchsorted(key1, idx.to_numpy(), side="right"),
                           b1["high"].to_numpy(), b1["low"].to_numpy())
     return _1M_CACHE[key]
 
 
-def run(bars5, bars1=None, p=Params(), tie="stop"):
+def run(bars5, bars1=None, p=Params(), tie="stop", bar_mins=5):
     """Walk the 5m bars. bars1 (optional) resolves intrabar stop/target order."""
     idx = bars5.index
     o, h, l, c = (bars5[k].to_numpy() for k in ("open", "high", "low", "close"))
@@ -85,7 +85,7 @@ def run(bars5, bars1=None, p=Params(), tie="stop"):
     dow = idx.dayofweek
 
     if bars1 is not None:
-        pos1, end1, h1, l1 = _index_1m(bars5, bars1)
+        pos1, end1, h1, l1 = _index_1m(bars5, bars1, bar_mins)
         has1 = end1 > pos1
     trades = []
     cur_day = None
@@ -152,7 +152,7 @@ def run(bars5, bars1=None, p=Params(), tie="stop"):
             cur_day = day[i]
             rng_hi = rng_lo = 0.0; seen = False; longs = shorts = 0
         t = tod[i]
-        if t + 5 > p.range_start and t < p.range_end:
+        if t + bar_mins > p.range_start and t < p.range_end:
             rng_hi = max(rng_hi, h[i]) if seen else h[i]
             rng_lo = min(rng_lo, l[i]) if seen else l[i]
             seen = True

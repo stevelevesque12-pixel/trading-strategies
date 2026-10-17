@@ -69,6 +69,7 @@ rrStopColor      = input.color(color.red, "R/R Stop Fill", group=G6)
 showRrPrices     = input.bool(true, "Show R/R Price Labels", group=G6)
 showRange        = input.bool(true, "Show Range High/Low", group=G6)
 showMarker       = input.bool(true, "Show Breakout Markers", group=G6)
+allowOtherTf     = input.bool(false, "Allow non-5m timeframe", group=G6, tooltip="Off: the script stops with an error on anything but a 5-minute chart.")
 
 // ---- Clock (bar OPEN time, in the chosen zone) ----
 rangeStartMin = rangeStartHour * 60 + rangeStartMinute
@@ -77,6 +78,10 @@ forceCloseMin = forceCloseHour * 60 + forceCloseMinute
 lastEntryMin  = math.min(lastEntryHour * 60 + lastEntryMinute, forceCloseMin)
 if barstate.isfirst and rangeStartMin >= rangeEndMin
     runtime.error("Range Start is at or after Range End, so no range can ever form.")
+// Tuned and tested on 5m only. On 15m the 09:45 bar stretches the range to
+// 10:00 and stops sit ~60% wider: PF fell from 1.20 to ~0.97 in testing.
+if barstate.isfirst and timeframe.in_seconds() != 300 and not allowOtherTf
+    runtime.error("Run this on a 5-minute chart (it is on " + timeframe.period + "). Tick 'Allow non-5m timeframe' to override.")
 
 tod     = hour(time, tz) * 60 + minute(time, tz)
 dayKey  = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
