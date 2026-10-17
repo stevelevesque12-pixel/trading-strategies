@@ -201,11 +201,42 @@ def summary(t, rt_cost_per_contract=0.0):
     }
 
 
+def sweep_rr(grid, cost):
+    """Net-of-cost results per R:R on every dataset, plus each year of NQ."""
+    nq1 = load(DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet")
+    nq5 = to_5m(nq1)
+    mnq5 = load(DATA / "real_mnq_5m_2026-05-10_2026-08-25.parquet")
+    mnq1 = load(DATA / "real_mnq_1m_2026-08-02_2026-08-25.parquet")
+    rows = []
+    for rr in grid:
+        p = Params(rr=rr)
+        t = run(nq5, nq1, p)
+        s = summary(t, cost)
+        row = {"rr": rr, "trades": s["trades"], "win%": s["win%"], "PF": s["PF"], "net$": s["net$"],
+               "maxDD$": s["maxDD$"], "sharpe": s["sharpe_daily"]}
+        for y, g in t.groupby(t.entry_time.dt.year):
+            if y >= 2023:
+                row[f"{y}$"] = summary(g, cost)["net$"]
+        row["flat%"] = round((t.reason == "flat").mean() * 100, 1)
+        row["NQ stop1st$"] = summary(run(nq5, None, p, tie="stop"), cost)["net$"]
+        m = summary(run(mnq5, mnq1, p), cost)
+        row["MNQ26$"], row["MNQ26 PF"] = m["net$"], m["PF"]
+        row["MNQ26 stop1st$"] = summary(run(mnq5, None, p, tie="stop"), cost)["net$"]
+        rows.append(row)
+    pd.set_option("display.width", 250, "display.max_columns", 30)
+    print(f"Net of ${cost}/RT/contract. NQ = Dec 2022-Dec 2025 (1m exits); MNQ26 = May-Aug 2026.")
+    print(pd.DataFrame(rows).to_string(index=False))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None, help="directory for trade CSVs")
     ap.add_argument("--cost", type=float, default=1.24, help="round-turn $ per contract for the net line")
+    ap.add_argument("--sweep-rr", nargs="*", type=float, default=None,
+                    help="sweep the R:R target (no values = a default grid) instead of the default report")
     args = ap.parse_args()
+    if args.sweep_rr is not None:
+        return sweep_rr(args.sweep_rr or [0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0], args.cost)
 
     runs = {}
     nq1 = load(DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet")
