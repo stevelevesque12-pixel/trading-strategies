@@ -33,6 +33,7 @@ Exits (distances count from the entry fill):
     kept between 0.10 x and STOP_CAP_ATR x the session ATR, rounded to the tick.
   - Target distance = TP_MULT x the OR width, rounded to the tick.
   - Flat: from FORCE_FLAT on, any open trade exits at the next candle's open.
+    On 15-minute candles FORCE_FLAT_15M is used instead (15:30 -> exit at the 15:45 open).
 
 Two parts you can use separately:
   - `signals()` is the strategy: per candle, long/short entry, stop and target distances
@@ -69,6 +70,7 @@ ATR_LEN = 28                # session ATR length (days)
 ENTRY_BUFFER_TICKS = 15
 OR_END = "09:45"            # opening range 09:30 -> this time
 FORCE_FLAT = "15:50"
+FORCE_FLAT_15M = "15:30"    # used instead on 15-minute candles (exit at the 15:45 open)
 DIRECTION = "both"          # "both", "long" or "short"
 STOP_CAP_ATR = 0.6          # stop at most this x session ATR
 TP_MULT = 3.0               # target = this x OR width
@@ -121,7 +123,8 @@ def signals(df, tick_size=TICK_SIZE):
     high, low, close, open_ = (df[k].to_numpy(np.float64) for k in ("high", "low", "close", "open"))
 
     open_min, rth_end = _mins(RTH_OPEN), _mins(RTH_CLOSE)
-    or_end, flat_min = _mins(OR_END), _mins(FORCE_FLAT)
+    bar_min = df.index.to_series().diff().median() / pd.Timedelta(minutes=1) if n > 1 else 0.0
+    or_end, flat_min = _mins(OR_END), _mins(FORCE_FLAT_15M if bar_min >= 15 else FORCE_FLAT)
 
     # Per-day series: yesterday's session ATR, today's OR, and the trailing terciles of w.
     f = pd.DataFrame({"high": high, "low": low, "close": close, "day": day})
