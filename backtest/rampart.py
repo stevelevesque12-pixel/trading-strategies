@@ -1,0 +1,240 @@
+"""Backtest of the PQX_Rampart_5min_MNQ NinjaTrader 8 strategy.
+
+A bar-by-bar port of the NT8 OnBarUpdate logic with its default inputs:
+
+- Range = high/low of every 5m bar overlapping 09:15-09:50 ET.
+- Entry window 09:50-12:00 ET (bar OPEN time). The first bar whose close is
+  >= range high + 6 ticks (<= range low - 6 ticks) is the signal; it must be a
+  rising edge of that condition, and the "previous bar" flag carries across days.
+- Market entry at the NEXT bar's open (NT OnBarClose semantics). Stop and
+  target are priced off the SIGNAL bar: stop = signal low - 1 tick (long),
+  target = signal close + 0.3 * (signal close - stop).
+- One long and one short per day, flat only, >= 1 bar since the last entry.
+- Anything open on the bar opening at 16:00 ET is closed at the next bar's open.
+- Size = floor($500 / (risk points * point value)), min 1, max 1000.
+
+Exits are resolved on 1-minute bars when they exist (stop assumed first if a
+single 1m bar touches both), else on the 5m bar itself with the `tie` rule.
+"""
+
+import argparse
+import math
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+DATA = Path(__file__).resolve().parent.parent / "sample_data" / "real_multi_instrument"
+TICK = 0.25
+
+
+@dataclass
+class Params:
+    range_start: int = 9 * 60 + 15
+    range_end: int = 9 * 60 + 50
+    break_ticks: int = 6
+    stop_buf_ticks: int = 1
+    rr: float = 0.3
+    last_entry: int = 12 * 60
+    force_close: int = 16 * 60
+    one_per_side: bool = True
+    min_bars_between: int = 1
+    risk_usd: float = 500.0
+    max_contracts: int = 1000
+    point_value: float = 2.0  # MNQ
+
+
+def load(path):
+    df = pd.read_parquet(path).tz_convert("America/New_York")
+    df.columns = [c.lower() for c in df.columns]
+    return df[["open", "high", "low", "close"]].sort_index()
+
+
+def to_5m(df1):
+    return df1.resample("5min", label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+
+
+def rnd(px):
+    return round(px / TICK) * TICK
+
+
+def run(bars5, bars1=None, p=Params(), tie="stop"):
+    """Walk the 5m bars. bars1 (optional) resolves intrabar stop/target order."""
+    idx = bars5.index
+    o, h, l, c = (bars5[k].to_numpy() for k in ("open", "high", "low", "close"))
+    tod = idx.hour * 60 + idx.minute
+    day = idx.year * 10000 + idx.month * 100 + idx.day
+    dow = idx.dayofweek
+
+    if bars1 is not None:
+        b1 = bars1.loc[(bars1.index >= idx[0]) & (bars1.index < idx[-1] + pd.Timedelta("5min"))]
+        key1 = b1.index.floor("5min")
+        pos1 = np.searchsorted(key1.to_numpy(), idx.to_numpy(), side="left")
+        end1 = np.searchsorted(key1.to_numpy(), idx.to_numpy(), side="right")
+        h1, l1 = b1["high"].to_numpy(), b1["low"].to_numpy()
+        has1 = end1 > pos1
+    trades = []
+    cur_day = None
+    rng_hi = rng_lo = 0.0
+    seen = False
+    longs = shorts = 0
+    last_trade_bar = None
+    prev_ql = prev_qs = False
+    pos = None          # open position dict
+    pending = None      # order placed on bar close, fills next bar open
+    pending_flat = False
+
+    def close_pos(i, px, reason):
+        nonlocal pos
+        sgn = 1 if pos["dir"] == "long" else -1
+        pts = (px - pos["fill"]) * sgn
+        trades.append(dict(entry_time=pos["time"], exit_time=idx[i], dir=pos["dir"], signal_close=pos["sig"],
+                           fill=pos["fill"], stop=pos["stop"], target=pos["target"], exit=px, reason=reason,
+                           qty=pos["qty"], risk_pts=pos["risk"], pnl_pts=pts, pnl_usd=pts * pos["qty"] * p.point_value))
+        pos = None
+
+    def check_exit(hi, lo):
+        """Return exit price/reason if stop/target touched within [lo, hi]."""
+        if pos["dir"] == "long":
+            hs, ht = lo <= pos["stop"], hi >= pos["target"]
+        else:
+            hs, ht = hi >= pos["stop"], lo <= pos["target"]
+        return hs, ht
+
+    for i in range(len(idx)):
+        # 1) orders from the previous bar fill at this bar's open
+        if pending_flat and pos is not None:
+            close_pos(i, o[i], "flat")
+        pending_flat = False
+        if pending is not None:
+            pos = dict(pending, fill=o[i], time=idx[i])
+            pending = None
+            # opened through the stop/target: stop-market / limit fills at the open
+            if pos is not None:
+                if (pos["dir"] == "long" and o[i] <= pos["stop"]) or (pos["dir"] == "short" and o[i] >= pos["stop"]):
+                    close_pos(i, o[i], "stop_gap")
+                elif (pos["dir"] == "long" and o[i] >= pos["target"]) or (pos["dir"] == "short" and o[i] <= pos["target"]):
+                    close_pos(i, o[i], "target_gap")
+        # 2) intrabar stop/target
+        if pos is not None:
+            if bars1 is not None and has1[i]:
+                for j in range(pos1[i], end1[i]):
+                    hs, ht = check_exit(h1[j], l1[j])
+                    if hs:
+                        close_pos(i, pos["stop"], "stop"); break
+                    if ht:
+                        close_pos(i, pos["target"], "target"); break
+            else:
+                hs, ht = check_exit(h[i], l[i])
+                if hs and (not ht or tie == "stop"):
+                    close_pos(i, pos["stop"], "stop")
+                elif ht:
+                    close_pos(i, pos["target"], "target")
+
+        # 3) OnBarUpdate at this bar's close
+        if day[i] != cur_day:
+            if cur_day is not None and pos is not None:
+                pending_flat = True
+            cur_day = day[i]
+            rng_hi = rng_lo = 0.0; seen = False; longs = shorts = 0
+        t = tod[i]
+        if t + 5 > p.range_start and t < p.range_end:
+            rng_hi = max(rng_hi, h[i]) if seen else h[i]
+            rng_lo = min(rng_lo, l[i]) if seen else l[i]
+            seen = True
+        ready = seen and rng_hi > rng_lo
+        m = p.break_ticks * TICK
+        ql = ready and c[i] >= rng_hi + m
+        qs = ready and c[i] <= rng_lo - m
+        fl, fs = ql and not prev_ql, qs and not prev_qs
+        prev_ql, prev_qs = ql, qs
+
+        if t >= p.force_close:
+            if pos is not None:
+                pending_flat = True
+            continue
+        last_entry = min(p.last_entry, p.force_close)
+        bars_since = math.inf if last_trade_bar is None else i - last_trade_bar
+        can = (dow[i] < 5 and p.range_end <= t < last_entry and ready and pos is None and pending is None
+               and longs + shorts < (2 if p.one_per_side else 1) and bars_since >= p.min_bars_between)
+        for is_long, fire in ((True, fl), (False, fs)):
+            if not (can and fire and (not p.one_per_side or (longs if is_long else shorts) == 0)):
+                continue
+            entry = c[i]
+            buf = max(p.stop_buf_ticks * TICK, TICK)
+            stop = rnd(l[i] - buf if is_long else h[i] + buf)
+            dist = abs(entry - stop)
+            if dist < TICK * 0.5:
+                break
+            tp = dist * p.rr
+            target = rnd(entry + tp if is_long else entry - tp)
+            qty = max(1, min(max(int(math.floor(p.risk_usd / (dist * p.point_value))), 1), p.max_contracts))
+            pending = dict(dir="long" if is_long else "short", sig=entry, stop=stop, target=target, qty=qty, risk=dist)
+            if is_long: longs += 1
+            else: shorts += 1
+            last_trade_bar = i
+            break
+    return pd.DataFrame(trades)
+
+
+def summary(t, rt_cost_per_contract=0.0):
+    if t.empty:
+        return {"trades": 0}
+    pnl = t.pnl_usd - rt_cost_per_contract * t.qty
+    eq = pnl.cumsum()
+    daily = pnl.groupby(t.entry_time.dt.date).sum()
+    gp, gl = pnl[pnl > 0].sum(), -pnl[pnl <= 0].sum()
+    return {
+        "trades": len(t),
+        "win%": round((pnl > 0).mean() * 100, 1),
+        "net$": round(pnl.sum()),
+        "PF": round(gp / gl, 2) if gl else float("inf"),
+        "avg$": round(pnl.mean(), 1),
+        "avgW$": round(pnl[pnl > 0].mean(), 1),
+        "avgL$": round(pnl[pnl <= 0].mean(), 1),
+        "maxDD$": round((eq.cummax().clip(lower=0) - eq).max()),
+        "avg_qty": round(t.qty.mean(), 1),
+        "avg_risk_pts": round(t.risk_pts.mean(), 1),
+        "sharpe_daily": round(daily.mean() / daily.std() * np.sqrt(252), 2) if daily.std() else None,
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", default=None, help="directory for trade CSVs")
+    ap.add_argument("--cost", type=float, default=1.24, help="round-turn $ per contract for the net line")
+    args = ap.parse_args()
+
+    runs = {}
+    nq1 = load(DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet")
+    runs["NQ 2022-12..2025-12 (5m from 1m, 1m exits)"] = run(to_5m(nq1), nq1)
+    runs["NQ 2022-12..2025-12 (5m only, stop-first)"] = run(to_5m(nq1), None, tie="stop")
+    runs["NQ 2022-12..2025-12 (5m only, target-first)"] = run(to_5m(nq1), None, tie="target")
+    mnq5 = load(DATA / "real_mnq_5m_2026-05-10_2026-08-25.parquet")
+    mnq1 = load(DATA / "real_mnq_1m_2026-08-02_2026-08-25.parquet")
+    runs["MNQ 2026-05..2026-08 (native 5m, 1m exits in Aug)"] = run(mnq5, mnq1)
+    runs["MNQ 2026-05..2026-08 (native 5m, stop-first)"] = run(mnq5, None, tie="stop")
+
+    rows = []
+    for name, t in runs.items():
+        rows.append({"run": name, "costs": "gross", **summary(t)})
+        rows.append({"run": name, "costs": f"${args.cost}/RT/ct", **summary(t, args.cost)})
+    pd.set_option("display.width", 250, "display.max_columns", 30)
+    print(pd.DataFrame(rows).to_string(index=False))
+
+    main_t = runs["NQ 2022-12..2025-12 (5m from 1m, 1m exits)"]
+    print("\nExit reasons (NQ, 1m exits):\n", main_t.reason.value_counts().to_string())
+    print("\nBy direction:\n", main_t.groupby("dir").apply(lambda g: pd.Series(summary(g, args.cost))).to_string())
+    yr = main_t.groupby(main_t.entry_time.dt.year).apply(lambda g: pd.Series(summary(g, args.cost)))
+    print("\nBy year (net):\n", yr.to_string())
+    if args.out:
+        out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
+        for name, t in runs.items():
+            slug = "".join(ch if ch.isalnum() else "_" for ch in name.lower()).strip("_")
+            t.to_csv(out / f"{slug}.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()
