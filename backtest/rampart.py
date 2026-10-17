@@ -60,6 +60,22 @@ def rnd(px):
     return round(px / TICK) * TICK
 
 
+_1M_CACHE = {}
+
+
+def _index_1m(bars5, bars1):
+    """For each 5m bar, the [start, end) slice of the 1m bars inside it. Cached: sweeps reuse it."""
+    key = (id(bars5), id(bars1))
+    if key not in _1M_CACHE:
+        idx = bars5.index
+        b1 = bars1.loc[(bars1.index >= idx[0]) & (bars1.index < idx[-1] + pd.Timedelta("5min"))]
+        key1 = b1.index.floor("5min").to_numpy()
+        _1M_CACHE[key] = (np.searchsorted(key1, idx.to_numpy(), side="left"),
+                          np.searchsorted(key1, idx.to_numpy(), side="right"),
+                          b1["high"].to_numpy(), b1["low"].to_numpy())
+    return _1M_CACHE[key]
+
+
 def run(bars5, bars1=None, p=Params(), tie="stop"):
     """Walk the 5m bars. bars1 (optional) resolves intrabar stop/target order."""
     idx = bars5.index
@@ -69,11 +85,7 @@ def run(bars5, bars1=None, p=Params(), tie="stop"):
     dow = idx.dayofweek
 
     if bars1 is not None:
-        b1 = bars1.loc[(bars1.index >= idx[0]) & (bars1.index < idx[-1] + pd.Timedelta("5min"))]
-        key1 = b1.index.floor("5min")
-        pos1 = np.searchsorted(key1.to_numpy(), idx.to_numpy(), side="left")
-        end1 = np.searchsorted(key1.to_numpy(), idx.to_numpy(), side="right")
-        h1, l1 = b1["high"].to_numpy(), b1["low"].to_numpy()
+        pos1, end1, h1, l1 = _index_1m(bars5, bars1)
         has1 = end1 > pos1
     trades = []
     cur_day = None
@@ -228,13 +240,65 @@ def sweep_rr(grid, cost):
     print(pd.DataFrame(rows).to_string(index=False))
 
 
+WINDOWS = [(8 * 60 + 30, 9 * 60 + 30), (9 * 60, 9 * 60 + 30), (9 * 60, 9 * 60 + 50),
+           (9 * 60 + 15, 9 * 60 + 45), (9 * 60 + 15, 9 * 60 + 50), (9 * 60 + 15, 10 * 60),
+           (9 * 60 + 30, 9 * 60 + 35), (9 * 60 + 30, 9 * 60 + 45), (9 * 60 + 30, 9 * 60 + 50),
+           (9 * 60 + 30, 10 * 60), (9 * 60 + 30, 10 * 60 + 15), (9 * 60 + 30, 10 * 60 + 30)]
+MARGINS = [0, 2, 4, 6, 8, 12, 16, 24, 32, 48]
+
+
+def hhmm(m):
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def grid(cost, out=None, rrs=(0.3, 0.55)):
+    """Breakout margin x range window x R:R. NQ 2023-24 is the in-sample; 2025 and MNQ 2026 are held out."""
+    nq1 = load(DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet")
+    nq5 = to_5m(nq1)
+    mnq5 = load(DATA / "real_mnq_5m_2026-05-10_2026-08-25.parquet")
+    mnq1 = load(DATA / "real_mnq_1m_2026-08-02_2026-08-25.parquet")
+    rows = []
+    for rr in rrs:
+        for ws, we in WINDOWS:
+            for mt in MARGINS:
+                p = Params(range_start=ws, range_end=we, break_ticks=mt, rr=rr)
+                t = run(nq5, nq1, p)
+                net = t.pnl_usd - cost * t.qty
+                yr = t.entry_time.dt.year
+                ins = summary(t[yr.isin([2023, 2024])], cost)
+                m = summary(run(mnq5, mnq1, p), cost)
+                rows.append({"rr": rr, "window": f"{hhmm(ws)}-{hhmm(we)}", "margin": mt,
+                             "trades": len(t), **{k: summary(t, cost)[k] for k in ("win%", "PF", "net$", "maxDD$", "sharpe_daily")},
+                             "IS23-24$": ins["net$"], "IS PF": ins["PF"], "OOS25$": round(net[yr == 2025].sum()),
+                             "stop1st$": summary(run(nq5, None, p, tie="stop"), cost)["net$"],
+                             "MNQ26$": m.get("net$", 0), "MNQ26 n": m["trades"]})
+    df = pd.DataFrame(rows)
+    pd.set_option("display.width", 250, "display.max_columns", 30)
+    for rr in rrs:
+        d = df[df.rr == rr]
+        print(f"\n=== R:R {rr}: net $ (NQ Dec22-Dec25, ${cost}/RT/ct), rows = window, cols = margin ticks ===")
+        print(d.pivot(index="window", columns="margin", values="net$").to_string())
+        print(f"--- R:R {rr}: profit factor ---")
+        print(d.pivot(index="window", columns="margin", values="PF").to_string())
+    print("\n=== Top 15 by in-sample (2023-24) net, with held-out results ===")
+    print(df.sort_values("IS23-24$", ascending=False).head(15).to_string(index=False))
+    if out:
+        Path(out).mkdir(parents=True, exist_ok=True)
+        df.to_csv(Path(out) / "grid.csv", index=False)
+    return df
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None, help="directory for trade CSVs")
     ap.add_argument("--cost", type=float, default=1.24, help="round-turn $ per contract for the net line")
     ap.add_argument("--sweep-rr", nargs="*", type=float, default=None,
                     help="sweep the R:R target (no values = a default grid) instead of the default report")
+    ap.add_argument("--grid", action="store_true",
+                    help="sweep breakout margin x range window (x R:R 0.3/0.55); writes --out/grid.csv")
     args = ap.parse_args()
+    if args.grid:
+        return grid(args.cost, args.out)
     if args.sweep_rr is not None:
         return sweep_rr(args.sweep_rr or [0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0], args.cost)
 
