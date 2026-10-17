@@ -1,0 +1,183 @@
+//@version=6
+// PropQuantX_Rampart_5min_MNQ -- tuned. *** RUN ON 5-MINUTE BARS, EXTENDED HOURS. ***
+//
+// Opening-range breakout on a WINDOW (09:15-09:50 ET). The range is the
+// high/low of every bar overlapping the window. After the window closes, the
+// first bar that CLOSES more than the breakout margin beyond an edge takes the
+// trade at the next bar's open. Stop sits on the ENTRY candle's own low (long)
+// / high (short) plus a buffer. Target is R:R, an ATR multiple, or fixed ticks.
+// Everything is flat at the flat time; nothing is carried overnight.
+//
+// Same logic as the NinjaTrader PQX_Rampart_5min_MNQ. Defaults changed from
+// the original after the backtests in backtest/rampart.py
+// (NQ Dec 2022-Dec 2025, 5m bars, 1m exits, $1.24/RT/contract):
+//   Risk:Reward        0.30  -> 0.55
+//   No new entries     12:00 -> 11:30
+//   Range window and 6-tick breakout margin unchanged (already the best area).
+// Result there: 796 trades, 70% win, PF 1.20, +$22.6k on $500 risk/trade,
+// max DD $4.3k (vs PF 1.24 / +$17.3k for the original, which turns negative
+// when stops are assumed hit first inside a bar; this version stays at +$11.3k).
+// MNQ May-Aug 2026 was about breakeven (-$0.7k, 85 trades).
+//
+// The target is small, so stop and target often fall inside the same 5m bar.
+// Bar Magnifier (Premium) resolves that order on lower-timeframe data; without
+// it TradingView guesses, and the Strategy Tester can read too optimistic.
+
+strategy("PropQuantX_Rampart_5min_MNQ (tuned)", overlay=true, initial_capital=50000, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.62, slippage=0,
+     margin_long=0, margin_short=0, use_bar_magnifier=true, max_boxes_count=500, max_labels_count=500)
+
+// ---- Inputs ----
+G1 = "1. Opening Range"
+rangeStartHour   = input.int(9, "Range Start - Hour", minval=0, maxval=23, group=G1)
+rangeStartMinute = input.int(15, "Range Start - Minute", minval=0, maxval=59, group=G1)
+rangeEndHour     = input.int(9, "Range End - Hour", minval=0, maxval=23, group=G1, tooltip="Exclusive. The range is frozen here, and entries may start from this time on.")
+rangeEndMinute   = input.int(50, "Range End - Minute", minval=0, maxval=59, group=G1)
+breakMarginTicks = input.int(6, "Breakout Margin (ticks)", minval=0, maxval=200, group=G1, tooltip="How far past the range high/low the bar must CLOSE before the break qualifies.")
+
+G2 = "2. Stop Loss"
+stopBufferTicks  = input.int(1, "Stop Buffer (ticks)", minval=0, maxval=200, group=G2, tooltip="Ticks beyond the entry candle's low (long) or high (short). Floored at one tick.")
+
+G3 = "3. Take Profit"
+tpType           = input.string("Risk:Reward", "Take Profit Type", options=["Risk:Reward", "ATR Multiplier", "Fixed Ticks"], group=G3)
+riskReward       = input.float(0.55, "Risk:Reward Ratio", minval=0.1, maxval=20.0, step=0.05, group=G3)
+tpTicks          = input.int(96, "Take Profit (ticks)", minval=4, maxval=800, group=G3)
+atrTpMult        = input.float(0.61, "ATR Target Multiplier", minval=0.1, maxval=20.0, step=0.01, group=G3)
+atrLength        = input.int(14, "ATR Length", minval=1, maxval=500, group=G3)
+
+G4 = "4. Session & Limits"
+tz               = input.string("America/New_York", "Timezone", group=G4)
+lastEntryHour    = input.int(11, "No New Entries After - Hour", minval=0, maxval=23, group=G4)
+lastEntryMinute  = input.int(30, "No New Entries After - Minute", minval=0, maxval=59, group=G4)
+forceCloseHour   = input.int(16, "Flat All Positions - Hour", minval=0, maxval=23, group=G4)
+forceCloseMinute = input.int(0, "Flat All Positions - Minute", minval=0, maxval=59, group=G4)
+oneTradePerSide  = input.bool(true, "One Trade Per Side Per Day", group=G4, tooltip="On: at most one long and one short per day. Off: one trade per day, whichever side fires first.")
+minBarsBetween   = input.int(1, "Min Bars Between Trades", minval=0, maxval=500, group=G4)
+
+G5 = "5. Position Sizing"
+useRiskSizing    = input.bool(true, "Use $ Risk Position Sizing", group=G5)
+riskUsd          = input.float(500.0, "Risk Per Trade ($)", minval=0.0, group=G5)
+qtyContracts     = input.int(1, "Contracts (If Risk Sizing Off)", minval=1, maxval=1000, group=G5)
+maxContracts     = input.int(1000, "Max Contracts", minval=1, maxval=1000, group=G5)
+
+G6 = "6. Visuals"
+showRr           = input.bool(true, "Show Risk/Reward Boxes", group=G6)
+rrTransp         = input.int(78, "R/R Box Transparency (%)", minval=0, maxval=100, group=G6)
+rrTargetColor    = input.color(color.teal, "R/R Target Fill", group=G6)
+rrStopColor      = input.color(color.red, "R/R Stop Fill", group=G6)
+showRrPrices     = input.bool(true, "Show R/R Price Labels", group=G6)
+showRange        = input.bool(true, "Show Range High/Low", group=G6)
+showMarker       = input.bool(true, "Show Breakout Markers", group=G6)
+
+// ---- Clock (bar OPEN time, in the chosen zone) ----
+rangeStartMin = rangeStartHour * 60 + rangeStartMinute
+rangeEndMin   = rangeEndHour * 60 + rangeEndMinute
+forceCloseMin = forceCloseHour * 60 + forceCloseMinute
+lastEntryMin  = math.min(lastEntryHour * 60 + lastEntryMinute, forceCloseMin)
+if barstate.isfirst and rangeStartMin >= rangeEndMin
+    runtime.error("Range Start is at or after Range End, so no range can ever form.")
+
+tod     = hour(time, tz) * 60 + minute(time, tz)
+dayKey  = year(time, tz) * 10000 + month(time, tz) * 100 + dayofmonth(time, tz)
+dow     = dayofweek(time, tz)
+barMins = math.max(1.0, timeframe.in_seconds() / 60.0)
+atr     = ta.atr(atrLength)
+
+// ---- State ----
+var float rangeHi = na
+var float rangeLo = na
+var bool  rangeSeen = false
+var int   longsToday = 0
+var int   shortsToday = 0
+var int   lastTradeBar = na
+var bool  prevQualLong = false
+var bool  prevQualShort = false
+var box   tBox = na
+var box   sBox = na
+
+// ---- Session roll: flatten anything still open, then clear the day ----
+newDay = bar_index == 0 or dayKey != dayKey[1]
+if newDay
+    if bar_index > 0 and strategy.position_size != 0
+        strategy.close_all(comment="Day roll")
+    rangeHi := na
+    rangeLo := na
+    rangeSeen := false
+    longsToday := 0
+    shortsToday := 0
+
+// ---- Build the range over the WINDOW (a partly overlapping bar counts) ----
+if tod + barMins > rangeStartMin and tod < rangeEndMin
+    rangeHi := rangeSeen ? math.max(rangeHi, high) : high
+    rangeLo := rangeSeen ? math.min(rangeLo, low) : low
+    rangeSeen := true
+rangeReady = rangeSeen and rangeHi > rangeLo
+
+// ---- Breakout qualification and its RISING EDGE (latched every bar) ----
+breakMargin    = breakMarginTicks * syminfo.mintick
+qualLong       = rangeReady and close >= rangeHi + breakMargin
+qualShort      = rangeReady and close <= rangeLo - breakMargin
+firstQualLong  = qualLong and not prevQualLong
+firstQualShort = qualShort and not prevQualShort
+prevQualLong  := qualLong
+prevQualShort := qualShort
+
+plotshape(showMarker and firstQualLong, "Breakout Up", shape.triangleup, location.abovebar, color.lime, size=size.tiny)
+plotshape(showMarker and firstQualShort, "Breakout Down", shape.triangledown, location.belowbar, color.red, size=size.tiny)
+plot(showRange and rangeReady ? rangeHi : na, "Range High", color.new(color.gray, 30), style=plot.style_linebr)
+plot(showRange and rangeReady ? rangeLo : na, "Range Low", color.new(color.gray, 30), style=plot.style_linebr)
+
+// ---- FLAT, then entries ----
+isFlatTime = tod >= forceCloseMin
+if isFlatTime and strategy.position_size != 0
+    strategy.close_all(comment="Flat")
+
+isEntryTime = tod >= rangeEndMin and tod < lastEntryMin
+isWeekday   = dow >= dayofweek.monday and dow <= dayofweek.friday
+barsSince   = na(lastTradeBar) ? 1000000 : bar_index - lastTradeBar
+canEnter    = not isFlatTime and isWeekday and isEntryTime and rangeReady and strategy.position_size == 0
+     and longsToday + shortsToday < (oneTradePerSide ? 2 : 1) and barsSince >= minBarsBetween
+     and bar_index >= atrLength
+sigLong  = canEnter and firstQualLong and (not oneTradePerSide or longsToday == 0)
+sigShort = not sigLong and canEnter and firstQualShort and (not oneTradePerSide or shortsToday == 0)
+
+justEntered = false
+if sigLong or sigShort
+    // Priced off the SIGNAL bar's close; the market order fills at the next open.
+    isLong = sigLong
+    entry  = close
+    buf    = math.max(stopBufferTicks, 1) * syminfo.mintick
+    stop   = math.round_to_mintick(isLong ? low - buf : high + buf)
+    dist   = math.abs(entry - stop)
+    tpDist = tpType == "ATR Multiplier" ? atr * atrTpMult : tpType == "Fixed Ticks" ? tpTicks * syminfo.mintick : dist * riskReward
+    if dist >= syminfo.mintick * 0.5 and tpDist >= syminfo.mintick * 0.5
+        target = math.round_to_mintick(isLong ? entry + tpDist : entry - tpDist)
+        perContract = dist * syminfo.pointvalue
+        qty = useRiskSizing ? math.max(int(math.floor(riskUsd / perContract)), 1) : qtyContracts
+        qty := math.max(1, math.min(qty, maxContracts))
+        id = isLong ? "Long" : "Short"
+        strategy.entry(id, isLong ? strategy.long : strategy.short, qty=qty)
+        strategy.exit(id + " Exit", from_entry=id, stop=stop, limit=target)
+        if isLong
+            longsToday += 1
+        else
+            shortsToday += 1
+        lastTradeBar := bar_index
+        justEntered := true
+        if showRr
+            tBox := box.new(bar_index, math.max(target, entry), bar_index, math.min(target, entry), border_color=na, bgcolor=color.new(rrTargetColor, rrTransp))
+            sBox := box.new(bar_index, math.max(stop, entry), bar_index, math.min(stop, entry), border_color=na, bgcolor=color.new(rrStopColor, rrTransp))
+            if showRrPrices
+                label.new(bar_index, target, str.tostring(target, format.mintick), style=label.style_label_left, color=color.new(color.black, 100), textcolor=rrTargetColor, size=size.small)
+                label.new(bar_index, entry, str.tostring(entry, format.mintick), style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.gray, size=size.small)
+                label.new(bar_index, stop, str.tostring(stop, format.mintick), style=label.style_label_left, color=color.new(color.black, 100), textcolor=rrStopColor, size=size.small)
+
+// ---- Stretch the live trade's boxes; freeze them once flat ----
+if not justEntered and not na(tBox)
+    if strategy.position_size != 0
+        box.set_right(tBox, bar_index)
+        box.set_right(sBox, bar_index)
+    else
+        tBox := na
+        sBox := na
