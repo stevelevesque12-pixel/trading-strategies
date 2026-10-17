@@ -33,7 +33,9 @@ Exits (distances count from the entry fill):
     kept between 0.10 x and STOP_CAP_ATR x the session ATR, rounded to the tick.
   - Target distance = TP_MULT x the OR width, rounded to the tick.
   - Flat: from FORCE_FLAT on, any open trade exits at the next candle's open.
-    On 15-minute candles FORCE_FLAT_15M is used instead (15:30 -> exit at the 15:45 open).
+
+On 15-minute candles the *_15M settings are used instead: flat at 15:30 (exit at the
+15:45 open), a 25-tick entry buffer and a 2 x OR width target.
 
 Two parts you can use separately:
   - `signals()` is the strategy: per candle, long/short entry, stop and target distances
@@ -68,12 +70,14 @@ TRADE_REGIME = "mid"        # "all", "low", "mid" or "high"
 LOOKBACK_SESSIONS = 504     # days of w the terciles are taken over
 ATR_LEN = 28                # session ATR length (days)
 ENTRY_BUFFER_TICKS = 15
+ENTRY_BUFFER_TICKS_15M = 25 # used instead on 15-minute candles
 OR_END = "09:45"            # opening range 09:30 -> this time
 FORCE_FLAT = "15:50"
 FORCE_FLAT_15M = "15:30"    # used instead on 15-minute candles (exit at the 15:45 open)
 DIRECTION = "both"          # "both", "long" or "short"
 STOP_CAP_ATR = 0.6          # stop at most this x session ATR
 TP_MULT = 3.0               # target = this x OR width
+TP_MULT_15M = 2.0           # used instead on 15-minute candles
 TICK_SIZE = 0.25
 
 # Backtest settings.
@@ -124,7 +128,10 @@ def signals(df, tick_size=TICK_SIZE):
 
     open_min, rth_end = _mins(RTH_OPEN), _mins(RTH_CLOSE)
     bar_min = df.index.to_series().diff().median() / pd.Timedelta(minutes=1) if n > 1 else 0.0
-    or_end, flat_min = _mins(OR_END), _mins(FORCE_FLAT_15M if bar_min >= 15 else FORCE_FLAT)
+    m15 = bar_min >= 15  # 15-minute candles use the *_15M settings
+    or_end, flat_min = _mins(OR_END), _mins(FORCE_FLAT_15M if m15 else FORCE_FLAT)
+    buf_ticks = ENTRY_BUFFER_TICKS_15M if m15 else ENTRY_BUFFER_TICKS
+    tp_mult = TP_MULT_15M if m15 else TP_MULT
 
     # Per-day series: yesterday's session ATR, today's OR, and the trailing terciles of w.
     f = pd.DataFrame({"high": high, "low": low, "close": close, "day": day})
@@ -155,7 +162,7 @@ def signals(df, tick_size=TICK_SIZE):
         elif TRADE_REGIME == "mid":
             ok = graded & (w > q33) & (w <= q66)
 
-    buf = max(1.0, float(ENTRY_BUFFER_TICKS)) * tick
+    buf = max(1.0, float(buf_ticks)) * tick
     long_level = or_hi + buf
     short_level = or_lo - buf
 
@@ -184,7 +191,7 @@ def signals(df, tick_size=TICK_SIZE):
     with np.errstate(invalid="ignore"):
         stop = np.clip(np.abs(level - opp), 0.10 * a, float(STOP_CAP_ATR) * a)
         stop = np.maximum(tick, np.round(stop / tick) * tick)
-        tgt = np.maximum(tick, np.round(float(TP_MULT) * width / tick) * tick)
+        tgt = np.maximum(tick, np.round(float(tp_mult) * width / tick) * tick)
 
     flat = mod >= flat_min
     return {
