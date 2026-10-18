@@ -42,6 +42,7 @@ def build_parser():
     g = ap.add_argument_group("quoting")
     g.add_argument("--size", type=float, default=0.0, help="shares per side (min: market reward min_size)")
     g.add_argument("--band-fraction", type=float, default=0.5)
+    g.add_argument("--min-edge-ticks", type=int, default=1, help="min distance from mid in ticks (0 = may join the touch)")
     g.add_argument("--skew-per-share", type=float, default=0.00005)
     g.add_argument("--max-position", type=float, default=1000.0)
     g.add_argument("--no-join-only", action="store_true", help="allow improving the best bid/ask")
@@ -56,7 +57,8 @@ def build_parser():
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
-    qp = QuoteParams(size=a.size, band_fraction=a.band_fraction, skew_per_share=a.skew_per_share,
+    qp = QuoteParams(size=a.size, band_fraction=a.band_fraction,
+                     min_edge_ticks=a.min_edge_ticks, skew_per_share=a.skew_per_share,
                      max_position=a.max_position, join_only=not a.no_join_only)
     risk = RiskParams(pull_move=a.pull_move, cooldown=a.cooldown, max_loss=a.max_loss)
 
