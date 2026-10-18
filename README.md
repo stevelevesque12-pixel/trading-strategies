@@ -29,6 +29,11 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**Also in this repo: a Polymarket paper market maker** (`polymarket_mm/`)
+that quotes reward-eligible prediction markets against live order books,
+simulates fills, and reports markouts and estimated liquidity rewards. No
+keys, no real orders. See **POLYMARKET.md**.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
