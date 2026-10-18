@@ -177,8 +177,8 @@ PLANS = {
 }
 
 
-def run_plan(Pe, Pf, ix, R, days=250):
-    """run() for any plan in PLANS."""
+def run_plan(Pe, Pf, ix, R, days=250, return_net=False):
+    """run() for any plan in PLANS; return_net=True also returns each path's net."""
     n = ix.shape[0]
     mode = np.zeros(n, int); bal = np.zeros(n); peak = np.zeros(n); wins = np.zeros(n, int); best = np.zeros(n)
     npay = np.zeros(n, int); fees = np.zeros(n); paid = np.zeros(n); evals = np.zeros(n, int)
@@ -210,9 +210,10 @@ def run_plan(Pe, Pf, ix, R, days=250):
         bal[go] -= amt[go]; wins[go] = 0; best[go] = 0; since[go] = 0
         if R["lock_on_pay"]: locked |= go
     net = paid - fees
-    return dict(net=net.mean(), p10=np.percentile(net, 10), p90=np.percentile(net, 90), evals=evals.mean(),
-                fees=fees.mean(), payouts=npay.mean(),
-                first_pay=np.nanmedian(np.where(np.isnan(first), 999, first)), any_pay=(~np.isnan(first)).mean())
+    out = dict(net=net.mean(), p10=np.percentile(net, 10), p90=np.percentile(net, 90), evals=evals.mean(),
+               fees=fees.mean(), payouts=npay.mean(),
+               first_pay=np.nanmedian(np.where(np.isnan(first), 999, first)), any_pay=(~np.isnan(first)).mean())
+    return (out, net) if return_net else out
 
 
 def mix_grid(big):
