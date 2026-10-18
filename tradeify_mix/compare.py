@@ -51,7 +51,7 @@ def load(k):
     t = pd.DataFrame(dict(entry=pd.to_datetime(en["Date and time"]), exit=pd.to_datetime(ex["Date and time"]),
                           pnl=en["Net PnL USD"] - EXTRA_COST[k] * qty,
                           mae=np.minimum(en["Adverse excursion USD"] - EXTRA_COST[k] * qty, 0),
-                          dir=np.where(en.Type.str.contains("long"), 1, -1), signal=en.Signal))
+                          dir=np.where(en.Type.str.contains("long"), 1, -1), signal=en.Signal, qty=qty))
     t["day"] = (t.exit + pd.Timedelta(hours=7)).dt.normalize()          # CME day starts 18:00 ET
     t["key"] = ((t.exit - pd.Timedelta(hours=18)).dt.hour * 60 + t.exit.dt.minute).astype(float)
     return t.reset_index(drop=True)
