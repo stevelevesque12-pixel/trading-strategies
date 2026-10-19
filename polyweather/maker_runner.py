@@ -14,6 +14,7 @@ few days whether rewards outrun adverse selection.
 
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -110,11 +111,18 @@ class MakerRunner:
         # 1) fills and reward accrual for the quotes that rested since the last cycle
         if self.last_ts is not None and self.broker is None:
             dt = t_now - self.last_ts
-            for slug, quotes in self.resting.items():
-                ev = by_slug.get(slug)
-                if ev is None or not quotes:
-                    continue
-                trades = fetch_trades([b.condition_id for b in ev.buckets])
+            live = [(slug, qs) for slug, qs in self.resting.items() if qs and slug in by_slug]
+
+            def recent(slug):  # newest page is enough for a one-cycle window
+                try:
+                    return slug, fetch_trades([b.condition_id for b in by_slug[slug].buckets], max_pages=1)
+                except Exception:
+                    return slug, []
+            with ThreadPoolExecutor(8) as ex:
+                prints = dict(ex.map(recent, [slug for slug, _ in live]))
+            for slug, quotes in live:
+                ev = by_slug[slug]
+                trades = prints.get(slug, [])
                 inv = self.inv.setdefault(slug, Inventory())
                 for q in quotes:
                     got = fills_from_prints(q, ev, trades, self.last_ts, t_now)
