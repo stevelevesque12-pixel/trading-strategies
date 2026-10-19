@@ -181,6 +181,31 @@ def fetch_obs_awc(icao: str, unit: str, hours: int = 30, include_specials: bool 
     return obs
 
 
+def fetch_awc_many(icaos: list[str], hours: int = 30) -> dict[str, list[tuple[datetime, float, str]]]:
+    """Latest METARs for many stations in one call: {icao: [(time, temp_c, METAR|SPECI)]}."""
+    out: dict[str, list] = {i: [] for i in icaos}
+    for k in range(0, len(icaos), 40):
+        data = http.get(AWC_METAR, params={"ids": ",".join(icaos[k:k + 40]), "hours": hours, "format": "json"})
+        for r in data or []:
+            if r.get("temp") is None or r.get("icaoId") not in out:
+                continue
+            out[r["icaoId"]].append((datetime.fromtimestamp(int(r["obsTime"]), tz=timezone.utc), float(r["temp"]),
+                                     str(r.get("metarType", "METAR")).upper()))
+    for v in out.values():
+        v.sort()
+    return out
+
+
+def obs_from_awc(rows, unit: str, include_specials: bool) -> Obs:
+    obs = Obs()
+    for t, c, typ in rows:
+        if not include_specials and typ == "SPECI":
+            continue
+        obs.times.append(t)
+        obs.values.append(float(round_half_up(c_to_f(c) if unit == "F" else c)))
+    return obs
+
+
 def day_obs(icao: str, d: date, tz: str, unit: str, include_specials: bool,
             live: bool = False) -> Obs:
     start, end = day_window_utc(d, tz)

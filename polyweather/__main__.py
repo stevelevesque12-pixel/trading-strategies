@@ -127,6 +127,69 @@ def cmd_backtest(a):
     run_backtest(cfg)
 
 
+def cmd_make(a):
+    from .execution import LiveMakerBroker
+    from .maker import MakerConfig
+    from .maker_runner import MakerRunConfig, MakerRunner
+    mcfg = MakerConfig(quote_shares=a.shares, min_edge=a.edge, max_side_inventory_usd=a.max_side,
+                       max_event_inventory_usd=a.max_event)
+    ledger = Ledger(a.db)
+    broker = LiveMakerBroker() if a.live else None
+    runner = MakerRunner(MakerRunConfig(maker=mcfg, cycle_s=a.cycle, cities=a.cities), ledger, broker)
+    try:
+        if a.once:
+            runner.cycle()
+        else:
+            runner.loop()
+    finally:
+        if broker is not None:
+            broker.cancel_all()
+
+
+def cmd_maker_report(a):
+    from .maker_runner import maker_report
+    maker_report(Ledger(a.db), "live" if a.live else "paper")
+
+
+def cmd_rewards(a):
+    from collections import defaultdict
+    from .markets import fetch_open_events
+    from .orderbook import fetch_books
+    from .rewards import fetch_reward_configs, snapshot_estimate
+    evs = [e for e in fetch_open_events() if e.station is not None]
+    cfgs = fetch_reward_configs()
+    books = fetch_books([t for e in evs for b in e.buckets if b.condition_id in cfgs for t in (b.yes_token, b.no_token)])
+    rows = snapshot_estimate(evs, books, cfgs, a.shares, a.edge)
+    tot = defaultdict(lambda: [0.0, 0.0])
+    for ev, lab, rate, mid, ours, comp, est in rows:
+        k = f"{'US' if ev.station.nbm else 'intl'} {ev.kind}"
+        tot[k][0] += est
+        tot[k][1] += rate
+    print(f"reward pools now: ${sum(v[1] for v in tot.values()):,.0f}/day on {len(rows)} buckets")
+    for k, (est, pool) in sorted(tot.items()):
+        print(f"  {k:10} pool ${pool:8,.0f}/day   est. our share quoting {a.shares:.0f} sh at mid±{a.edge}: ${est:7,.0f}/day")
+    print("(snapshot: assumes the book stays as it is and we quote 100% of the time)")
+    for ev, lab, rate, mid, ours, comp, est in sorted(rows, key=lambda r: -r[6])[:a.top]:
+        print(f"  {ev.slug[:52]:52} {lab:>9} pool ${rate:4.0f} mid {mid:.3f} competing Q {comp:7.1f} -> ${est:5.1f}/day")
+
+
+def cmd_maker_backtest(a):
+    from .maker import MakerConfig
+    from .maker_backtest import MakerBacktestConfig, run_maker_backtest
+    cfg = MakerBacktestConfig(days=a.days, end=date.fromisoformat(a.end) if a.end else None, cities=a.cities,
+                              kinds=tuple(a.kinds), use_model=not a.mid_only, out_dir=a.out,
+                              maker=MakerConfig(quote_shares=a.shares, min_edge=a.edge,
+                                                max_side_inventory_usd=a.max_side, max_event_inventory_usd=a.max_event))
+    run_maker_backtest(cfg)
+
+
+def _maker_args(p):
+    p.add_argument("--shares", type=float, default=50.0, help="quote size per side per bucket")
+    p.add_argument("--edge", type=float, default=0.01, help="bid this far below fair value")
+    p.add_argument("--max-side", type=float, default=40.0, help="max $ inventory per bucket side")
+    p.add_argument("--max-event", type=float, default=150.0, help="max $ inventory per event")
+
+
 def _decisions(items):
     out = []
     for it in items:
@@ -163,6 +226,24 @@ def main():
     p.add_argument("--out", default="backtest_out")
     p.add_argument("--end", default=None, help="last target date YYYY-MM-DD (default: 2 days ago)")
     p.set_defaults(fn=cmd_backtest)
+    p = sub.add_parser("make", help="market-make rewarded buckets (paper unless --live)"); _common(p); _maker_args(p)
+    p.add_argument("--live", action="store_true")
+    p.add_argument("--cycle", type=int, default=60)
+    p.add_argument("--once", action="store_true")
+    p.set_defaults(fn=cmd_make)
+    p = sub.add_parser("maker-report"); _common(p)
+    p.add_argument("--live", action="store_true")
+    p.set_defaults(fn=cmd_maker_report)
+    p = sub.add_parser("rewards", help="live reward pools and our estimated share"); _common(p); _maker_args(p)
+    p.add_argument("--top", type=int, default=15)
+    p.set_defaults(fn=cmd_rewards)
+    p = sub.add_parser("maker-backtest"); _common(p); _maker_args(p)
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--end", default=None)
+    p.add_argument("--kinds", nargs="*", default=["high"])
+    p.add_argument("--mid-only", action="store_true", help="fair value = market mid (no model)")
+    p.add_argument("--out", default="maker_backtest_out")
+    p.set_defaults(fn=cmd_maker_backtest)
     a = ap.parse_args()
     a.fn(a)
 
