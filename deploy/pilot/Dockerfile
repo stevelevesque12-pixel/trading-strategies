@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-RUN pip install --no-cache-dir numpy pandas requests py-clob-client==0.34.6
+RUN pip install --no-cache-dir numpy pandas requests polymarket-client==0.13.0
 COPY polyweather /app/polyweather
 # State (pilot.db, STOP kill file, response cache) lives on the /data volume.
 WORKDIR /data

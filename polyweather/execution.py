@@ -5,7 +5,9 @@ Live trading needs, on top of `--live`:
   POLY_PRIVATE_KEY            key of the wallet that signs orders
   POLY_FUNDER                 address holding the funds (your Polymarket proxy wallet)
   POLY_SIGNATURE_TYPE         0 = plain EOA, 1 = email/Magic login, 2 = browser-wallet proxy
-and `pip install py-clob-client`. Orders go out as FAK (fill-and-kill)
+and `pip install py-clob-client`. (This is the legacy SDK, used only by the
+taker strategy's `trade --live`; the market maker and pilot use the unified
+`polymarket-client` in exchange.py.) Orders go out as FAK (fill-and-kill)
 limit orders at the worst book level the planner priced, so the bot never
 pays more than it computed edge on and never leaves resting orders behind.
 """
@@ -105,53 +107,3 @@ def _tick_str(tick: float) -> str:
             return s
     return "0.001"
 
-
-class LiveMakerBroker(LiveBroker):
-    """Keeps resting post-only GTC bids in line with the desired quotes.
-
-    Each sync: record fills on our open orders (size_matched growth), cancel
-    orders whose price/size is no longer wanted, post the missing ones.
-    """
-
-    def __init__(self, ledger=None, on_fill=None):
-        super().__init__()
-        self.open: dict[tuple, dict] = {}  # (slug, bucket, side) -> {"id", "price", "shares", "matched"}
-        self.on_fill = on_fill
-
-    def sync(self, desired: dict, events: dict) -> None:
-        from py_clob_client.clob_types import OrderArgs, OrderType, PartialCreateOrderOptions
-        from py_clob_client.order_builder.constants import BUY
-
-        want = {(slug, q.bucket, q.side): q for slug, qs in desired.items() for q in qs}
-        for key, o in list(self.open.items()):
-            matched, _ = self._fill_info(o["id"], o["price"])
-            if matched > o["matched"] + 1e-9 and self.on_fill:
-                self.on_fill(key, matched - o["matched"], o["price"])
-            o["matched"] = matched
-            q = want.get(key)
-            stale = q is None or abs(q.price - o["price"]) > 1e-9 or matched >= o["shares"] - 1e-9
-            if stale:
-                try:
-                    self.client.cancel(o["id"])
-                except Exception:
-                    pass
-                del self.open[key]
-        for key, q in want.items():
-            if key in self.open:
-                continue
-            ev = events[key[0]]
-            args = OrderArgs(token_id=q.token_id, price=q.price, size=round(q.shares, 2), side=BUY)
-            opts = PartialCreateOrderOptions(tick_size=_tick_str(ev.tick_size), neg_risk=ev.neg_risk)
-            try:
-                resp = self.client.post_order(self.client.create_order(args, opts), OrderType.GTC, post_only=True)
-            except Exception as exc:
-                print(f"  post failed {key}: {exc}")
-                continue
-            if resp and resp.get("orderID"):
-                self.open[key] = {"id": resp["orderID"], "price": q.price, "shares": q.shares, "matched": 0.0}
-
-    def cancel_all(self) -> None:
-        try:
-            self.client.cancel_all()
-        finally:
-            self.open.clear()

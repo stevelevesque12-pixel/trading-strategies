@@ -227,44 +227,74 @@ What the evidence says so far:
 Only a small real-money test can settle that, because Polymarket reports
 actual earnings per day. That's the pilot.
 
-### Pilot
+### Pilot (fully automated)
 
 ```bash
-python -m polyweather pilot --check   # eligibility, keys, balance, allowance; touches nothing
-python -m polyweather pilot           # run
-python -m polyweather pilot-report    # estimated vs ACTUAL rewards per day, fills, settled PnL
-touch STOP                            # kill switch: cancel everything, exit
+python -m polyweather pilot --check        # eligibility, keys, wallet type, balance; touches nothing
+python -m polyweather pilot --test-alert   # confirm alerts reach your phone
+python -m polyweather pilot                # run
+python -m polyweather pilot-report         # estimated vs ACTUAL rewards per day, fills, cash-outs, PnL
+touch STOP                                 # kill switch: cancel everything, exit
 ```
+
+It runs on Polymarket's unified SDK (`polymarket-client`), which works with
+every account type: legacy email/Magic proxy wallets, Safe wallets, and the
+newer Deposit Wallets. Wallet transactions go through Polymarket's relayer,
+so no gas token is needed.
+
+What runs with nobody watching:
+
+| Job | How |
+|---|---|
+| Quote, re-quote, pull quotes around readings | every 30s, post-only bids |
+| Fills, reconciliation | from our own CLOB trade history; orphan orders cancelled |
+| Settlement in the ledger | every 30 min |
+| **Merge** matched YES+NO pairs back to cash | every 15 min, using the exchange's `mergeable` flag; ≥5 pairs |
+| **Redeem** resolved winnings | every 30 min, using the exchange's `redeemable` flag |
+| **Alerts** | start, halt, crash, repeated errors, treasury failures, cash-outs, settlements, low reward scoring, and a daily report at 01:00 UTC with yesterday's actual vs estimated rewards |
 
 Safety rails:
 
 | Rail | What it does |
 |---|---|
 | Eligibility | Refuses to start, and halts mid-run, if `polymarket.com/api/geoblock` says the connection is blocked. No override. |
-| Exchange heartbeat | Once started, the CLOB cancels all our orders if a heartbeat is missed for ~10s, so a crash or dead server can't leave quotes behind. |
-| Capital cap | `PILOT_CAPITAL_USD` caps open inventory across all events. Above it, only risk-reducing quotes (pairing off held positions) are made. |
+| Exchange heartbeat | The CLOB cancels all our orders if a heartbeat is missed for ~10s. If heartbeats can't be started, orders go out as 15-minute GTD orders, so they still expire on their own. |
+| Capital cap | `PILOT_CAPITAL_USD` caps open inventory across all events. Above it, only risk-reducing quotes. Merges free capital as soon as pairs complete. |
 | Per-event / per-side caps | `PILOT_MAX_EVENT_USD`, `PILOT_MAX_SIDE_USD`. |
-| Daily loss limit | Settled PnL plus open inventory marked to mid. On breach: cancel all and exit. |
-| Halt latch | Any automatic halt writes the kill file. A supervisor restart can't resume trading; a person deletes `STOP`. |
-| Reconciliation | Every cycle, unknown exchange orders are cancelled and vanished local orders forgotten. Fills come from our own CLOB trade history, de-duplicated by trade id. |
-| Reward truth | Logs which orders the exchange says are scoring, and fetches each day's actual earnings (`/rewards/user`) for `pilot-report`. |
+| Daily loss limit | Settled PnL plus merge gains plus open inventory marked to mid. On breach: cancel all, alert, exit. |
+| Halt latch | Any automatic halt writes the kill file. A restart can't resume trading; a person deletes `STOP`. |
+| Treasury failures | A merge or redeem that fails 3 times raises an urgent alert and is skipped. |
+| Reward truth | The exchange reports which orders score; each day's actual earnings come from `/rewards/user`. |
 
-Deploying (it must run somewhere always-on; a laptop that sleeps loses
-quotes and rewards):
+Setup for an email (Magic) login:
+
+1. **Private key:** export it from polymarket.com (Settings, export private
+   key). It controls the funds; keep it only in the server's `.env`.
+2. **Wallet address:** copy it from your Polymarket profile menu (`POLY_WALLET`).
+3. **Relayer API key:** create one at polymarket.com, Settings, API Keys,
+   Relayer API Keys (`POLY_RELAYER_API_KEY` and `POLY_RELAYER_API_KEY_ADDRESS`).
+4. **Alerts:** the easiest is ntfy. Install the ntfy app, subscribe to a long
+   random topic name, and set `ALERT_NTFY_TOPIC` to it. Telegram and
+   Slack/Discord webhooks also work.
+5. Deploy on an always-on server:
 
 ```bash
 cd deploy/pilot
-cp .env.example .env               # fill in keys; .env is gitignored
+cp .env.example .env               # fill in; .env is gitignored
+docker compose --env-file .env run --rm pilot python -m polyweather pilot --check
+docker compose --env-file .env run --rm pilot python -m polyweather pilot --test-alert
 docker compose --env-file .env up -d --build
-docker compose exec pilot python -m polyweather pilot --check
 docker compose exec pilot python -m polyweather pilot-report
 ```
 
 There's a systemd unit (`deploy/pilot/polyweather-pilot.service`) if you'd
 rather not use Docker.
 
+What stays manual, on purpose: deposits, deciding to scale, and restarting
+after an automatic halt.
+
 Suggested pilot and go/no-go rule:
-* $300-500 USDC, 20-share quotes (the usual reward minimum), defaults
+* $300-500 pUSD, 20-share quotes (the usual reward minimum), defaults
   otherwise, for 5-7 days.
 * Scale up slowly only if **actual** rewards are at least half the
   estimate *and* rewards + settled PnL stays positive after inventory
@@ -272,9 +302,12 @@ Suggested pilot and go/no-go rule:
 * Expect it to shrink as other makers join, and remember Polymarket can
   change or end reward pools whenever it likes.
 
-Not verified end to end: the live order path (post/cancel/heartbeat/trade
-history/earnings) is written against py-clob-client 0.34.6 and the CLOB
-OpenAPI spec, and tested only against a fake client. The development
-machine is geoblocked, so no real order was ever placed. Watch the first
-hour closely: `docker compose logs -f`, and check the open orders in the
+Not verified end to end. The live path (orders, heartbeat, trade history,
+earnings, merge, redeem) is written against `polymarket-client` 0.13.0 and
+Polymarket's API docs, and tested only against a fake of that SDK. The
+development machine is geoblocked, so no real order or wallet transaction
+was ever sent. The heartbeat uses the SDK's authenticated transport
+directly, because the SDK has no heartbeat method; if that fails, the pilot
+falls back to GTD expiry and says so in its start alert. Watch the first
+hour (`docker compose logs -f`), and check orders and positions in the
 Polymarket UI.

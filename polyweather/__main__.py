@@ -128,13 +128,15 @@ def cmd_backtest(a):
 
 
 def cmd_make(a):
-    from .execution import LiveMakerBroker
     from .maker import MakerConfig
     from .maker_runner import MakerRunConfig, MakerRunner
     mcfg = MakerConfig(quote_shares=a.shares, min_edge=a.edge, max_side_inventory_usd=a.max_side,
                        max_event_inventory_usd=a.max_event)
     ledger = Ledger(a.db)
-    broker = LiveMakerBroker() if a.live else None
+    if a.live:
+        raise SystemExit("live market making runs through the pilot (safety rails, treasury, alerts): "
+                         "python -m polyweather pilot")
+    broker = None
     runner = MakerRunner(MakerRunConfig(maker=mcfg, cycle_s=a.cycle, cities=a.cities), ledger, broker)
     try:
         if a.once:
@@ -174,9 +176,16 @@ def cmd_rewards(a):
 
 
 def cmd_pilot(a):
-    from .pilot import PilotBroker, PilotConfig, PilotRunner, preflight
+    from .alerts import Alerter
+    from .exchange import ExchangeBroker
+    from .pilot import PilotConfig, PilotRunner, preflight
     cfg = PilotConfig.from_env(capital_usd=a.capital, cities=a.cities or None, db=a.pilot_db)
-    ok, lines = preflight(cfg)
+    alerter = Alerter.from_env()
+    if a.test_alert:
+        ok = alerter.send("test alert", "If you can read this, pilot alerts reach you.", level="info")
+        print(f"channels: {', '.join(alerter.channels) or 'none configured'}; delivered: {ok}")
+        return
+    ok, lines = preflight(cfg, alerter)
     print("preflight:")
     for line in lines:
         print("  " + line)
@@ -188,7 +197,7 @@ def cmd_pilot(a):
     if Path(cfg.kill_file).exists():
         raise SystemExit(f"kill file {cfg.kill_file} exists ({Path(cfg.kill_file).read_text().strip()}); "
                          "delete it to start")
-    PilotRunner(cfg, Ledger(cfg.db), PilotBroker()).run()
+    PilotRunner(cfg, Ledger(cfg.db), ExchangeBroker(), alerter).run()
 
 
 def cmd_pilot_report(a):
@@ -262,6 +271,7 @@ def main():
     p.set_defaults(fn=cmd_rewards)
     p = sub.add_parser("pilot", help="small real-money maker pilot with safety rails")
     p.add_argument("--check", action="store_true", help="preflight only")
+    p.add_argument("--test-alert", action="store_true", help="send a test alert and exit")
     p.add_argument("--capital", type=float, default=None, help="override PILOT_CAPITAL_USD")
     p.add_argument("--cities", nargs="*", default=None)
     p.add_argument("--pilot-db", default=None)
