@@ -28,7 +28,8 @@ from . import forecast as fc
 from .backtest import (CALIB_POINTS, _asof, _load_events, _load_hf, _load_obs, _load_prices, _load_trades,
                        _NbmStore)
 from .calibration import fit, intraday_prior
-from .maker import Inventory, MakerConfig, fills_from_prints, in_blackout, make_quotes, usual_obs_minutes
+from .maker import (Inventory, MakerConfig, fills_from_prints, in_blackout, make_quotes, quoting_allowed,
+                    usual_obs_minutes)
 from .model import SourceCalibration, bucket_probabilities, default_calibration, remaining_extreme
 from .observations import ObsState, day_window_utc, resolved_extreme
 from .rewards import RewardConfig, our_q
@@ -154,6 +155,9 @@ def run_maker_backtest(cfg: MakerBacktestConfig) -> dict:
             lead = (ev.target_date - t.astimezone(ZoneInfo(st.tz)).date()).days
             # Pull quotes around each expected reading on the target day (and the one before
             # midnight on the eve, which can set a "lowest" market).
+            if not quoting_allowed(ev, t, cfg.maker):
+                t = t1
+                continue
             if (lead <= 0 or t1 > win[0] - timedelta(hours=1)) and in_blackout(t, st.tz, obs_minutes, cfg.maker):
                 t = t1
                 continue

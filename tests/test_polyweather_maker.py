@@ -58,7 +58,7 @@ def _event_with_rewards():
 
 def test_make_quotes_brackets_fair_inside_band():
     ev, rewards = _event_with_rewards()
-    qs = make_quotes(ev, [0.1, 0.4, 0.45, 0.05], [0.1, 0.4, 0.45, 0.05], rewards, Inventory(), MakerConfig())
+    qs = make_quotes(ev, [0.1, 0.4, 0.45, 0.05], [0.1, 0.4, 0.45, 0.05], rewards, Inventory(), MakerConfig(max_side_inventory_usd=40))
     assert {(q.bucket, q.side) for q in qs} == {(1, "YES"), (1, "NO"), (2, "YES"), (2, "NO")}  # rewarded only
     y = next(q for q in qs if q.bucket == 1 and q.side == "YES")
     n = next(q for q in qs if q.bucket == 1 and q.side == "NO")
@@ -109,3 +109,17 @@ def test_inventory_payout_pairs_redeem():
     inv.add("YES", 1, 10, 4.0)
     inv.add("NO", 1, 10, 5.5)
     assert inv.payout(1) == 10 and inv.payout(2) == 10  # YES+NO on one bucket always pays $1/pair
+
+
+def test_stop_hour_by_kind():
+    from polyweather.maker import quoting_allowed
+    ev, _ = _event_with_rewards()  # NYC high on 2026-10-19
+    from datetime import timedelta
+    et = lambda d, h: datetime(2026, 10, d, tzinfo=timezone.utc) + timedelta(hours=h + 4)  # EDT = UTC-4
+    cfg = MakerConfig()
+    assert quoting_allowed(ev, et(18, 15), cfg)  # day before
+    assert quoting_allowed(ev, et(19, 11), cfg)
+    assert not quoting_allowed(ev, et(19, 12), cfg)  # target-day afternoon
+    ev.kind = "low"
+    assert quoting_allowed(ev, et(18, 23), cfg) and not quoting_allowed(ev, et(19, 1), cfg)
+    assert quoting_allowed(ev, et(19, 15), MakerConfig(stop_hour_low=None))

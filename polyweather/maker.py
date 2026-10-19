@@ -32,10 +32,17 @@ class MakerConfig:
     model_weight: float = 0.5  # fair = w*model + (1-w)*mid
     min_fair: float = 0.04  # don't quote buckets this close to decided
     max_fair: float = 0.96
-    max_side_inventory_usd: float = 40.0  # cost held on one side of one bucket
-    max_event_inventory_usd: float = 150.0
+    # Halving these from 40/150 halved the backtested trading loss (-$365 -> -$140/day, 50 cities)
+    # while keeping most of the quoting time.
+    max_side_inventory_usd: float = 15.0  # cost held on one side of one bucket
+    max_event_inventory_usd: float = 60.0
     max_total_inventory_usd: float = float("inf")  # across all events; above it, only risk-reducing quotes
     skew_per_10_shares: float = 0.002  # shift fair against net inventory
+    # Stop quoting an event at this local hour on its target day (None = quote to the end).
+    # Highs: the afternoon is when the day's max forms and informed takers pick quotes off.
+    # Lows: the minimum usually sets before dawn, so stop as the target day starts.
+    stop_hour_high: Optional[int] = 12
+    stop_hour_low: Optional[int] = 0
     blackout_before_min: float = 5.0  # pull quotes this long before an expected reading ...
     blackout_after_min: float = 8.0  # ... until this long after it (publication + reaction)
     rewarded_only: bool = True
@@ -86,6 +93,15 @@ def in_blackout(now: datetime, tz: str, obs_minutes: list[int], cfg: MakerConfig
         if d <= cfg.blackout_after_min or d >= 60.0 - cfg.blackout_before_min:
             return True
     return False
+
+
+def quoting_allowed(ev: WeatherEvent, now: datetime, cfg: MakerConfig) -> bool:
+    stop = cfg.stop_hour_high if ev.kind == "high" else cfg.stop_hour_low
+    if stop is None:
+        return True
+    local = now.astimezone(ZoneInfo(ev.station.tz))
+    days = (ev.target_date - local.date()).days
+    return days > 0 or (days == 0 and local.hour < stop)
 
 
 def usual_obs_minutes(times: list[datetime], min_count: int = 3) -> list[int]:

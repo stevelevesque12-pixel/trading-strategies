@@ -218,8 +218,8 @@ def cmd_maker_backtest(a):
 def _maker_args(p):
     p.add_argument("--shares", type=float, default=50.0, help="quote size per side per bucket")
     p.add_argument("--edge", type=float, default=0.01, help="bid this far below fair value")
-    p.add_argument("--max-side", type=float, default=40.0, help="max $ inventory per bucket side")
-    p.add_argument("--max-event", type=float, default=150.0, help="max $ inventory per event")
+    p.add_argument("--max-side", type=float, default=15.0, help="max $ inventory per bucket side")
+    p.add_argument("--max-event", type=float, default=60.0, help="max $ inventory per event")
 
 
 def _decisions(items):

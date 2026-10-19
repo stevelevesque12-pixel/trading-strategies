@@ -21,7 +21,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from .ledger import Ledger
-from .maker import Inventory, MakerConfig, Quote, fills_from_prints, in_blackout, make_quotes, usual_obs_minutes
+from .maker import (Inventory, MakerConfig, Quote, fills_from_prints, in_blackout, make_quotes, quoting_allowed,
+                    usual_obs_minutes)
 from .markets import WeatherEvent, fetch_event, fetch_open_events
 from .observations import day_window_utc, fetch_awc_many, obs_from_awc, resolved_extreme
 from .orderbook import fetch_books, fetch_trades
@@ -80,6 +81,8 @@ class MakerRunner:
         start, end = day_window_utc(ev.target_date, st.tz)
         if now >= end:
             return None  # local day over, awaiting resolution: nothing left to make a market in
+        if not quoting_allowed(ev, now, self.cfg.maker):
+            return None
         rows = awc.get(st.icao, [])
         obs = obs_from_awc(rows, ev.unit, include_specials=not ev.hourly_only).window(start, end)
         ext = resolved_extreme(obs, ev.kind)

@@ -211,6 +211,14 @@ mid. Polymarket pays liquidity rewards on these markets (about $15.9k/day
 across temperature buckets on 2026-10-19, see `python -m polyweather rewards`),
 makers pay no fee, and a filled YES + NO pair on one bucket redeems for $1.
 
+Timing and size rules (from the paper run's settlements plus the 20-day,
+50-city backtest): fills on a "highest" market's target-day afternoon are
+the most adversely selected (backtest −12% at 12-14h and −51% after 15h
+local, vs −3.6% the day before; paper −20% / −100%). So by default the
+maker stops quoting highs at local noon on the target day and lows when
+the target day starts. Per-side/per-event caps are $15/$60: halving them
+from $40/$150 halved the backtested trading loss.
+
 What the evidence says so far:
 
 * **Trading alone loses.** Fills from real prints over 20 days: −4% of

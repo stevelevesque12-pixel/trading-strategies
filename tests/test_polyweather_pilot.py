@@ -267,7 +267,7 @@ def test_daily_summary(tmp_path):
 def test_global_cap_switches_to_reduce_only():
     ev = quote_event()
     rewards = {"c1": RewardConfig("c1", 50, 0.045, 20)}
-    cfg = MakerConfig(quote_shares=20, max_total_inventory_usd=100)
+    cfg = MakerConfig(quote_shares=20, max_side_inventory_usd=40, max_total_inventory_usd=100)
     inv = Inventory()
     inv.add("YES", 1, 30, 12.0)
     fair = [None, 0.4, None]
