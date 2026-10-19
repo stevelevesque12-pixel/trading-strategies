@@ -173,6 +173,29 @@ def cmd_rewards(a):
         print(f"  {ev.slug[:52]:52} {lab:>9} pool ${rate:4.0f} mid {mid:.3f} competing Q {comp:7.1f} -> ${est:5.1f}/day")
 
 
+def cmd_pilot(a):
+    from .pilot import PilotBroker, PilotConfig, PilotRunner, preflight
+    cfg = PilotConfig.from_env(capital_usd=a.capital, cities=a.cities or None, db=a.pilot_db)
+    ok, lines = preflight(cfg)
+    print("preflight:")
+    for line in lines:
+        print("  " + line)
+    if a.check:
+        raise SystemExit(0 if ok else 1)
+    if not ok:
+        raise SystemExit("preflight failed: not starting")
+    from pathlib import Path
+    if Path(cfg.kill_file).exists():
+        raise SystemExit(f"kill file {cfg.kill_file} exists ({Path(cfg.kill_file).read_text().strip()}); "
+                         "delete it to start")
+    PilotRunner(cfg, Ledger(cfg.db), PilotBroker()).run()
+
+
+def cmd_pilot_report(a):
+    from .pilot import PilotConfig, pilot_report
+    pilot_report(Ledger(a.pilot_db or PilotConfig.from_env().db))
+
+
 def cmd_maker_backtest(a):
     from .maker import MakerConfig
     from .maker_backtest import MakerBacktestConfig, run_maker_backtest
@@ -237,6 +260,15 @@ def main():
     p = sub.add_parser("rewards", help="live reward pools and our estimated share"); _common(p); _maker_args(p)
     p.add_argument("--top", type=int, default=15)
     p.set_defaults(fn=cmd_rewards)
+    p = sub.add_parser("pilot", help="small real-money maker pilot with safety rails")
+    p.add_argument("--check", action="store_true", help="preflight only")
+    p.add_argument("--capital", type=float, default=None, help="override PILOT_CAPITAL_USD")
+    p.add_argument("--cities", nargs="*", default=None)
+    p.add_argument("--pilot-db", default=None)
+    p.set_defaults(fn=cmd_pilot)
+    p = sub.add_parser("pilot-report")
+    p.add_argument("--pilot-db", default=None)
+    p.set_defaults(fn=cmd_pilot_report)
     p = sub.add_parser("maker-backtest"); _common(p); _maker_args(p)
     p.add_argument("--days", type=int, default=30)
     p.add_argument("--end", default=None)

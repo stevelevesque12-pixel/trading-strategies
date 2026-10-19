@@ -25,7 +25,8 @@ from .maker import Inventory, MakerConfig, Quote, fills_from_prints, in_blackout
 from .markets import WeatherEvent, fetch_event, fetch_open_events
 from .observations import day_window_utc, fetch_awc_many, obs_from_awc, resolved_extreme
 from .orderbook import fetch_books, fetch_trades
-from .rewards import RewardConfig, adjusted_mid, book_q, expected_daily_reward, fetch_reward_configs, our_q
+from .rewards import (RewardConfig, adjusted_mid, book_q, expected_daily_reward, fetch_reward_configs, our_q,
+                      q_sides)
 
 MAKER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS maker_fills (
@@ -131,6 +132,13 @@ class MakerRunner:
                         inv.add(q.side, q.bucket, got, got * q.price)
                 self._accrue(ev, quotes, books, dt)
 
+        # live: our orders are in the book now, so estimate rewards with them taken out of it
+        if self.last_ts is not None and self.broker is not None:
+            dt = t_now - self.last_ts
+            for slug, quotes in self.resting.items():
+                if quotes and slug in by_slug:
+                    self._accrue(by_slug[slug], quotes, books, dt, own_in_book=True)
+
         # 2) new quotes
         self.resting = {}
         n_q = 0
@@ -142,7 +150,9 @@ class MakerRunner:
             if blackout:
                 continue
             inv = self.inv.setdefault(ev.slug, Inventory())
-            quotes = make_quotes(ev, fair, mids, self.rewards, inv, self.cfg.maker, best_asks=asks)
+            total = sum(i.total_cost() for i in self.inv.values())
+            quotes = make_quotes(ev, fair, mids, self.rewards, inv, self.cfg.maker, best_asks=asks,
+                                 total_inventory=total)
             self.resting[ev.slug] = quotes
             n_q += len(quotes)
         if self.broker is not None:
@@ -176,7 +186,7 @@ class MakerRunner:
         self.ledger.add_fill(ev.slug, q.bucket, q.side, q.token_id, ev.city, ev.kind, ev.target_date,
                              b.label, shares, shares * q.price)
 
-    def _accrue(self, ev, quotes: list[Quote], books, dt: float) -> None:
+    def _accrue(self, ev, quotes: list[Quote], books, dt: float, own_in_book: bool = False) -> None:
         by_bucket: dict[int, dict] = {}
         for q in quotes:
             by_bucket.setdefault(q.bucket, {})[q.side] = q
@@ -192,6 +202,9 @@ class MakerRunner:
             y, n = sides.get("YES"), sides.get("NO")
             ours = our_q((y.price, y.shares) if y else None, (n.price, n.shares) if n else None, mid, rc)
             comp = book_q(yb, nb, mid, rc)
+            if own_in_book:
+                q1, q2 = q_sides([(y.price, y.shares)] if y else [], [(1 - n.price, n.shares)] if n else [], mid, rc)
+                comp = max(0.0, comp - q1 - q2)
             usd = expected_daily_reward(ours, comp, rc) * dt / 86400.0
             self.ledger.db.execute("INSERT INTO maker_rewards VALUES (?,?,?,?,?,?,?,?)",
                                    (time.time(), self.mode, ev.slug, i, rc.daily_rate, ours, comp, usd))

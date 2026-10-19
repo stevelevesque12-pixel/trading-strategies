@@ -34,6 +34,7 @@ class MakerConfig:
     max_fair: float = 0.96
     max_side_inventory_usd: float = 40.0  # cost held on one side of one bucket
     max_event_inventory_usd: float = 150.0
+    max_total_inventory_usd: float = float("inf")  # across all events; above it, only risk-reducing quotes
     skew_per_10_shares: float = 0.002  # shift fair against net inventory
     blackout_before_min: float = 5.0  # pull quotes this long before an expected reading ...
     blackout_after_min: float = 8.0  # ... until this long after it (publication + reaction)
@@ -100,12 +101,18 @@ def _floor_tick(x: float, tick: float) -> float:
 
 def make_quotes(ev: WeatherEvent, fair_yes: list[Optional[float]], mids: list[Optional[float]],
                 rewards: dict[str, RewardConfig], inv: Inventory, cfg: MakerConfig,
-                best_asks: Optional[list[tuple[Optional[float], Optional[float]]]] = None) -> list[Quote]:
-    """fair_yes/mids per bucket (None = don't quote). best_asks: per bucket (yes_ask, no_ask)."""
+                best_asks: Optional[list[tuple[Optional[float], Optional[float]]]] = None,
+                total_inventory: float = 0.0) -> list[Quote]:
+    """fair_yes/mids per bucket (None = don't quote). best_asks: per bucket (yes_ask, no_ask).
+
+    When this event or the whole book is at its inventory cap, only quotes that
+    *reduce* risk are made: the side opposite a bucket's net position (a filled
+    NO against held YES pairs off into a locked $1).
+    """
     quotes = []
     tick = ev.tick_size
-    if inv.total_cost() >= cfg.max_event_inventory_usd:
-        return quotes
+    global_room = cfg.max_total_inventory_usd - total_inventory
+    reduce_only = inv.total_cost() >= cfg.max_event_inventory_usd or global_room <= 0
     for i, b in enumerate(ev.buckets):
         f, mid = fair_yes[i], mids[i]
         if f is None or mid is None:
@@ -118,7 +125,11 @@ def make_quotes(ev: WeatherEvent, fair_yes: list[Optional[float]], mids: list[Op
         band = rc.max_spread if rc else 0.045
         f_adj = f - cfg.skew_per_10_shares * inv.net_yes(i) / 10.0
         for side, token, fair, m in (("YES", b.yes_token, f_adj, mid), ("NO", b.no_token, 1 - f_adj, 1 - mid)):
-            if inv.cost(side, i) >= cfg.max_side_inventory_usd:
+            net = inv.net_yes(i)
+            reduces = (side == "NO" and net > 0) or (side == "YES" and net < 0)
+            if reduce_only and not reduces:
+                continue
+            if inv.cost(side, i) >= cfg.max_side_inventory_usd and not reduces:
                 continue
             price = min(fair - cfg.min_edge, m)
             if best_asks is not None:
@@ -129,8 +140,11 @@ def make_quotes(ev: WeatherEvent, fair_yes: list[Optional[float]], mids: list[Op
             if price < tick or m - price > band:
                 continue  # outside the reward band: not worth the adverse-selection risk
             shares = cfg.quote_shares
-            room = cfg.max_side_inventory_usd - inv.cost(side, i)
-            shares = min(shares, math.floor(room / price))
+            if reduces:
+                shares = min(shares, abs(net))  # just enough to pair off
+            else:
+                room = min(cfg.max_side_inventory_usd - inv.cost(side, i), global_room)
+                shares = min(shares, math.floor(room / price))
             if rc is not None and shares < rc.min_size:
                 continue
             quotes.append(Quote(i, side, token, price, float(shares), fair))

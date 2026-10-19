@@ -1,0 +1,15 @@
+# docker compose --env-file .env up -d --build     (from deploy/pilot/)
+# docker compose exec pilot python -m polyweather pilot-report
+# docker compose exec pilot touch /data/STOP       # kill switch
+services:
+  pilot:
+    build:
+      context: ../..
+      dockerfile: deploy/pilot/Dockerfile
+    env_file: .env
+    volumes:
+      - pilot-data:/data
+    # on-failure, not always: a deliberate halt exits 0 and must stay down.
+    restart: on-failure
+volumes:
+  pilot-data:

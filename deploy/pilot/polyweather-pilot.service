@@ -1,0 +1,19 @@
+# systemd alternative to Docker. Install:
+#   sudo cp polyweather-pilot.service /etc/systemd/system/ && sudo systemctl enable --now polyweather-pilot
+#   journalctl -u polyweather-pilot -f
+[Unit]
+Description=polyweather market-maker pilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/polyweather/data
+EnvironmentFile=/opt/polyweather/.env
+Environment=PYTHONPATH=/opt/polyweather/src PYTHONUNBUFFERED=1 PILOT_DB=/opt/polyweather/data/pilot.db PILOT_KILL_FILE=/opt/polyweather/data/STOP
+ExecStart=/opt/polyweather/venv/bin/python -m polyweather pilot
+# A deliberate halt exits 0 and stays down; crashes restart.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

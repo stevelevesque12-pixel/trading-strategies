@@ -202,3 +202,79 @@ nothing rests on the book and nothing fills above the computed edge.
 Polymarket's international exchange marks these markets `restricted` and
 geoblocks some jurisdictions, including the US. Check that you're
 eligible before connecting a wallet.
+
+## Market making and the reward pilot
+
+The taker strategy didn't hold up, so `maker.py` takes the other side:
+post-only bids on both YES and NO of rewarded buckets around the market
+mid. Polymarket pays liquidity rewards on these markets (about $15.9k/day
+across temperature buckets on 2026-10-19, see `python -m polyweather rewards`),
+makers pay no fee, and a filled YES + NO pair on one bucket redeems for $1.
+
+What the evidence says so far:
+
+* **Trading alone loses.** Fills from real prints over 20 days: −4% of
+  volume in the US (−$70/day, 11 cities) and −4.4% internationally
+  (−$263/day, 39 cities). Widening quotes doesn't help, because fills are
+  adversely selected (`maker-backtest`).
+* **Rewards look bigger than that loss, but they're an estimate.** In a live
+  paper run (real books, fills only from real prints), estimated rewards ran
+  at ~$2,500-2,700/day against inventory that drifted about −3.4% vs mid.
+  The estimate is my computation of Polymarket's scoring formula, not a
+  payout, and a paper order can't show how real orders change who trades
+  with you.
+
+Only a small real-money test can settle that, because Polymarket reports
+actual earnings per day. That's the pilot.
+
+### Pilot
+
+```bash
+python -m polyweather pilot --check   # eligibility, keys, balance, allowance; touches nothing
+python -m polyweather pilot           # run
+python -m polyweather pilot-report    # estimated vs ACTUAL rewards per day, fills, settled PnL
+touch STOP                            # kill switch: cancel everything, exit
+```
+
+Safety rails:
+
+| Rail | What it does |
+|---|---|
+| Eligibility | Refuses to start, and halts mid-run, if `polymarket.com/api/geoblock` says the connection is blocked. No override. |
+| Exchange heartbeat | Once started, the CLOB cancels all our orders if a heartbeat is missed for ~10s, so a crash or dead server can't leave quotes behind. |
+| Capital cap | `PILOT_CAPITAL_USD` caps open inventory across all events. Above it, only risk-reducing quotes (pairing off held positions) are made. |
+| Per-event / per-side caps | `PILOT_MAX_EVENT_USD`, `PILOT_MAX_SIDE_USD`. |
+| Daily loss limit | Settled PnL plus open inventory marked to mid. On breach: cancel all and exit. |
+| Halt latch | Any automatic halt writes the kill file. A supervisor restart can't resume trading; a person deletes `STOP`. |
+| Reconciliation | Every cycle, unknown exchange orders are cancelled and vanished local orders forgotten. Fills come from our own CLOB trade history, de-duplicated by trade id. |
+| Reward truth | Logs which orders the exchange says are scoring, and fetches each day's actual earnings (`/rewards/user`) for `pilot-report`. |
+
+Deploying (it must run somewhere always-on; a laptop that sleeps loses
+quotes and rewards):
+
+```bash
+cd deploy/pilot
+cp .env.example .env               # fill in keys; .env is gitignored
+docker compose --env-file .env up -d --build
+docker compose exec pilot python -m polyweather pilot --check
+docker compose exec pilot python -m polyweather pilot-report
+```
+
+There's a systemd unit (`deploy/pilot/polyweather-pilot.service`) if you'd
+rather not use Docker.
+
+Suggested pilot and go/no-go rule:
+* $300-500 USDC, 20-share quotes (the usual reward minimum), defaults
+  otherwise, for 5-7 days.
+* Scale up slowly only if **actual** rewards are at least half the
+  estimate *and* rewards + settled PnL stays positive after inventory
+  settles. Otherwise stop: the edge was in the estimate, not the market.
+* Expect it to shrink as other makers join, and remember Polymarket can
+  change or end reward pools whenever it likes.
+
+Not verified end to end: the live order path (post/cancel/heartbeat/trade
+history/earnings) is written against py-clob-client 0.34.6 and the CLOB
+OpenAPI spec, and tested only against a fake client. The development
+machine is geoblocked, so no real order was ever placed. Watch the first
+hour closely: `docker compose logs -f`, and check the open orders in the
+Polymarket UI.
