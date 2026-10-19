@@ -29,6 +29,13 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third, unrelated project also lives here**: `polyweather/`, a complete
+system for trading Polymarket's daily highest/lowest-temperature markets
+(station-exact NBM + ensemble forecasts, observation-conditioned bucket
+probabilities, fee-aware Kelly sizing, paper/live execution, walk-forward
+backtests on resolved markets). Read `polyweather/README.md` before using
+it: honest backtests found no reliable edge for the taker strategy.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)

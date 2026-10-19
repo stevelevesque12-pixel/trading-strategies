@@ -13,3 +13,11 @@
 
 The same NQ 1m data is in `stevelevesque12-pixel/AI-personal-hedge-fund` at
 `data/historical/raw/NQ_1m_2022-12-26_2025-12-11.csv.gz`.
+
+## polyweather (Polymarket temperature markets)
+
+- `python -m polyweather validate|backtest|scan`; see `polyweather/README.md` for results.
+- Backtests are only meaningful with strict timing (default `obs_lag_min=5`) and
+  `--fills trades` (default). Looser settings produced large fake edges.
+- Open-Meteo's free quota is per IP and is often spent in shared cloud sandboxes; NBM/obs (IEM, NOAA) need no key.
+  Set `POLYWEATHER_CACHE` to a scratch dir so archived responses are reused across runs.

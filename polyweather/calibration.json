@@ -1,0 +1,354 @@
+{
+ "atlanta|high|nbm|1": {
+  "bias": -1.236138246920591,
+  "intraday": false,
+  "kernel_sd": 0.7780496090254051,
+  "n": 91,
+  "spread_scale": 0.755259459061478,
+  "weight": 9.144005285707463
+ },
+ "atlanta|high|nbm|2": {
+  "bias": -1.255757225057661,
+  "intraday": false,
+  "kernel_sd": 0.872664784952061,
+  "n": 91,
+  "spread_scale": 0.7279737675791333,
+  "weight": 10.09373227245081
+ },
+ "atlanta|low|nbm|1": {
+  "bias": 0.03879610256431211,
+  "intraday": false,
+  "kernel_sd": 0.8266159997382134,
+  "n": 91,
+  "spread_scale": 0.9377876445107353,
+  "weight": 5.914312659067016
+ },
+ "atlanta|low|nbm|2": {
+  "bias": -0.026438935978775405,
+  "intraday": false,
+  "kernel_sd": 0.9319887209452726,
+  "n": 91,
+  "spread_scale": 0.9496778660632847,
+  "weight": 5.932214299117852
+ },
+ "austin|high|nbm|1": {
+  "bias": -0.46370884733330237,
+  "intraday": false,
+  "kernel_sd": 0.7573472380742623,
+  "n": 91,
+  "spread_scale": 0.7147315127911696,
+  "weight": 10.307381490578836
+ },
+ "austin|high|nbm|2": {
+  "bias": -0.2746915224690578,
+  "intraday": false,
+  "kernel_sd": 0.8155782346210653,
+  "n": 91,
+  "spread_scale": 0.7131474268749521,
+  "weight": 10.6111704549234
+ },
+ "austin|low|nbm|1": {
+  "bias": 0.06802827928404007,
+  "intraday": false,
+  "kernel_sd": 1.1787437411291297,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 4.990206184621908
+ },
+ "austin|low|nbm|2": {
+  "bias": 0.1254828824343673,
+  "intraday": false,
+  "kernel_sd": 1.1598348735545216,
+  "n": 91,
+  "spread_scale": 0.9528989755382031,
+  "weight": 5.737340682762366
+ },
+ "chicago|high|nbm|1": {
+  "bias": -0.3420637202924813,
+  "intraday": false,
+  "kernel_sd": 0.9708105170145729,
+  "n": 91,
+  "spread_scale": 0.8276407286661587,
+  "weight": 7.473068563579953
+ },
+ "chicago|high|nbm|2": {
+  "bias": -0.21936459533302935,
+  "intraday": false,
+  "kernel_sd": 1.2453480002387585,
+  "n": 91,
+  "spread_scale": 0.8996861786180077,
+  "weight": 6.36373435884261
+ },
+ "chicago|low|nbm|1": {
+  "bias": 0.29640366771844484,
+  "intraday": false,
+  "kernel_sd": 0.8116119476911454,
+  "n": 91,
+  "spread_scale": 0.7978468796375944,
+  "weight": 8.13489256779945
+ },
+ "chicago|low|nbm|2": {
+  "bias": 0.3662199621130643,
+  "intraday": false,
+  "kernel_sd": 0.9281042619603116,
+  "n": 91,
+  "spread_scale": 0.8021167706096166,
+  "weight": 8.205037992670754
+ },
+ "dallas|high|nbm|1": {
+  "bias": -0.6428278000599348,
+  "intraday": false,
+  "kernel_sd": 0.8924057203920847,
+  "n": 91,
+  "spread_scale": 0.8079022243485199,
+  "weight": 7.886095711019102
+ },
+ "dallas|high|nbm|2": {
+  "bias": -0.5829353511549304,
+  "intraday": false,
+  "kernel_sd": 1.0089537393602315,
+  "n": 91,
+  "spread_scale": 0.8215000459140331,
+  "weight": 7.756021802323622
+ },
+ "dallas|low|nbm|1": {
+  "bias": 1.6886707386398068,
+  "intraday": false,
+  "kernel_sd": 0.7384963374986065,
+  "n": 91,
+  "spread_scale": 0.6946549989353262,
+  "weight": 10.983533350610184
+ },
+ "dallas|low|nbm|2": {
+  "bias": 1.7375325406130793,
+  "intraday": false,
+  "kernel_sd": 0.7580210845969407,
+  "n": 91,
+  "spread_scale": 0.6514985793985029,
+  "weight": 13.00954100794205
+ },
+ "denver|high|nbm|1": {
+  "bias": -0.783622934218644,
+  "intraday": false,
+  "kernel_sd": 0.9867426100818907,
+  "n": 90,
+  "spread_scale": 0.8133047106531059,
+  "weight": 7.744413512654463
+ },
+ "denver|high|nbm|2": {
+  "bias": -0.8075084069732739,
+  "intraday": false,
+  "kernel_sd": 1.232474598226473,
+  "n": 91,
+  "spread_scale": 0.8558083951036128,
+  "weight": 7.031270888208239
+ },
+ "denver|low|nbm|1": {
+  "bias": 0.192416401870177,
+  "intraday": false,
+  "kernel_sd": 1.054113539615737,
+  "n": 91,
+  "spread_scale": 0.7442051357833933,
+  "weight": 9.33134038725812
+ },
+ "denver|low|nbm|2": {
+  "bias": 0.297316121464888,
+  "intraday": false,
+  "kernel_sd": 1.213874219869158,
+  "n": 91,
+  "spread_scale": 0.8052747466998916,
+  "weight": 7.969999200044095
+ },
+ "houston|high|nbm|1": {
+  "bias": -1.0151319380179848,
+  "intraday": false,
+  "kernel_sd": 0.7972847153154803,
+  "n": 91,
+  "spread_scale": 0.7820868083709759,
+  "weight": 8.486724483777055
+ },
+ "houston|high|nbm|2": {
+  "bias": -1.0726645209935324,
+  "intraday": false,
+  "kernel_sd": 0.8564240434409225,
+  "n": 90,
+  "spread_scale": 0.775679220874241,
+  "weight": 8.861881466223174
+ },
+ "houston|low|nbm|1": {
+  "bias": -0.010529959928152616,
+  "intraday": false,
+  "kernel_sd": 0.699828472065072,
+  "n": 91,
+  "spread_scale": 0.915916791454461,
+  "weight": 6.292554680305766
+ },
+ "houston|low|nbm|2": {
+  "bias": -0.08995972024227197,
+  "intraday": false,
+  "kernel_sd": 0.7989678451329759,
+  "n": 91,
+  "spread_scale": 0.9042484907912293,
+  "weight": 6.656172799371095
+ },
+ "los-angeles|high|nbm|1": {
+  "bias": 0.23465012274778335,
+  "intraday": false,
+  "kernel_sd": 2.1398193035096535,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 2.984813118777887
+ },
+ "los-angeles|high|nbm|2": {
+  "bias": 0.3660021830320999,
+  "intraday": false,
+  "kernel_sd": 2.2435700777289416,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 3.260916363161545
+ },
+ "los-angeles|low|nbm|1": {
+  "bias": 1.2105754729022549,
+  "intraday": false,
+  "kernel_sd": 0.6100394530200723,
+  "n": 91,
+  "spread_scale": 0.7230209912866608,
+  "weight": 10.1775600430735
+ },
+ "los-angeles|low|nbm|2": {
+  "bias": 1.1605767307188604,
+  "intraday": false,
+  "kernel_sd": 0.6866771075535995,
+  "n": 91,
+  "spread_scale": 0.7829304781245808,
+  "weight": 8.973511987349667
+ },
+ "miami|high|nbm|1": {
+  "bias": -0.8230047840201797,
+  "intraday": false,
+  "kernel_sd": 0.6672737454695999,
+  "n": 91,
+  "spread_scale": 0.8496595946448748,
+  "weight": 7.290773532510634
+ },
+ "miami|high|nbm|2": {
+  "bias": -0.8149448043483134,
+  "intraday": false,
+  "kernel_sd": 0.7256343945497696,
+  "n": 91,
+  "spread_scale": 0.8757572520689403,
+  "weight": 7.192332839101245
+ },
+ "miami|low|nbm|1": {
+  "bias": 0.18791746909931806,
+  "intraday": false,
+  "kernel_sd": 1.1409446603398872,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 4.456065919796396
+ },
+ "miami|low|nbm|2": {
+  "bias": 0.20269672522068402,
+  "intraday": false,
+  "kernel_sd": 1.4156364660862697,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 4.074770852094178
+ },
+ "nyc|high|nbm|1": {
+  "bias": -0.9887691065338116,
+  "intraday": false,
+  "kernel_sd": 0.8550734289454122,
+  "n": 91,
+  "spread_scale": 0.7345043103361089,
+  "weight": 9.66598900094768
+ },
+ "nyc|high|nbm|2": {
+  "bias": -0.9138589436134825,
+  "intraday": false,
+  "kernel_sd": 1.0168853679981222,
+  "n": 91,
+  "spread_scale": 0.7721393939280251,
+  "weight": 8.803568209154745
+ },
+ "nyc|low|nbm|1": {
+  "bias": 0.604765853563789,
+  "intraday": false,
+  "kernel_sd": 1.1469112623207658,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 4.779821236371294
+ },
+ "nyc|low|nbm|2": {
+  "bias": 0.573390850542064,
+  "intraday": false,
+  "kernel_sd": 1.1416884818340758,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 5.108466114063463
+ },
+ "san-francisco|high|nbm|1": {
+  "bias": -1.5124775648919566,
+  "intraday": false,
+  "kernel_sd": 2.265767174826445,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 3.724260362277958
+ },
+ "san-francisco|high|nbm|2": {
+  "bias": -1.4211423933492708,
+  "intraday": false,
+  "kernel_sd": 2.523405759335125,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 3.738539311096159
+ },
+ "san-francisco|low|nbm|1": {
+  "bias": 0.25607053330608787,
+  "intraday": false,
+  "kernel_sd": 0.8091995379229054,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 5.205115352324788
+ },
+ "san-francisco|low|nbm|2": {
+  "bias": 0.0009210191851325017,
+  "intraday": false,
+  "kernel_sd": 1.0028336485504907,
+  "n": 91,
+  "spread_scale": 1.0,
+  "weight": 5.144218133897546
+ },
+ "seattle|high|nbm|1": {
+  "bias": -0.9823988980885543,
+  "intraday": false,
+  "kernel_sd": 0.9649072324735227,
+  "n": 90,
+  "spread_scale": 0.8716127454983512,
+  "weight": 6.735039875514174
+ },
+ "seattle|high|nbm|2": {
+  "bias": -1.0209020764489551,
+  "intraday": false,
+  "kernel_sd": 1.0588407098694943,
+  "n": 90,
+  "spread_scale": 0.896408080601283,
+  "weight": 6.502370739147019
+ },
+ "seattle|low|nbm|1": {
+  "bias": 0.18040131543868015,
+  "intraday": false,
+  "kernel_sd": 0.7466125263380059,
+  "n": 91,
+  "spread_scale": 0.9182342594817763,
+  "weight": 6.215910385491082
+ },
+ "seattle|low|nbm|2": {
+  "bias": 0.12308873928188985,
+  "intraday": false,
+  "kernel_sd": 0.8069408804324706,
+  "n": 91,
+  "spread_scale": 0.9151097317806378,
+  "weight": 6.501703748316562
+ }
+}
