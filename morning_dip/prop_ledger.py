@@ -67,6 +67,7 @@ def scenario(trades, sessions, eval_mnq, funded_mnq, r=Rules()):
     pays['to_you'] = (pays.gross_payout * r.split).round(2)
     s = {'Period': f'{sessions[0]} to {sessions[-1]} ({len(sessions)} sessions)',
          'Size': f'{eval_mnq} MNQ in evaluation, {funded_mnq} MNQ funded',
+         'Payout cushion': f'${r.keep:,.0f} above the locked floor',
          'Trades taken': len(detail),
          'Evaluations bought': summary['evals'],
          'Evaluations passed': summary['passes'],
@@ -87,12 +88,13 @@ def main():
     ap.add_argument('--eval-mnq', type=int, default=5)
     ap.add_argument('--funded-mnq', type=int, default=6)
     ap.add_argument('--eval-fee', type=float, default=100.)
+    ap.add_argument('--keep', type=float, default=0., help='cushion to leave above the locked floor after a payout')
     ap.add_argument('--author-trades')
     ap.add_argument('--tv-trades')
     ap.add_argument('--backtest-trades')
     ap.add_argument('--year')
     a = ap.parse_args()
-    r = Rules(eval_fee=a.eval_fee)
+    r = Rules(eval_fee=a.eval_fee, keep=a.keep)
     scenarios = {}
     if a.author_trades:
         t = author_trades(a.author_trades)
