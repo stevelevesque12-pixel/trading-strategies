@@ -79,8 +79,9 @@ trades, PF 0.95, positive in 3 of 16 years). His own verdict: no historical edge
 year in 17 by a wide margin, and only forward results in 2026 can settle whether it continues.
 
 His best-looking 2026 filter (trade only when the prior close is below its 20-day EMA) does not
-help on 2023–2025 1-minute data. It lowers the total at five of the six settings tested
-(3 min offsets 0/60/120, 5 min offsets 0/60/120), and 2024 and 2025 lose at most of them.
+help on 2023–2025 1-minute data. Across 7 settings (3 min offsets 0/60/120, 5 min offsets
+0/60/120/180) it lowers the total at 5 and never turns a losing setting profitable. With the
+filter on, 2024 loses at all 7 settings and 2025 at 6.
 
 Reproduce (needs `pyarrow`; `numba` is optional and makes it faster):
 
