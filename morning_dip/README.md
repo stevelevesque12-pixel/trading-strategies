@@ -60,6 +60,28 @@ Combined with the 3-minute table above, 2023–2025 is about break-even before a
 profits come from a single nine-month period of high NQ volatility. That is a regime result until
 it shows up in other years.
 
+## The author's own 2010–2025 study (1-second Databento NQ)
+
+The author later ran the unchanged reference on 1-second NQ for 2010–2025 (raw front-month prices).
+That study agrees with the 1-minute numbers above, year by year and in sign:
+
+| Run | 2023 author / here | 2024 author / here | 2025 author / here |
+|---|---|---|---|
+| 3 min, offset 0   | −3,654 / −1,991 | −1,888 / −581   | +11,824 / +9,000  |
+| 5 min, offset 0   | +6,142 / +5,891 | −1,138 / −1,826 | −6,786 / −2,978   |
+| 5 min, offset 120 | +4,550 / +5,447 | −702 / +488     | −14,924 / −10,466 |
+
+The 1-minute file here is ratio back-adjusted (up to about 9% in 2023), so its dollars run slightly
+high before mid-2025.
+
+Over 2010–2025 every one of the five runs lost money (−$28.9K to −$83.2K; 3 min offset 0: 6,962
+trades, PF 0.95, positive in 3 of 16 years). His own verdict: no historical edge. 2026 is the best
+year in 17 by a wide margin, and only forward results in 2026 can settle whether it continues.
+
+His best-looking 2026 filter (trade only when the prior close is below its 20-day EMA) does not
+help on 2023–2025 1-minute data. It lowers the total at five of the six settings tested
+(3 min offsets 0/60/120, 5 min offsets 0/60/120), and 2024 and 2025 lose at most of them.
+
 Reproduce (needs `pyarrow`; `numba` is optional and makes it faster):
 
 ```
