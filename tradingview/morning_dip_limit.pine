@@ -1,0 +1,271 @@
+//@version=6
+// Morning Dip Limit, ported from morning_dip/morning_dip_limit.py (the
+// reference implementation). Research lead, not a proven edge -- see the
+// 1-minute backtest numbers in morning_dip/README.md before trading it.
+//
+// Rules (long side, defaults; short is the mirror):
+//   1. Build 3-minute candles on a UTC grid (start = floor((t - offset) / 180)
+//      * 180 + offset) from this chart's own bars, fed only 08:25-15:00 CT.
+//      Indicators reset every day and warm up inside the day.
+//   2. ATR = simple mean of the last 14 true ranges; ER = |close change over
+//      15 candles| / sum of |close changes|. A gap, a missing candle or an
+//      unhealthy candle restarts the warm-up, as in the reference.
+//   3. For candles closing 09:00-11:00 CT with ER <= 0.35, rest a buy limit at
+//      close - 1.0 x ATR (rounded down to a tick), placed `latency` seconds
+//      after the candle closes. Cancel after 9 minutes.
+//   4. Target = signal candle high/low midpoint; stop = limit - 1.5 x ATR
+//      (min 4 ticks); market exit 15 minutes after the fill; flat at 11:00 CT.
+//      One order or position at a time.
+//
+// CHART SETUP: run it on a 1-second chart ("1S") to match the reference.
+// Any chart timeframe that divides the candle length works (5S, 15S, 1, 3):
+// on 1-minute and above the order latency is dropped, as the reference does
+// for its resolution=60 mode.
+//
+// Fill model -- set in the strategy() header below (Properties tab):
+//   - Limits fill only when price trades 1 tick through
+//     (backtest_fill_limits_assumption=1), for both the entry and the target.
+//   - Stops and market exits slip 1 tick (slippage=1).
+//   - $2.25 per side per contract (commission).
+// Known differences from the reference, all from TradingView's broker
+// emulator: an entry limit gapped through fills at the bar open rather than at
+// the limit; the target can fill on the entry bar (the reference only allows
+// the stop there); the intrabar path is TradingView's, not adverse-first; and
+// the reference's cancel/exit on a >30 s feed gap is not reproduced.
+//
+// Alerting: create the TradingView alert with condition "Any alert() function
+// call", webhook URL = your TradersPost strategy's webhook URL. Alerts sent:
+// a limit entry with its bracket, a cancel when the order expires, and an exit
+// on the 15-minute / 11:00 CT time stops. Live venues fill limits on touch,
+// not 1 tick through, so live fills will be more frequent than the backtest.
+// See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Morning Dip Limit - NQ", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.25,
+     slippage=1, backtest_fill_limits_assumption=1, calc_on_every_tick=false)
+
+// ---- Inputs (names follow Config in the reference) ----
+tfSec          = input.int(180, "Candle length (s)", minval=1)
+offsetSec      = input.int(0, "Candle grid offset (s)", minval=0)
+atrN           = input.int(14, "ATR length (candles)", minval=1)
+erN            = input.int(15, "ER length (candles)", minval=1)
+kAtr           = input.float(1.0, "Limit distance (x ATR)", step=0.1)
+erThreshold    = input.float(0.35, "Max ER", step=0.05)
+stopAtr        = input.float(1.5, "Stop distance (x ATR)", step=0.1)
+rewardScale    = input.float(1.0, "Target scale (x distance to midpoint)", step=0.1)
+ttlSec         = input.int(540, "Cancel unfilled order after (s)", minval=1)
+holdSec        = input.int(900, "Exit position after (s)", minval=1)
+startMinute    = input.int(540, "Signal window start (CT minutes after midnight, 540 = 09:00)")
+endMinute      = input.int(660, "Signal window end / flat time (CT minutes, 660 = 11:00)")
+feedStartMin   = input.int(505, "Daily feed start (CT minutes, 505 = 08:25)")
+feedEndMin     = input.int(900, "Daily feed end (CT minutes, 900 = 15:00)")
+latencySec     = input.int(1, "Order latency after candle close (s, sub-minute charts only)", minval=0)
+minStopTicks   = input.int(4, "Min stop (ticks)", minval=1)
+minRewardTicks = input.int(2, "Min reward (ticks)", minval=1)
+sideInput      = input.string("Long", "Side", options=["Long", "Short"])
+qty            = input.int(1, "Contracts", minval=1)
+
+CT    = "America/Chicago"
+tick  = syminfo.mintick
+side  = sideInput == "Long" ? 1 : -1
+chartSec   = timeframe.in_seconds()
+latencyEff = chartSec < 60 ? latencySec : 0
+
+if barstate.isfirst and (tfSec % chartSec != 0 or offsetSec % chartSec != 0)
+    runtime.error("Candle length and offset must be multiples of the chart timeframe.")
+
+tSec  = math.floor(time / 1000)
+barCt = hour(time, CT) * 3600 + minute(time, CT) * 60 + second(time, CT)
+inFeed = barCt >= feedStartMin * 60 and barCt < feedEndMin * 60
+dayKey = year(time, CT) * 10000 + month(time, CT) * 100 + dayofmonth(time, CT)
+
+// ---- State ----
+type Candle
+    int   start = na
+    float o
+    float h
+    float l
+    float c
+    int   last
+    int   count
+    int   maxGap
+    bool  done = true
+
+type Segment
+    int          prevEnd   = na
+    bool         prevGood  = false
+    float        prevClose = na
+    int          count     = 0
+    array<float> trs
+    array<float> closes
+
+var Candle  cand = Candle.new()
+var Segment seg  = Segment.new(trs=array.new_float(), closes=array.new_float())
+
+var int   curDay    = na
+var int   dayFirstT = na
+var int   flatT     = na
+var int   prevBarT  = na
+var float lastAtr   = na
+var float lastEr    = na
+
+var bool  pending     = false   // signal waiting out the order latency
+var int   armAt       = na
+var bool  orderActive = false   // resting limit
+var bool  inPos       = false
+var bool  exitSent    = false
+var float oLevel      = na
+var float oStop       = na
+var float oTarget     = na
+var int   oExpiry     = na
+var int   entryT      = na
+var int   freeAt      = 0
+var int   lastClosed  = 0
+
+// Close the candle: health check, segment bookkeeping, ATR and ER.
+finalize(Candle c, Segment s) =>
+    cEnd  = c.start + tfSec
+    fresh = cEnd - c.last - chartSec
+    good  = (chartSec < 60 ? fresh <= 5 : fresh == 0) and c.maxGap <= math.max(30, chartSec) and c.start >= dayFirstT
+    if chartSec >= 60
+        good := good and c.count * chartSec == tfSec
+    if na(s.prevEnd) or c.start != s.prevEnd or not good or not s.prevGood
+        array.clear(s.trs)
+        array.clear(s.closes)
+        s.count := 0
+    tr = s.count == 0 ? c.h - c.l : math.max(c.h - c.l, math.abs(c.h - s.prevClose), math.abs(c.l - s.prevClose))
+    array.push(s.trs, tr)
+    array.push(s.closes, c.c)
+    if array.size(s.trs) > atrN
+        array.shift(s.trs)
+    if array.size(s.closes) > erN + 1
+        array.shift(s.closes)
+    s.count += 1
+    atr = s.count >= atrN ? array.avg(s.trs) : na
+    float er = na
+    if s.count - 1 >= erN
+        den = 0.0
+        for i = 1 to erN
+            den += math.abs(array.get(s.closes, i) - array.get(s.closes, i - 1))
+        if den > 0
+            er := math.abs(array.last(s.closes) - array.first(s.closes)) / den
+    s.prevEnd   := cEnd
+    s.prevGood  := good
+    s.prevClose := c.c
+    c.done      := true
+    [good, cEnd, atr, er]
+
+// Signal filter on a closed candle; returns the order if one should rest.
+signal(Candle c, bool good, int cEnd, float atr, float er) =>
+    ctEnd = hour(cEnd * 1000, CT) * 3600 + minute(cEnd * 1000, CT) * 60 + second(cEnd * 1000, CT)
+    ok = good and not na(atr) and atr > 0 and ctEnd >= startMinute * 60 and ctEnd < endMinute * 60
+    ok := ok and not na(er) and er <= erThreshold
+    level  = side == 1 ? math.floor((c.c - kAtr * nz(atr)) / tick + 1e-8) * tick : math.ceil((c.c + kAtr * nz(atr)) / tick - 1e-8) * tick
+    reward = math.ceil(side * ((c.h + c.l) / 2 - level) * rewardScale / tick - 1e-8) * tick
+    ok := ok and side * (c.c - level) >= tick - 1e-8 and reward >= minRewardTicks * tick - 1e-8
+    ok := ok and cEnd >= freeAt and not pending and not orderActive and strategy.position_size == 0
+    arm    = cEnd + latencyEff
+    expiry = math.min(cEnd + ttlSec, flatT)
+    ok := ok and arm < expiry
+    stopDist = math.max(minStopTicks * tick, math.ceil(stopAtr * nz(atr) / tick - 1e-8) * tick)
+    [ok, level, level - side * stopDist, level + side * reward, arm, expiry]
+
+// ---- Trade bookkeeping (fills and exits simulated on this bar) ----
+if strategy.closedtrades > lastClosed
+    lastClosed  := strategy.closedtrades
+    freeAt      := math.floor(strategy.closedtrades.exit_time(strategy.closedtrades - 1) / 1000) + chartSec
+    inPos       := false
+    orderActive := false
+if orderActive and strategy.position_size != 0
+    orderActive := false
+    inPos       := true
+    exitSent    := false
+    entryT      := math.floor(strategy.opentrades.entry_time(0) / 1000)
+
+// Cancel an unfilled order once its time is up.
+if orderActive and tSec + chartSec >= oExpiry
+    strategy.cancel("Dip")
+    strategy.cancel("Dip Exit")
+    orderActive := false
+    freeAt      := oExpiry
+    alert('{"ticker":"' + syminfo.ticker + '","action":"cancel"}', alert.freq_once_per_bar_close)
+
+// Time stop and the 11:00 CT flat, filled at the next bar's open.
+if inPos and strategy.position_size != 0 and not exitSent and (tSec + chartSec >= entryT + holdSec or tSec + chartSec >= flatT)
+    strategy.close("Dip", comment=tSec + chartSec >= flatT ? "schedule" : "time")
+    exitSent := true
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Candle building ----
+if inFeed
+    if dayKey != curDay
+        curDay    := dayKey
+        dayFirstT := tSec
+        prevBarT  := na
+        flatT     := math.floor(timestamp(CT, year(time, CT), month(time, CT), dayofmonth(time, CT), math.floor(endMinute / 60), endMinute % 60, 0) / 1000)
+        cand      := Candle.new()
+        seg       := Segment.new(trs=array.new_float(), closes=array.new_float())
+        pending   := false
+    gap    = na(prevBarT) ? chartSec : tSec - prevBarT
+    bucket = math.floor((tSec - offsetSec) / tfSec) * tfSec + offsetSec
+    if bucket != cand.start
+        // A candle whose last bar never printed closes late, on the next candle's first bar.
+        if not na(cand.start) and not cand.done
+            [good, cEnd, atr, er] = finalize(cand, seg)
+            lastAtr := atr
+            lastEr  := er
+            [ok, level, stp, tgt, arm, expiry] = signal(cand, good, cEnd, atr, er)
+            if ok
+                pending := true
+                armAt   := arm
+                oLevel  := level
+                oStop   := stp
+                oTarget := tgt
+                oExpiry := expiry
+        cand := Candle.new(bucket, open, high, low, close, tSec, 1, gap, false)
+    else
+        cand.h      := math.max(cand.h, high)
+        cand.l      := math.min(cand.l, low)
+        cand.c      := close
+        cand.last   := tSec
+        cand.count  += 1
+        cand.maxGap := math.max(cand.maxGap, gap)
+    prevBarT := tSec
+    if tSec + chartSec >= cand.start + tfSec
+        [good, cEnd, atr, er] = finalize(cand, seg)
+        lastAtr := atr
+        lastEr  := er
+        [ok, level, stp, tgt, arm, expiry] = signal(cand, good, cEnd, atr, er)
+        if ok
+            pending := true
+            armAt   := arm
+            oLevel  := level
+            oStop   := stp
+            oTarget := tgt
+            oExpiry := expiry
+
+// ---- Rest the limit once the latency has passed ----
+if pending and tSec + chartSec >= armAt
+    pending := false
+    if tSec + chartSec < oExpiry
+        strategy.entry("Dip", side == 1 ? strategy.long : strategy.short, qty=qty, limit=oLevel)
+        strategy.exit("Dip Exit", from_entry="Dip", stop=oStop, limit=oTarget)
+        orderActive := true
+        msg = '{"ticker":"' + syminfo.ticker + '","action":"' + (side == 1 ? "buy" : "sell") + '","orderType":"limit"' +
+             ',"limitPrice":' + str.tostring(oLevel) +
+             ',"quantity":' + str.tostring(qty) +
+             ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(oStop) + '}' +
+             ',"takeProfit":{"limitPrice":' + str.tostring(oTarget) + '}}'
+        alert(msg, alert.freq_once_per_bar_close)
+    else
+        freeAt := oExpiry
+
+// ---- Visuals ----
+showOrder = orderActive or strategy.position_size != 0
+plot(showOrder ? oLevel  : na, "Limit",  color=color.blue,  style=plot.style_linebr, linewidth=2)
+plot(showOrder ? oStop   : na, "Stop",   color=color.red,   style=plot.style_linebr)
+plot(showOrder ? oTarget : na, "Target", color=color.green, style=plot.style_linebr)
+bgcolor(barCt >= startMinute * 60 and barCt < endMinute * 60 ? color.new(color.blue, 95) : na)
+plot(lastAtr, "ATR (3m)", display=display.data_window)
+plot(lastEr,  "ER (3m)",  display=display.data_window)
