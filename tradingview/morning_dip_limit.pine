@@ -26,7 +26,9 @@
 //   - Limits fill only when price trades 1 tick through
 //     (backtest_fill_limits_assumption=1), for both the entry and the target.
 //   - Stops and market exits slip 1 tick (slippage=1).
-//   - $2.25 per side per contract (commission).
+//   - $2.88 per side per contract (commission): NQ at $5.76 round trip.
+//     For MNQ ($1.82 round trip) set 0.91 under Properties -> Commission.
+//     TradingView charges this on every order, so enter half the round trip.
 // Known differences from the reference, all from TradingView's broker
 // emulator: an entry limit gapped through fills at the bar open rather than at
 // the limit; the target can fill on the entry bar (the reference only allows
@@ -42,7 +44,7 @@
 
 strategy("Morning Dip Limit - NQ", overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0,
-     commission_type=strategy.commission.cash_per_contract, commission_value=2.25,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.88,
      slippage=1, backtest_fill_limits_assumption=1, calc_on_every_tick=false)
 
 // ---- Inputs (names follow Config in the reference) ----
