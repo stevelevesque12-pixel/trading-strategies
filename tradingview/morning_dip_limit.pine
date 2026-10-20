@@ -199,7 +199,7 @@ if inPos and strategy.position_size != 0 and not exitSent and (tSec + chartSec >
 
 // ---- Candle building ----
 if inFeed
-    if dayKey != curDay
+    if na(curDay) or dayKey != curDay
         curDay    := dayKey
         dayFirstT := tSec
         prevBarT  := na
@@ -209,7 +209,7 @@ if inFeed
         pending   := false
     gap    = na(prevBarT) ? chartSec : tSec - prevBarT
     bucket = math.floor((tSec - offsetSec) / tfSec) * tfSec + offsetSec
-    if bucket != cand.start
+    if na(cand.start) or bucket != cand.start
         // A candle whose last bar never printed closes late, on the next candle's first bar.
         if not na(cand.start) and not cand.done
             [good, cEnd, atr, er] = finalize(cand, seg)
