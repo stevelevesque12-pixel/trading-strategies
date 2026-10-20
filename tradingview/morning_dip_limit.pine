@@ -73,7 +73,7 @@ chartSec   = timeframe.in_seconds()
 latencyEff = chartSec < 60 ? latencySec : 0
 
 if barstate.isfirst and (tfSec % chartSec != 0 or offsetSec % chartSec != 0)
-    runtime.error("Candle length and offset must be multiples of the chart timeframe.")
+    runtime.error("This chart is " + str.tostring(chartSec) + " s per bar; candle length (" + str.tostring(tfSec) + " s) and offset (" + str.tostring(offsetSec) + " s) must be multiples of it. Switch the chart to 1S (or 1m when the offset is a whole minute).")
 
 tSec  = math.floor(time / 1000)
 barCt = hour(time, CT) * 3600 + minute(time, CT) * 60 + second(time, CT)
