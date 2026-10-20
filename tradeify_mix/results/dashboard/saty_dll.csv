@@ -1,0 +1,9 @@
+plan,phase,saty_size,daily_loss_limit,saty_alone,saty_with_others,cost,cost_share,days_hurt,days_missed,saty_days,morning_dip_median,morning_dip_worst,drawdown
+Growth 50K,Eval,5 MNQ,1250,44688,28316,16372,0.366,24,5,106,-351,-1666,2000
+Growth 50K,Funded,2 MNQ,1250,25234,22750,2484,0.098,3,0,106,-165,-988,2000
+Select Flex 50K,Eval,2 MNQ,None,25234,25234,0,0.0,0,0,106,-176,-1080,2000
+Select Flex 50K,Funded,5 MNQ,None,63086,63086,0,0.0,0,0,106,-267,-1373,2000
+Growth 150K,Eval,9 MNQ,3750,94342,91713,2628,0.028,9,0,106,-703,-3333,5000
+Growth 150K,Funded,5 MNQ,3750,63086,59974,3112,0.049,1,0,106,-282,-1573,5000
+Select Flex 150K,Eval,5 MNQ,None,63086,63086,0,0.0,0,0,106,-533,-2746,4500
+Select Flex 150K,Funded,9 MNQ,None,113554,113554,0,0.0,0,0,106,-518,-2546,4500

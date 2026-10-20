@@ -177,15 +177,18 @@ PLANS = {
 }
 
 
-def run_plan(Pe, Pf, ix, R, days=250, return_net=False):
-    """run() for any plan in PLANS; return_net=True also returns each path's net."""
+def run_plan(Pe, Pf, ix, R, days=250, return_net=False, return_cash=False):
+    """run() for any plan in PLANS; return_net=True also returns each path's net, return_cash=True the
+    (paths, days) cash flow: payouts after the split minus evaluation fees, on the day they happen."""
     n = ix.shape[0]
+    cash = np.zeros((n, days)) if return_cash else None
     mode = np.zeros(n, int); bal = np.zeros(n); peak = np.zeros(n); wins = np.zeros(n, int); best = np.zeros(n)
     npay = np.zeros(n, int); fees = np.zeros(n); paid = np.zeros(n); evals = np.zeros(n, int)
     first = np.full(n, np.nan); since = np.zeros(n); nd = np.zeros(n, int); locked = np.zeros(n, bool)
     caps = np.array(R["caps"], float)
     for k in range(days):
         new = mode == 0; fees[new] += R["fee"]; evals += new; mode[new] = 1
+        if return_cash: cash[new, k] -= R["fee"]
         bal[new] = peak[new] = 0; wins[new] = 0; npay[new] = 0; best[new] = 0; since[new] = 0; nd[new] = 0
         locked[new] = False
         e = mode == 1
@@ -207,12 +210,15 @@ def run_plan(Pe, Pf, ix, R, days=250, return_net=False):
         go = fa & (bal >= max(R["pay_bal"], 1e-9)) & (wins >= NWIN) & (best <= R["cons"] * np.maximum(since, 1e-9)) \
             & (amt >= R["min_pay"])
         paid[go] += amt[go] * SPLIT; npay += go; first = np.where(go & np.isnan(first), k + 1, first)
+        if return_cash: cash[go, k] += amt[go] * SPLIT
         bal[go] -= amt[go]; wins[go] = 0; best[go] = 0; since[go] = 0
         if R["lock_on_pay"]: locked |= go
     net = paid - fees
     out = dict(net=net.mean(), p10=np.percentile(net, 10), p90=np.percentile(net, 90), evals=evals.mean(),
                fees=fees.mean(), payouts=npay.mean(),
                first_pay=np.nanmedian(np.where(np.isnan(first), 999, first)), any_pay=(~np.isnan(first)).mean())
+    if return_cash:
+        return out, cash
     return (out, net) if return_net else out
 
 

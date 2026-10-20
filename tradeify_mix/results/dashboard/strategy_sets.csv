@@ -1,0 +1,9 @@
+set,window,net_per_year,bad_run_p10,evals_per_year,first_payout_days,eval_sizes,funded_sizes
+Saty + Halyard + Gold BO,3 years,4751,121.0,4.9,74.0,S5 H2 G4,S2 H2 G1
+Saty + Halyard + Gold BO,Last 12 months,12413,5255.0,3.6,42.0,S5 H2 G4,S2 H2 G1
+Saty + Opening Drive,3 years,3705,-1253.0,6.4,93.0,CS5 OD1000,CS2 OD1000
+Saty + Opening Drive,Last 12 months,3299,-1305.0,6.6,99.0,CS5 OD1000,CS2 OD1000
+All four,3 years,6921,105.0,7.3,58.0,CS5 OD750 H4 G3,CS2 OD750 H4 G1
+All four,Last 12 months,15369,7085.0,4.9,37.0,CS5 OD750 H4 G3,CS2 OD750 H4 G1
+Split accounts: half A and half B,3 years,4228,,,,,
+Split accounts: half A and half B,Last 12 months,7856,,,,,

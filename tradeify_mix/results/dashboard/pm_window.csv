@@ -1,0 +1,9 @@
+plan,pm,raw_profit_yr,net_payouts_yr,bad_year,evals,first_pay
+Growth 50K,without,11236,2260,-2175,10.2,96
+Growth 50K,with PM,13598,2099,-2169,10.0,97
+Select Flex 50K,without,25601,5479,-2145,11.0,95
+Select Flex 50K,with PM,31507,5154,-2145,11.1,97
+Growth 150K,without,28056,5120,-3654,6.6,102
+Growth 150K,with PM,33962,4744,-3350,6.5,101
+Select Flex 150K,without,47917,8593,-5167,11.8,99
+Select Flex 150K,with PM,58548,8189,-5535,11.9,101
