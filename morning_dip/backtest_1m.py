@@ -4,7 +4,8 @@ The rule was specified on 1-second bars; no 1-second history is available here, 
 uses the reference's own resolution=60 path (no 1 s order latency, fills/exits resolved on
 1-minute bars with the adverse move first). Treat the result as a coarse approximation.
 
-Usage: python -m morning_dip.backtest_1m [--offsets 0 60 120] [--out DIR]
+Usage: python -m morning_dip.backtest_1m [--offsets 0 60 120] [--tf 180] [--ttl 540] [--hold 900] [--out DIR]
+The author's 5-minute runs use --tf 300 --ttl 900 --hold 1500.
 """
 import argparse
 from pathlib import Path
@@ -42,12 +43,16 @@ def backtest(days, cfg=Config(), offset=0):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--offsets', type=int, nargs='+', default=[0, 60, 120])
+    ap.add_argument('--tf', type=int, default=180)
+    ap.add_argument('--ttl', type=float, default=540.)
+    ap.add_argument('--hold', type=float, default=900.)
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
+    cfg = Config(tf=a.tf, ttl_s=a.ttl, hold_s=a.hold)
     days = load_days()
     dates = list(days)
     for off in a.offsets:
-        T = backtest(days, offset=off)
+        T = backtest(days, cfg, offset=off)
         m = metrics(T, dates)
         print(f'offset={off}', {k: (round(v, 2) if isinstance(v, float) else v) for k, v in m.items()})
         if a.out:

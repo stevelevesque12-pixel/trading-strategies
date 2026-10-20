@@ -30,6 +30,36 @@ is gone at the 60 s and 120 s offsets. On this data the rule has no edge that su
 in candle phase. A 1-second test could still differ: 1-minute bars can't resolve which of the
 target and stop came first inside a minute.
 
+## Against the author's trade lists (Jan–Sep 2026, 1-second data)
+
+The author ran 3-minute candles at offsets 0–162 s (in 18 s steps) and 5-minute candles at offsets
+0–240 s. The 5-minute runs also scale the timers: orders cancel after 15 minutes and positions exit
+after 25 minutes (`--tf 300 --ttl 900 --hold 1500`).
+
+His results: 3-minute, every offset profitable, PF 1.14–1.45 (net +$17.6k to +$53.1k per offset).
+5-minute, PF 1.51–2.08 (net +$23.9k to +$46.6k).
+
+**The port matches his trades.** On 2026-08-03 to 08-25, using MNQ 1-minute bars (same price
+scale as NQ), the 3-minute offset-0 run gives the same signal times as his trades. Limit, stop and
+target prices are within a tick or two, and ATR/ER nearly match. At 5 minutes, 60 of his 70
+trades from those dates line up across the five offsets. The remaining differences come from
+resolving fills and exits on 1-minute rather than 1-second bars, and they go both ways (3 min, offset
+0: +$721 here vs −$901 for him).
+
+**The difference is the period, not the code.** The same rules on 2023–2025 NQ:
+
+| Run | Offset | Fills | Net $ | PF | 2023 | 2024 | 2025 |
+|---|---|---|---|---|---|---|---|
+| 5 min | 0 s   | 676 | +28     | 1.00 | +5,891 | −1,826 | −2,978  |
+| 5 min | 60 s  | 677 | +12,778 | 1.08 | +8,254 | −3,065 | +8,843  |
+| 5 min | 120 s | 631 | −4,890  | 0.97 | +5,447 | +488   | −10,466 |
+| 5 min | 180 s | 659 | −4,290  | 0.97 | +2,462 | −1,882 | −4,408  |
+| 5 min | 240 s | 653 | +1,532  | 1.01 | +6,256 | −4,040 | −26     |
+
+Combined with the 3-minute table above, 2023–2025 is about break-even before any edge. The 2026
+profits come from a single nine-month period of high NQ volatility. That is a regime result until
+it shows up in other years.
+
 Reproduce (needs `pyarrow`; `numba` is optional and makes it faster):
 
 ```
