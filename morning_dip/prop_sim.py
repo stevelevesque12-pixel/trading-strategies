@@ -33,31 +33,34 @@ class Rules:
     split: float = .9
     lock_at: float = 2_100.
     lock_floor: float = 100.
+    keep: float = 0.  # cushion left above the locked floor after a payout (your choice, not a rule)
 
 
 def day_trades(trades, mnq, rt_cost=1.82, pv=2.):
     """trades: date, pts (gross points per contract), mae (points), in time order."""
     t = trades.assign(pnl=trades.pts * pv * mnq - rt_cost * mnq,
                       worst=-trades.mae * pv * mnq - rt_cost / 2 * mnq)
-    return {d: g[['pnl', 'worst']].to_numpy() for d, g in t.groupby('date', sort=False)}
+    t['row'] = np.arange(len(t), dtype=float)
+    return {d: g[['pnl', 'worst', 'row']].to_numpy() for d, g in t.groupby('date', sort=False)}
 
 
-def simulate(sessions, by_day, r=Rules(), funded_by_day=None):
+def simulate(sessions, by_day, r=Rules(), funded_by_day=None, ledger=None):
     """Walk the sessions once; returns a summary dict and an event log.
 
     funded_by_day: trades to use once funded (a different size); defaults to by_day.
+    ledger: a list to append one dict per trade taken (row = position in the input trades).
     """
     funded_by_day = by_day if funded_by_day is None else funded_by_day
     log = []
     fees = paid = 0.
     evals = passes = funded_busts = 0
-    phase = None
+    accounts = 0
 
     def new_eval(day):
-        nonlocal fees, evals
-        fees += r.eval_fee; evals += 1
-        log.append((day, 'buy eval'))
-        return dict(kind='eval', bal=r.start, peak=r.start, floor=r.start - r.drawdown, days={})
+        nonlocal fees, evals, accounts
+        fees += r.eval_fee; evals += 1; accounts += 1
+        log.append((day, f'buy eval #{evals} (account {accounts})'))
+        return dict(id=accounts, kind='eval', bal=r.start, peak=r.start, floor=r.start - r.drawdown, days={})
 
     acct = None
     for day in sessions:
@@ -65,17 +68,24 @@ def simulate(sessions, by_day, r=Rules(), funded_by_day=None):
             acct = new_eval(day)
         open_bal = acct['bal']
         dead = False
-        for pnl, worst in (by_day if acct['kind'] == 'eval' else funded_by_day).get(day, ()):
+        for pnl, worst, row in (by_day if acct['kind'] == 'eval' else funded_by_day).get(day, ()):
             if acct['bal'] + worst < acct['floor'] - 1e-9:
-                dead = True; break
+                dead = True
+                # The floor is hit inside the trade: the account closes at the floor.
+                pnl = acct['floor'] - acct['bal']
             acct['bal'] += pnl
             if acct['bal'] < acct['floor'] - 1e-9:
-                dead = True; break
+                dead = True
+            if ledger is not None:
+                ledger.append(dict(day=day, row=int(row), account=acct['id'], phase=acct['kind'], pnl=pnl,
+                                   balance=acct['bal'], floor=acct['floor'], breached=dead))
+            if dead:
+                break
         day_pnl = acct['bal'] - open_bal
         if dead:
             if acct['kind'] == 'funded':
                 funded_busts += 1
-            log.append((day, f"{acct['kind']} breached"))
+            log.append((day, f"{acct['kind']} account {acct['id']} breached at {acct['bal']:.0f} (floor {acct['floor']:.0f})"))
             acct = None
             continue
         # End of day
@@ -88,8 +98,10 @@ def simulate(sessions, by_day, r=Rules(), funded_by_day=None):
             best = max(acct['days'].values())
             if profit >= r.target and best <= r.consistency * profit and len(acct['days']) >= 3:
                 passes += 1
-                log.append((day, 'passed eval'))
-                acct = dict(kind='funded', bal=r.start, peak=r.start, floor=r.start - r.drawdown,
+                log.append((day, f"passed eval (account {acct['id']}, profit {profit:.0f}, best day {best:.0f})"))
+                accounts += 1
+                log.append((day, f'funded account {accounts} opened'))
+                acct = dict(id=accounts, kind='funded', bal=r.start, peak=r.start, floor=r.start - r.drawdown,
                             locked=False, wins=0, last_req=-np.inf)
         else:
             if not acct['locked']:
@@ -100,14 +112,14 @@ def simulate(sessions, by_day, r=Rules(), funded_by_day=None):
                 acct['wins'] += 1
             profit = acct['bal'] - r.start
             if acct['wins'] >= r.win_days and acct['bal'] > acct['last_req']:
-                amount = min(r.share * profit, r.cap)
+                amount = min(r.share * profit, r.cap, acct['bal'] - (r.start + r.lock_floor + r.keep))
                 if amount >= r.min_payout:
                     acct['last_req'] = acct['bal']
                     acct['bal'] -= amount
                     acct['wins'] = 0
                     acct['floor'] = r.start + r.lock_floor; acct['locked'] = True
                     paid += amount * r.split
-                    log.append((day, f'payout {amount:.0f}'))
+                    log.append((day, f"payout {amount:.0f} from account {acct['id']} ({amount * r.split:.0f} to you)"))
     status = 'none' if acct is None else acct['kind']
     open_profit = 0. if acct is None or acct['kind'] == 'eval' else acct['bal'] - r.start
     return dict(evals=evals, passes=passes, funded_busts=funded_busts, payouts=sum(1 for _, e in log if e.startswith('payout')),
