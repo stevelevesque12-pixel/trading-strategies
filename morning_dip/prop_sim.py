@@ -42,8 +42,12 @@ def day_trades(trades, mnq, rt_cost=1.82, pv=2.):
     return {d: g[['pnl', 'worst']].to_numpy() for d, g in t.groupby('date', sort=False)}
 
 
-def simulate(sessions, by_day, r=Rules()):
-    """Walk the sessions once; returns a summary dict and an event log."""
+def simulate(sessions, by_day, r=Rules(), funded_by_day=None):
+    """Walk the sessions once; returns a summary dict and an event log.
+
+    funded_by_day: trades to use once funded (a different size); defaults to by_day.
+    """
+    funded_by_day = by_day if funded_by_day is None else funded_by_day
     log = []
     fees = paid = 0.
     evals = passes = funded_busts = 0
@@ -61,7 +65,7 @@ def simulate(sessions, by_day, r=Rules()):
             acct = new_eval(day)
         open_bal = acct['bal']
         dead = False
-        for pnl, worst in by_day.get(day, ()):
+        for pnl, worst in (by_day if acct['kind'] == 'eval' else funded_by_day).get(day, ()):
             if acct['bal'] + worst < acct['floor'] - 1e-9:
                 dead = True; break
             acct['bal'] += pnl
@@ -110,7 +114,7 @@ def simulate(sessions, by_day, r=Rules()):
                 paid=paid, fees=fees, net_cash=paid - fees, end=status, funded_open_profit=open_profit), log
 
 
-def bootstrap(sessions, by_day, r=Rules(), n=2000, days=252, seed=0):
+def bootstrap(sessions, by_day, r=Rules(), n=2000, days=252, seed=0, funded_by_day=None):
     """Resample whole sessions (keeping each day's trade sequence) into n synthetic years."""
     rng = np.random.default_rng(seed)
     sessions = list(sessions)
@@ -119,5 +123,7 @@ def bootstrap(sessions, by_day, r=Rules(), n=2000, days=252, seed=0):
         pick = rng.integers(0, len(sessions), days)
         seq = [f'{k}#{sessions[i]}' for k, i in enumerate(pick)]
         bd = {f'{k}#{sessions[i]}': by_day[sessions[i]] for k, i in enumerate(pick) if sessions[i] in by_day}
-        rows.append(simulate(seq, bd, r)[0])
+        fd = None if funded_by_day is None else {
+            f'{k}#{sessions[i]}': funded_by_day[sessions[i]] for k, i in enumerate(pick) if sessions[i] in funded_by_day}
+        rows.append(simulate(seq, bd, r, fd)[0])
     return pd.DataFrame(rows)
