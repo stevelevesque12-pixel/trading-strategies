@@ -1,153 +1,153 @@
 plan,window,percentile,net
-Growth 50K,3 years,5,-889
-Growth 50K,3 years,10,625
-Growth 50K,3 years,15,1544
-Growth 50K,3 years,20,2425
-Growth 50K,3 years,25,3005
-Growth 50K,3 years,30,3999
-Growth 50K,3 years,35,4654
-Growth 50K,3 years,40,4965
-Growth 50K,3 years,45,5255
-Growth 50K,3 years,50,6852
-Growth 50K,3 years,55,7341
-Growth 50K,3 years,60,7810
-Growth 50K,3 years,65,8945
-Growth 50K,3 years,70,9824
-Growth 50K,3 years,75,10365
-Growth 50K,3 years,80,11144
-Growth 50K,3 years,85,12806
-Growth 50K,3 years,90,13377
-Growth 50K,3 years,95,15910
-Growth 50K,Last 12 months,5,5914
-Growth 50K,Last 12 months,10,7810
-Growth 50K,Last 12 months,15,9785
-Growth 50K,Last 12 months,20,10510
-Growth 50K,Last 12 months,25,12195
-Growth 50K,Last 12 months,30,12920
-Growth 50K,Last 12 months,35,13355
-Growth 50K,Last 12 months,40,15111
-Growth 50K,Last 12 months,45,15620
-Growth 50K,Last 12 months,50,16039
-Growth 50K,Last 12 months,55,17829
-Growth 50K,Last 12 months,60,18396
-Growth 50K,Last 12 months,65,18755
-Growth 50K,Last 12 months,70,20730
-Growth 50K,Last 12 months,75,21165
-Growth 50K,Last 12 months,80,21455
-Growth 50K,Last 12 months,85,23865
-Growth 50K,Last 12 months,90,25840
-Growth 50K,Last 12 months,95,26855
-Select Flex 50K,3 years,5,-1982
-Select Flex 50K,3 years,10,-858
-Select Flex 50K,3 years,15,46
-Select Flex 50K,3 years,20,1122
-Select Flex 50K,3 years,25,2016
-Select Flex 50K,3 years,30,3108
-Select Flex 50K,3 years,35,4320
-Select Flex 50K,3 years,40,5731
-Select Flex 50K,3 years,45,7421
-Select Flex 50K,3 years,50,9211
-Select Flex 50K,3 years,55,11290
-Select Flex 50K,3 years,60,13130
-Select Flex 50K,3 years,65,15111
-Select Flex 50K,3 years,70,17590
-Select Flex 50K,3 years,75,19717
-Select Flex 50K,3 years,80,21847
-Select Flex 50K,3 years,85,25101
-Select Flex 50K,3 years,90,28425
-Select Flex 50K,3 years,95,31335
-Select Flex 50K,Last 12 months,5,1526
-Select Flex 50K,Last 12 months,10,5821
-Select Flex 50K,Last 12 months,15,9812
-Select Flex 50K,Last 12 months,20,13770
-Select Flex 50K,Last 12 months,25,16845
-Select Flex 50K,Last 12 months,30,19715
-Select Flex 50K,Last 12 months,35,22299
-Select Flex 50K,Last 12 months,40,24488
-Select Flex 50K,Last 12 months,45,26492
-Select Flex 50K,Last 12 months,50,28260
-Select Flex 50K,Last 12 months,55,30073
-Select Flex 50K,Last 12 months,60,31170
-Select Flex 50K,Last 12 months,65,33255
-Select Flex 50K,Last 12 months,70,35340
-Select Flex 50K,Last 12 months,75,37260
-Select Flex 50K,Last 12 months,80,39117
-Select Flex 50K,Last 12 months,85,40335
-Select Flex 50K,Last 12 months,90,43409
-Select Flex 50K,Last 12 months,95,46788
-Growth 150K,3 years,5,-1440
-Growth 150K,3 years,10,1016
-Growth 150K,3 years,15,2736
-Growth 150K,3 years,20,4009
-Growth 150K,3 years,25,5229
-Growth 150K,3 years,30,6705
-Growth 150K,3 years,35,7443
-Growth 150K,3 years,40,7825
-Growth 150K,3 years,45,9587
-Growth 150K,3 years,50,11557
-Growth 150K,3 years,55,12234
+Growth 50K,3 years,5,-390
+Growth 50K,3 years,10,922
+Growth 50K,3 years,15,2005
+Growth 50K,3 years,20,2818
+Growth 50K,3 years,25,3660
+Growth 50K,3 years,30,4491
+Growth 50K,3 years,35,4900
+Growth 50K,3 years,40,5286
+Growth 50K,3 years,45,6856
+Growth 50K,3 years,50,7375
+Growth 50K,3 years,55,7741
+Growth 50K,3 years,60,8178
+Growth 50K,3 years,65,9759
+Growth 50K,3 years,70,10220
+Growth 50K,3 years,75,10655
+Growth 50K,3 years,80,12518
+Growth 50K,3 years,85,13210
+Growth 50K,3 years,90,15160
+Growth 50K,3 years,95,16055
+Growth 50K,Last 12 months,5,6661
+Growth 50K,Last 12 months,10,8724
+Growth 50K,Last 12 months,15,10220
+Growth 50K,Last 12 months,20,11317
+Growth 50K,Last 12 months,25,12639
+Growth 50K,Last 12 months,30,13210
+Growth 50K,Last 12 months,35,14814
+Growth 50K,Last 12 months,40,15475
+Growth 50K,Last 12 months,45,15910
+Growth 50K,Last 12 months,50,17678
+Growth 50K,Last 12 months,55,18222
+Growth 50K,Last 12 months,60,18610
+Growth 50K,Last 12 months,65,20295
+Growth 50K,Last 12 months,70,21020
+Growth 50K,Last 12 months,75,21310
+Growth 50K,Last 12 months,80,23297
+Growth 50K,Last 12 months,85,24010
+Growth 50K,Last 12 months,90,26213
+Growth 50K,Last 12 months,95,28883
+Select Flex 50K,3 years,5,-1815
+Select Flex 50K,3 years,10,-573
+Select Flex 50K,3 years,15,341
+Select Flex 50K,3 years,20,1565
+Select Flex 50K,3 years,25,2714
+Select Flex 50K,3 years,30,3792
+Select Flex 50K,3 years,35,5346
+Select Flex 50K,3 years,40,6966
+Select Flex 50K,3 years,45,8773
+Select Flex 50K,3 years,50,10663
+Select Flex 50K,3 years,55,12794
+Select Flex 50K,3 years,60,14778
+Select Flex 50K,3 years,65,16734
+Select Flex 50K,3 years,70,19008
+Select Flex 50K,3 years,75,20928
+Select Flex 50K,3 years,80,23267
+Select Flex 50K,3 years,85,25845
+Select Flex 50K,3 years,90,28896
+Select Flex 50K,3 years,95,32684
+Select Flex 50K,Last 12 months,5,1565
+Select Flex 50K,Last 12 months,10,6452
+Select Flex 50K,Last 12 months,15,10722
+Select Flex 50K,Last 12 months,20,14760
+Select Flex 50K,Last 12 months,25,18273
+Select Flex 50K,Last 12 months,30,21010
+Select Flex 50K,Last 12 months,35,23760
+Select Flex 50K,Last 12 months,40,25766
+Select Flex 50K,Last 12 months,45,27465
+Select Flex 50K,Last 12 months,50,28755
+Select Flex 50K,Last 12 months,55,30712
+Select Flex 50K,Last 12 months,60,32391
+Select Flex 50K,Last 12 months,65,33935
+Select Flex 50K,Last 12 months,70,35670
+Select Flex 50K,Last 12 months,75,37559
+Select Flex 50K,Last 12 months,80,39533
+Select Flex 50K,Last 12 months,85,41321
+Select Flex 50K,Last 12 months,90,44244
+Select Flex 50K,Last 12 months,95,46867
+Growth 150K,3 years,5,-702
+Growth 150K,3 years,10,1629
+Growth 150K,3 years,15,3474
+Growth 150K,3 years,20,4581
+Growth 150K,3 years,25,6336
+Growth 150K,3 years,30,7086
+Growth 150K,3 years,35,7812
+Growth 150K,3 years,40,8203
+Growth 150K,3 years,45,11028
+Growth 150K,3 years,50,11943
+Growth 150K,3 years,55,12394
 Growth 150K,3 years,60,12681
-Growth 150K,3 years,65,14566
-Growth 150K,3 years,70,16074
-Growth 150K,3 years,75,16812
-Growth 150K,3 years,80,17181
-Growth 150K,3 years,85,20943
+Growth 150K,3 years,65,15987
+Growth 150K,3 years,70,16443
+Growth 150K,3 years,75,17181
+Growth 150K,3 years,80,20403
+Growth 150K,3 years,85,21312
 Growth 150K,3 years,90,21681
-Growth 150K,3 years,95,25812
-Growth 150K,Last 12 months,5,8181
-Growth 150K,Last 12 months,10,11943
-Growth 150K,Last 12 months,15,14598
-Growth 150K,Last 12 months,20,16443
-Growth 150K,Last 12 months,25,17181
-Growth 150K,Last 12 months,30,19836
-Growth 150K,Last 12 months,35,20943
-Growth 150K,Last 12 months,40,21352
-Growth 150K,Last 12 months,45,23229
-Growth 150K,Last 12 months,50,25074
-Growth 150K,Last 12 months,55,25812
-Growth 150K,Last 12 months,60,26181
-Growth 150K,Last 12 months,65,29205
-Growth 150K,Last 12 months,70,30151
+Growth 150K,3 years,95,26181
+Growth 150K,Last 12 months,5,9711
+Growth 150K,Last 12 months,10,12312
+Growth 150K,Last 12 months,15,15699
+Growth 150K,Last 12 months,20,16812
+Growth 150K,Last 12 months,25,18314
+Growth 150K,Last 12 months,30,20574
+Growth 150K,Last 12 months,35,21312
+Growth 150K,Last 12 months,40,21681
+Growth 150K,Last 12 months,45,24651
+Growth 150K,Last 12 months,50,25443
+Growth 150K,Last 12 months,55,26181
+Growth 150K,Last 12 months,60,28022
+Growth 150K,Last 12 months,65,29943
+Growth 150K,Last 12 months,70,30312
 Growth 150K,Last 12 months,75,30681
-Growth 150K,Last 12 months,80,34074
-Growth 150K,Last 12 months,85,34812
-Growth 150K,Last 12 months,90,38205
-Growth 150K,Last 12 months,95,39681
-Select Flex 150K,3 years,5,-5904
-Select Flex 150K,3 years,10,-3982
-Select Flex 150K,3 years,15,-2053
-Select Flex 150K,3 years,20,41
-Select Flex 150K,3 years,25,2050
-Select Flex 150K,3 years,30,3973
-Select Flex 150K,3 years,35,6486
-Select Flex 150K,3 years,40,9089
-Select Flex 150K,3 years,45,11730
-Select Flex 150K,3 years,50,15568
-Select Flex 150K,3 years,55,18652
-Select Flex 150K,3 years,60,22452
-Select Flex 150K,3 years,65,26898
-Select Flex 150K,3 years,70,30862
-Select Flex 150K,3 years,75,34770
-Select Flex 150K,3 years,80,39393
-Select Flex 150K,3 years,85,43945
-Select Flex 150K,3 years,90,49652
-Select Flex 150K,3 years,95,57376
-Select Flex 150K,Last 12 months,5,-1127
-Select Flex 150K,Last 12 months,10,6427
-Select Flex 150K,Last 12 months,15,15449
-Select Flex 150K,Last 12 months,20,22968
-Select Flex 150K,Last 12 months,25,29343
-Select Flex 150K,Last 12 months,30,34665
-Select Flex 150K,Last 12 months,35,38790
-Select Flex 150K,Last 12 months,40,43245
-Select Flex 150K,Last 12 months,45,46755
-Select Flex 150K,Last 12 months,50,50403
-Select Flex 150K,Last 12 months,55,53748
-Select Flex 150K,Last 12 months,60,56665
-Select Flex 150K,Last 12 months,65,59643
-Select Flex 150K,Last 12 months,70,63324
-Select Flex 150K,Last 12 months,75,66901
-Select Flex 150K,Last 12 months,80,70330
-Select Flex 150K,Last 12 months,85,73945
-Select Flex 150K,Last 12 months,90,78684
-Select Flex 150K,Last 12 months,95,84312
+Growth 150K,Last 12 months,80,34443
+Growth 150K,Last 12 months,85,35181
+Growth 150K,Last 12 months,90,38723
+Growth 150K,Last 12 months,95,40355
+Select Flex 150K,3 years,5,-5535
+Select Flex 150K,3 years,10,-3463
+Select Flex 150K,3 years,15,-1456
+Select Flex 150K,3 years,20,960
+Select Flex 150K,3 years,25,3083
+Select Flex 150K,3 years,30,5562
+Select Flex 150K,3 years,35,7941
+Select Flex 150K,3 years,40,10975
+Select Flex 150K,3 years,45,14257
+Select Flex 150K,3 years,50,17711
+Select Flex 150K,3 years,55,20953
+Select Flex 150K,3 years,60,24834
+Select Flex 150K,3 years,65,28710
+Select Flex 150K,3 years,70,33071
+Select Flex 150K,3 years,75,37483
+Select Flex 150K,3 years,80,42324
+Select Flex 150K,3 years,85,46416
+Select Flex 150K,3 years,90,51696
+Select Flex 150K,3 years,95,59566
+Select Flex 150K,Last 12 months,5,-1111
+Select Flex 150K,Last 12 months,10,8113
+Select Flex 150K,Last 12 months,15,17236
+Select Flex 150K,Last 12 months,20,25306
+Select Flex 150K,Last 12 months,25,30922
+Select Flex 150K,Last 12 months,30,36415
+Select Flex 150K,Last 12 months,35,41053
+Select Flex 150K,Last 12 months,40,44910
+Select Flex 150K,Last 12 months,45,48383
+Select Flex 150K,Last 12 months,50,51912
+Select Flex 150K,Last 12 months,55,54864
+Select Flex 150K,Last 12 months,60,58178
+Select Flex 150K,Last 12 months,65,61479
+Select Flex 150K,Last 12 months,70,64431
+Select Flex 150K,Last 12 months,75,67743
+Select Flex 150K,Last 12 months,80,71366
+Select Flex 150K,Last 12 months,85,75105
+Select Flex 150K,Last 12 months,90,79524
+Select Flex 150K,Last 12 months,95,84681

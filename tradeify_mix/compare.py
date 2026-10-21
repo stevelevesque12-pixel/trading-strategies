@@ -14,7 +14,7 @@ Rules (third-party summaries, Oct 2026 - verify on Tradeify's site):
   Funded     : same drawdown; the floor locks at +$100 once the end-of-day high reaches +$2,100.
   Payouts    : balance >= +$3,000; 5 days > $150 since the last payout; best day <= 35% of the profit since the last
                payout; minimum $500; caps $1,500 / $2,000 / $2,500 / $3,000; $2,600 left in the account; 90% split.
-Costs: 2 ticks of slippage per side plus Tradeify commissions on every list. Each trade's adverse excursion is applied
+Costs: $2.00 round trip per micro plus 2 ticks of slippage per side on every list. Each trade's adverse excursion is applied
 inside the trade, so the drawdown and the daily loss limit see intraday dips. Days are drawn by a 5-day block bootstrap
 from the window; one simulated year = 250 days, buying a new evaluation the day after any fail or blown account.
 
@@ -32,9 +32,11 @@ HERE = Path(__file__).resolve().parent
 DATA, RESULTS = HERE / "data", HERE / "results"
 FILES = dict(S="saty_sbj_v2_3mnq.csv", H="halyard_5mnq.csv", G="gold_bo_1mgc.csv", SO="saty_opening_drive_combo.csv")
 LIST_SIZE = dict(S=3, CS=6, OD=750, H=5, G=1)          # size each list was exported at (OD = $ risk)
-# Extra $ per contract to bring every list to 2 ticks/side + $1.82/side (MNQ): the Saty, Halyard and Gold lists carry
-# 1 tick of slippage; the combo list carries 2 ticks but $1.00/side commission.
-EXTRA_COST = dict(S=1.0, H=1.0, G=2.0, SO=1.64)
+# Extra $ per contract to bring every list to the user's cost rule: $2.00 round trip ($1.00/side) + 2 ticks of slippage
+# per side. The Saty, Halyard and Gold lists were exported with $3.64 (MNQ) / $4.24 (MGC) round trip - Tradeify's
+# round-trip fee entered per side - so commission is taken back out. The Saty list carries 1 tick of slippage (its
+# Pine script); Halyard and Gold are assumed to carry none. The combo list already matches ($2.00 + 2 ticks).
+EXTRA_COST = dict(S=-0.64, H=0.36, G=1.76, SO=0.0)
 
 TARGET, DD, DLL, FEE, LOCK, LOCK_FLOOR = 3000, 2000, 1250, 145, 2100, 100
 PAY_BAL, KEEP, WIN, NWIN, CONS, MINPAY, CAPS, SPLIT = 3000, 2600, 150, 5, 0.35, 500, (1500, 2000, 2500, 3000), 0.9

@@ -1,9 +1,9 @@
 plan,window,net_per_year,bad_run_p10,median,good_run_p90,loss_year_share,evals_per_year,eval_fees,payouts_per_year,first_payout_days,net_per_fee_dollar,eval_sizes,funded_sizes,peak_micros_eval,peak_micros_funded,contract_limit
-Growth 50K,3 years,7018,625,6852,13377,0.075,6.3,914,3.7,59,7.67,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 3 MGC,Saty 2 MNQ · OD $500 · Halyard 4 MNQ · Gold 1 MGC,17,9,40
-Growth 50K,Last 12 months,16624,7810,16039,25840,0.004,4.4,645,7.4,36,25.79,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 3 MGC,Saty 2 MNQ · OD $500 · Halyard 4 MNQ · Gold 1 MGC,17,9,40
-Select Flex 50K,3 years,11620,-858,9211,28425,0.148,9.3,1535,4.6,69,7.57,Saty 2 MNQ · OD $750 · Halyard 4 MNQ · Gold 1 MGC,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 2 MGC,12,16,40
-Select Flex 50K,Last 12 months,26504,5821,28260,43409,0.038,6.9,1142,11.5,47,23.2,Saty 2 MNQ · OD $750 · Halyard 4 MNQ · Gold 1 MGC,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 2 MGC,12,16,40
-Growth 150K,3 years,11393,1016,11557,21681,0.075,4.4,1621,3.8,69,7.03,"Saty 9 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 6 MGC","Saty 5 MNQ · OD $1,000 · Halyard 4 MNQ · Gold 2 MGC",33,19,
-Growth 150K,Last 12 months,24637,11943,25074,38205,0.003,3.4,1252,6.9,42,19.67,"Saty 9 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 6 MGC","Saty 5 MNQ · OD $1,000 · Halyard 4 MNQ · Gold 2 MGC",33,19,
-Select Flex 150K,3 years,19672,-3982,15568,49652,0.2,10.7,3955,4.5,69,4.97,"Saty 5 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 4 MGC","Saty 9 MNQ · OD $1,250 · Halyard 8 MNQ · Gold 4 MGC",27,28,30
-Select Flex 150K,Last 12 months,46874,6427,50403,78684,0.058,8.8,3263,11.7,47,14.37,"Saty 5 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 4 MGC","Saty 9 MNQ · OD $1,250 · Halyard 8 MNQ · Gold 4 MGC",27,28,30
+Growth 50K,3 years,7580,922,7375,15160,0.061,5.9,854,3.9,57,8.87,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 3 MGC,Saty 2 MNQ · OD $500 · Halyard 4 MNQ · Gold 1 MGC,17,9,40
+Growth 50K,Last 12 months,17195,8724,17678,26213,0.004,4.2,607,7.6,35,28.34,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 3 MGC,Saty 2 MNQ · OD $500 · Halyard 4 MNQ · Gold 1 MGC,17,9,40
+Select Flex 50K,3 years,12560,-573,10663,28896,0.137,8.8,1457,5.0,67,8.62,Saty 2 MNQ · OD $750 · Halyard 4 MNQ · Gold 1 MGC,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 2 MGC,12,16,40
+Select Flex 50K,Last 12 months,27255,6452,28755,44244,0.035,6.7,1107,11.9,46,24.62,Saty 2 MNQ · OD $750 · Halyard 4 MNQ · Gold 1 MGC,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 2 MGC,12,16,40
+Growth 150K,3 years,12189,1629,11943,21681,0.062,4.2,1548,4.0,66,7.88,"Saty 9 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 6 MGC","Saty 5 MNQ · OD $1,000 · Halyard 4 MNQ · Gold 2 MGC",33,19,
+Growth 150K,Last 12 months,25357,12312,25443,38723,0.002,3.3,1231,7.0,41,20.6,"Saty 9 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 6 MGC","Saty 5 MNQ · OD $1,000 · Halyard 4 MNQ · Gold 2 MGC",33,19,
+Select Flex 150K,3 years,21394,-3463,17711,51696,0.178,10.3,3784,5.0,68,5.65,"Saty 5 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 4 MGC","Saty 9 MNQ · OD $1,250 · Halyard 8 MNQ · Gold 4 MGC",27,28,30
+Select Flex 150K,Last 12 months,48291,8113,51912,79524,0.057,8.6,3168,12.0,47,15.24,"Saty 5 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 4 MGC","Saty 9 MNQ · OD $1,250 · Halyard 8 MNQ · Gold 4 MGC",27,28,30

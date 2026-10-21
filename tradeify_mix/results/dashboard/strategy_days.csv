@@ -1,9 +1,9 @@
 set,legs,trade_days_per_year,days_over_150_per_year,win_day_share,profit_per_year
-Saty,1,35,19,0.679,8226
-Opening Drive,1,87,49,0.571,3961
-Halyard,1,200,61,0.549,3982
-Gold BO,1,242,65,0.521,7227
-Saty + Opening Drive,2,101,55,0.574,12188
-Saty + Gold BO,2,242,75,0.542,15454
-Saty + Halyard + Gold BO,3,247,88,0.534,19435
-Saty + Opening Drive + Halyard + Gold BO,4,248,97,0.542,23397
+Saty,1,35,19,0.698,8340
+Opening Drive,1,87,49,0.571,4401
+Halyard,1,200,61,0.549,4492
+Gold BO,1,242,65,0.521,7286
+Saty + Opening Drive,2,101,55,0.577,12741
+Saty + Gold BO,2,242,75,0.542,15625
+Saty + Halyard + Gold BO,3,247,89,0.534,20118
+Saty + Opening Drive + Halyard + Gold BO,4,248,99,0.543,24519
