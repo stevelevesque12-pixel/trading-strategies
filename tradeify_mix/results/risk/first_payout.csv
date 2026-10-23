@@ -1,0 +1,49 @@
+plan,month,share_paid
+Growth 50K,1,0.08
+Growth 50K,2,0.319
+Growth 50K,3,0.541
+Growth 50K,4,0.689
+Growth 50K,5,0.79
+Growth 50K,6,0.862
+Growth 50K,7,0.903
+Growth 50K,8,0.935
+Growth 50K,9,0.956
+Growth 50K,10,0.968
+Growth 50K,11,0.981
+Growth 50K,12,0.985
+Select Flex 50K,1,0.062
+Select Flex 50K,2,0.287
+Select Flex 50K,3,0.465
+Select Flex 50K,4,0.587
+Select Flex 50K,5,0.683
+Select Flex 50K,6,0.763
+Select Flex 50K,7,0.812
+Select Flex 50K,8,0.855
+Select Flex 50K,9,0.886
+Select Flex 50K,10,0.911
+Select Flex 50K,11,0.931
+Select Flex 50K,12,0.945
+Growth 150K,1,0.031
+Growth 150K,2,0.223
+Growth 150K,3,0.453
+Growth 150K,4,0.635
+Growth 150K,5,0.751
+Growth 150K,6,0.831
+Growth 150K,7,0.887
+Growth 150K,8,0.924
+Growth 150K,9,0.951
+Growth 150K,10,0.969
+Growth 150K,11,0.98
+Growth 150K,12,0.986
+Select Flex 150K,1,0.058
+Select Flex 150K,2,0.277
+Select Flex 150K,3,0.448
+Select Flex 150K,4,0.577
+Select Flex 150K,5,0.68
+Select Flex 150K,6,0.759
+Select Flex 150K,7,0.809
+Select Flex 150K,8,0.857
+Select Flex 150K,9,0.888
+Select Flex 150K,10,0.914
+Select Flex 150K,11,0.935
+Select Flex 150K,12,0.95

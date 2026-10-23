@@ -1,0 +1,25 @@
+plan,percentile,max_outlay
+Growth 50K,10,145
+Growth 50K,25,290
+Growth 50K,50,580
+Growth 50K,75,1015
+Growth 50K,90,1595
+Growth 50K,95,2031
+Select Flex 50K,10,165
+Select Flex 50K,25,330
+Select Flex 50K,50,660
+Select Flex 50K,75,1155
+Select Flex 50K,90,1980
+Select Flex 50K,95,2310
+Growth 150K,10,369
+Growth 150K,25,369
+Growth 150K,50,1107
+Growth 150K,75,1845
+Growth 150K,90,3285
+Growth 150K,95,4059
+Select Flex 150K,10,369
+Select Flex 150K,25,738
+Select Flex 150K,50,1845
+Select Flex 150K,75,3321
+Select Flex 150K,90,5166
+Select Flex 150K,95,5904

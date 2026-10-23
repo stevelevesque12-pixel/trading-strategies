@@ -1,0 +1,47 @@
+plan,trading_day,month,event,amount
+Growth 50K,1,1,Evaluation bought,-145
+Growth 50K,31,2,Evaluation bought,-145
+Growth 50K,49,3,Evaluation bought,-145
+Growth 50K,51,3,Evaluation bought,-145
+Growth 50K,65,4,Payout,1350
+Growth 50K,198,10,Payout,1800
+Growth 50K,210,11,Payout,2250
+Growth 50K,231,12,Payout,2700
+Select Flex 50K,1,1,Evaluation bought,-165
+Select Flex 50K,9,1,Evaluation bought,-165
+Select Flex 50K,22,2,Evaluation bought,-165
+Select Flex 50K,26,2,Evaluation bought,-165
+Select Flex 50K,35,2,Evaluation bought,-165
+Select Flex 50K,51,3,Evaluation bought,-165
+Select Flex 50K,61,3,Evaluation bought,-165
+Select Flex 50K,94,5,Payout,1981
+Select Flex 50K,102,5,Payout,2250
+Select Flex 50K,121,6,Payout,2250
+Select Flex 50K,130,7,Payout,2250
+Select Flex 50K,159,8,Evaluation bought,-165
+Select Flex 50K,181,9,Evaluation bought,-165
+Select Flex 50K,221,11,Payout,1657
+Select Flex 50K,229,11,Payout,2250
+Growth 150K,1,1,Evaluation bought,-369
+Growth 150K,7,1,Evaluation bought,-369
+Growth 150K,25,2,Evaluation bought,-369
+Growth 150K,68,4,Payout,2250
+Growth 150K,100,5,Payout,2700
+Growth 150K,166,8,Payout,3600
+Growth 150K,197,10,Payout,4500
+Select Flex 150K,1,1,Evaluation bought,-369
+Select Flex 150K,19,1,Evaluation bought,-369
+Select Flex 150K,50,3,Evaluation bought,-369
+Select Flex 150K,69,4,Payout,2719
+Select Flex 150K,78,4,Payout,3724
+Select Flex 150K,90,5,Evaluation bought,-369
+Select Flex 150K,133,7,Evaluation bought,-369
+Select Flex 150K,148,8,Evaluation bought,-369
+Select Flex 150K,162,8,Evaluation bought,-369
+Select Flex 150K,167,8,Evaluation bought,-369
+Select Flex 150K,182,9,Evaluation bought,-369
+Select Flex 150K,200,10,Evaluation bought,-369
+Select Flex 150K,213,11,Payout,4050
+Select Flex 150K,221,11,Payout,4050
+Select Flex 150K,228,11,Payout,4050
+Select Flex 150K,238,12,Payout,4050

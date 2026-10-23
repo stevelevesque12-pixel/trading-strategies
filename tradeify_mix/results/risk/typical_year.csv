@@ -1,0 +1,5 @@
+plan,typical_net,median_net,mean_net,loss_year_share,typical_evals,typical_payouts,first_payout_month_median,paid_within_year,max_outlay_median,max_outlay_p90,eval_sizes,funded_sizes
+Growth 50K,7520,7520,7786,0.056,4,4,2.8,0.985,580,1595,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 3 MGC,Saty 2 MNQ · OD $500 · Halyard 4 MNQ · Gold 1 MGC
+Select Flex 50K,11153,11153,12772,0.136,9,6,3.3,0.945,660,1980,Saty 2 MNQ · OD $750 · Halyard 4 MNQ · Gold 1 MGC,Saty 5 MNQ · OD $750 · Halyard 4 MNQ · Gold 2 MGC
+Growth 150K,11943,11943,12337,0.062,3,4,3.3,0.986,1107,3285,"Saty 9 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 6 MGC","Saty 5 MNQ · OD $1,000 · Halyard 4 MNQ · Gold 2 MGC"
+Select Flex 150K,18952,18912,22060,0.174,10,6,3.4,0.95,1845,5166,"Saty 5 MNQ · OD $1,500 · Halyard 8 MNQ · Gold 4 MGC","Saty 9 MNQ · OD $1,250 · Halyard 8 MNQ · Gold 4 MGC"
