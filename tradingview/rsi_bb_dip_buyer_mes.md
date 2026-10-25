@@ -14,8 +14,9 @@ costs and risk-based sizing with a stop loss.
   the upper band) closes the long. In "Long only" mode it goes flat and never
   opens a short.
 - **Stop:** 150 points from the fill ($750 per MES before costs).
-- Trades last days to weeks (median about 400 bars of 24 minutes) and are
-  held overnight and over weekends.
+- Trades last days to weeks: average 11.6 calendar days, median 8.1
+  (about 340 bars of 24 minutes), longest 70. They are held overnight and over
+  weekends.
 
 ## Settings to use
 
