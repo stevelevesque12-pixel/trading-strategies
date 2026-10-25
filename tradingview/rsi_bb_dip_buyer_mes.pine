@@ -1,6 +1,14 @@
 //@version=6
-// Bollinger + RSI, Double Strategy (by ChartArt) v1.1 -- Pine v6 port with
-// direction filter, trend filter, Tradeify costs and risk-based sizing / stop.
+// RSI-BB Dip Buyer (MES) -- built from ChartArt's "Bollinger + RSI, Double
+// Strategy" v1.1, ported to Pine v6 with a direction filter, optional trend
+// filter, Tradeify costs and risk-based sizing / stop loss.
+//
+// TESTED SETTINGS (the input defaults below): MES1!, 24-minute chart, B-ADJ
+// (back-adjustment) ON, ETH session, Long only, Stop mode "Points" = 150,
+// trend filter OFF, Risk 1000, Max contracts 1. Backtest May 2019 - Oct 2026:
+// 110 trades, +$21,979 closed, PF 1.90, max drawdown ~$3.5k per MES.
+// The same rules on 20m / 30m charts gave PF 1.66 / 1.50 and ~$4.6-4.8k
+// drawdown, so plan around those. Full results: rsi_bb_dip_buyer_mes.md.
 //
 // Signal logic is unchanged from the original v2 script:
 //   long  = RSI(6) crosses above 50 AND close crosses above the lower BB(200, 2)
@@ -39,7 +47,7 @@
 //   trade is skipped (unless "Always take min 1 contract" is on).
 //   Optional daily loss limit flattens and blocks new entries for the day.
 
-strategy("Bollinger + RSI Double Strategy v1.1 (dir/trend/costs/risk)", shorttitle="CA_RSI_BB_1.1_risk",
+strategy("RSI-BB Dip Buyer (MES)", shorttitle="RSI_BB_Dip_Buyer",
      overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1,
      commission_type=strategy.commission.cash_per_contract, commission_value=0.91,
@@ -58,14 +66,14 @@ trendTf   = input.timeframe("D", "Trend timeframe", group="Trend filter")
 trendType = input.string("SMA", "Trend MA type", options=["SMA", "EMA"], group="Trend filter")
 trendLen  = input.int(200, "Trend MA length", minval=1, group="Trend filter")
 
-stopMode        = input.string("Percent", "Stop mode", options=["None", "Points", "Percent", "ATR"], group="Risk")
+stopMode        = input.string("Points", "Stop mode", options=["None", "Points", "Percent", "ATR"], group="Risk")
 stopPoints      = input.float(150.0, "Stop distance (points)", minval=0.25, step=0.25, group="Risk")
 stopPct         = input.float(2.0, "Stop distance (% of price)", minval=0.05, step=0.05, group="Risk")
 atrLen          = input.int(14, "Daily ATR length", minval=1, group="Risk")
 atrMult         = input.float(1.5, "Daily ATR multiple", minval=0.1, step=0.1, group="Risk")
 riskPerTradeUsd = input.float(1000.0, "Risk per trade (USD)", minval=0.0, group="Risk")
 pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES = 5", minval=0.01, group="Risk")
-maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Risk")
+maxContracts    = input.int(1, "Max contracts (hard cap)", minval=1, group="Risk")
 forceMinOne     = input.bool(false, "Always take min 1 contract", group="Risk")
 fixedContracts  = input.int(1, "Fixed contracts (Stop mode = None)", minval=1, group="Risk")
 useDailyLimit   = input.bool(false, "Use daily loss limit", group="Risk")

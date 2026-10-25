@@ -29,6 +29,12 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**A third, swing strategy**: `tradingview/rsi_bb_dip_buyer_mes.pine`
+(RSI-BB Dip Buyer) -- long-only MES dip buying on a 24-minute chart, built
+from ChartArt's RSI + Bollinger Bands script, with a 150-point stop and
+trades held for days to weeks. TradingView-only (no Python twin);
+backtest results and settings are in `tradingview/rsi_bb_dip_buyer_mes.md`.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
