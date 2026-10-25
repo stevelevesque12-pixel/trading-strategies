@@ -3,7 +3,8 @@
 // "CA_-_Golden_Cross_Strat". Intended for a 45-minute chart.
 //
 // Changes from the original:
-//   1. Realistic costs: $1/contract/side commission + 1 tick slippage
+//   1. Realistic costs: Tradeify MGC commission ($2.12 round trip, i.e.
+//      $1.06/contract/side, all-in) + 1 tick slippage per side
 //      (the original backtested with zero costs).
 //   2. Daily trend filter (on by default): a golden cross is only taken if
 //      the previous completed daily close is above its N-day SMA. Uses the
@@ -24,7 +25,7 @@
 
 strategy("Golden Cross MGC", shorttitle="GoldenCross_MGC", overlay=true,
      initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=1,
-     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.06,
      slippage=1)
 
 // ---- Inputs
