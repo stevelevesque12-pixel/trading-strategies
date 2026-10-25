@@ -1,6 +1,6 @@
 //@version=6
 // Bollinger + RSI, Double Strategy (by ChartArt) v1.1 -- Pine v6 port with
-// direction filter, Tradeify costs and risk-based sizing / stop loss.
+// direction filter, trend filter, Tradeify costs and risk-based sizing / stop.
 //
 // Signal logic is unchanged from the original v2 script:
 //   long  = RSI(6) crosses above 50 AND close crosses above the lower BB(200, 2)
@@ -13,24 +13,33 @@
 //   "Long only"  -- a short signal closes the long and goes flat.
 //   "Short only" -- a long signal closes the short and goes flat.
 //
+// Trend filter (optional): longs only open while price is above the
+// higher-timeframe moving average (default daily SMA 200), shorts only while
+// below. Uses the previous COMPLETED higher-tf bar, so it doesn't repaint.
+// Exits are never blocked: in "Both" mode, an opposite signal that the filter
+// blocks still closes the open position (goes flat instead of reversing).
+//
 // Costs (defaults in the strategy() call; TradingView doesn't allow inputs
 // there, so change them in Settings > Properties if needed):
 //   commission = $0.91 per contract per side = $1.82 round trip, Tradeify's
-//                published all-in MES rate (help.tradeify.co, "Trading
-//                Commission Fees"). Confirm current pricing before relying on it.
+//                published MES rate (help.tradeify.co, "Trading Commission
+//                Fees"). Confirm current pricing before relying on it.
 //   slippage   = 1 tick per fill.
 //
 // Risk:
-//   Stop mode "None"   -- no protective stop, exit only on the opposite signal
-//                         (original behaviour); size = "Fixed contracts".
-//   Stop mode "Points" -- stop N points from the entry fill.
-//   Stop mode "ATR"    -- stop = ATR(len) * mult, measured on the signal bar.
+//   Stop mode "None"    -- no protective stop, exit only on the opposite
+//                          signal (original behaviour); size = "Fixed contracts".
+//   Stop mode "Points"  -- stop N points from the entry fill.
+//   Stop mode "Percent" -- stop N% of price from the entry fill (scales with
+//                          price level, unlike a fixed point stop).
+//   Stop mode "ATR"     -- stop = previous completed DAILY ATR(len) * mult.
+//   The stop distance is fixed when the signal fires.
 //   With a stop, contracts = floor(risk USD / (stop pts * point value)),
-//   clamped to [1, Max contracts]. If even 1 contract exceeds the risk budget
-//   the trade is skipped (unless "Always take min 1 contract" is on).
+//   clamped to Max contracts. If even 1 contract exceeds the risk budget the
+//   trade is skipped (unless "Always take min 1 contract" is on).
 //   Optional daily loss limit flattens and blocks new entries for the day.
 
-strategy("Bollinger + RSI Double Strategy v1.1 (dir/costs/risk)", shorttitle="CA_RSI_BB_1.1_risk",
+strategy("Bollinger + RSI Double Strategy v1.1 (dir/trend/costs/risk)", shorttitle="CA_RSI_BB_1.1_risk",
      overlay=true, initial_capital=50000,
      default_qty_type=strategy.fixed, default_qty_value=1,
      commission_type=strategy.commission.cash_per_contract, commission_value=0.91,
@@ -42,13 +51,19 @@ BBlength  = input.int(200, "Bollinger Period Length", minval=1, group="Signal")
 BBmult    = input.float(2.0, "Bollinger StdDev", minval=0.001, maxval=50, group="Signal")
 RSIlevel  = 50
 
-direction = input.string("Both", "Trade direction", options=["Both", "Long only", "Short only"], group="Direction")
+direction = input.string("Long only", "Trade direction", options=["Both", "Long only", "Short only"], group="Direction")
 
-stopMode        = input.string("Points", "Stop mode", options=["None", "Points", "ATR"], group="Risk")
-stopPoints      = input.float(100.0, "Stop distance (points)", minval=0.25, step=0.25, group="Risk")
-atrLen          = input.int(14, "ATR length", minval=1, group="Risk")
-atrMult         = input.float(3.0, "ATR multiple", minval=0.1, step=0.1, group="Risk")
-riskPerTradeUsd = input.float(500.0, "Risk per trade (USD)", minval=0.0, group="Risk")
+useTrend  = input.bool(false, "Use trend filter", group="Trend filter")
+trendTf   = input.timeframe("D", "Trend timeframe", group="Trend filter")
+trendType = input.string("SMA", "Trend MA type", options=["SMA", "EMA"], group="Trend filter")
+trendLen  = input.int(200, "Trend MA length", minval=1, group="Trend filter")
+
+stopMode        = input.string("Percent", "Stop mode", options=["None", "Points", "Percent", "ATR"], group="Risk")
+stopPoints      = input.float(150.0, "Stop distance (points)", minval=0.25, step=0.25, group="Risk")
+stopPct         = input.float(2.0, "Stop distance (% of price)", minval=0.05, step=0.05, group="Risk")
+atrLen          = input.int(14, "Daily ATR length", minval=1, group="Risk")
+atrMult         = input.float(1.5, "Daily ATR multiple", minval=0.1, step=0.1, group="Risk")
+riskPerTradeUsd = input.float(1000.0, "Risk per trade (USD)", minval=0.0, group="Risk")
 pointValueUsd   = input.float(5.0, "Point value (USD/point) -- MES = 5", minval=0.01, group="Risk")
 maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Risk")
 forceMinOne     = input.bool(false, "Always take min 1 contract", group="Risk")
@@ -69,12 +84,21 @@ BBbasis = ta.sma(price, BBlength)
 BBdev   = BBmult * ta.stdev(price, BBlength)
 BBupper = BBbasis + BBdev
 BBlower = BBbasis - BBdev
-atr     = ta.atr(atrLen)
+
+// Higher-timeframe values from the previous completed bar ([1] + lookahead_on
+// is the standard non-repainting pattern).
+trendMaSrc = trendType == "EMA" ? ta.ema(close, trendLen) : ta.sma(close, trendLen)
+trendMa    = request.security(syminfo.tickerid, trendTf, trendMaSrc[1], lookahead=barmerge.lookahead_on)
+dailyAtr   = request.security(syminfo.tickerid, "D", ta.atr(atrLen)[1], lookahead=barmerge.lookahead_on)
+
+longTrendOk  = not useTrend or (not na(trendMa) and close > trendMa)
+shortTrendOk = not useTrend or (not na(trendMa) and close < trendMa)
 
 p0 = plot(BBbasis, "Bollinger Bands SMA Basis Line", color=color.aqua)
 p1 = plot(BBupper, "Bollinger Bands Upper Line", color=color.silver)
 p2 = plot(BBlower, "Bollinger Bands Lower Line", color=color.silver)
 fill(p1, p2, color=color.new(color.silver, 85))
+plot(useTrend ? trendMa : na, "Trend MA", color=color.orange, linewidth=2)
 
 // ---- Daily loss limit (America/New_York calendar day) ----
 nyDay  = dayofmonth(time, "America/New_York")
@@ -96,31 +120,44 @@ longSignal  = not na(vrsi) and ta.crossover(vrsi, RSIlevel) and ta.crossover(pri
 shortSignal = not na(vrsi) and ta.crossunder(vrsi, RSIlevel) and ta.crossunder(price, BBupper)
 
 // ---- Sizing ----
-stopDistNow = stopMode == "Points" ? stopPoints : stopMode == "ATR" ? atr * atrMult : na
+stopDistNow = switch stopMode
+    "Points"  => stopPoints
+    "Percent" => close * stopPct / 100
+    "ATR"     => dailyAtr * atrMult
+    => na
 riskPerContract = stopDistNow * pointValueUsd
 rawQty = stopMode == "None" ? fixedContracts : math.floor(riskPerTradeUsd / riskPerContract)
 qty    = stopMode == "None" ? fixedContracts : math.min(forceMinOne ? math.max(rawQty, 1) : rawQty, maxContracts)
 
-// Stop distance is frozen at signal time so ATR drift doesn't move the stop.
+// Stop distance is frozen at signal time so ATR/price drift doesn't move it.
 var float longStopDist  = na
 var float shortStopDist = na
 
-// When a signal can only close the open position (one-sided modes), qty
-// doesn't matter, so don't let a zero risk-qty block the exit.
+// In one-sided modes the opposite signal only closes the open position, so
+// neither qty nor the trend filter should block it.
 longCanOnlyExit  = direction == "Short only"
 shortCanOnlyExit = direction == "Long only"
 
-if longSignal and not lockedToday and (qty >= 1 or longCanOnlyExit)
+longOpens  = longSignal and not lockedToday and not longCanOnlyExit and longTrendOk and qty >= 1
+shortOpens = shortSignal and not lockedToday and not shortCanOnlyExit and shortTrendOk and qty >= 1
+
+if longOpens or (longSignal and longCanOnlyExit)
     longStopDist := stopDistNow
-    strategy.entry("RSI_BB_L", strategy.long, qty=math.max(qty, 1), stop=BBlower, oca_type=strategy.oca.cancel, comment="RSI_BB_L")
+    strategy.entry("RSI_BB_L", strategy.long, qty=math.max(nz(qty), 1), stop=BBlower, oca_type=strategy.oca.cancel, comment="RSI_BB_L")
 else
     strategy.cancel("RSI_BB_L")
+    // Blocked reversal in "Both" mode: still exit the short.
+    if longSignal and strategy.position_size < 0
+        strategy.close("RSI_BB_S", comment="RSI_BB_L_flat")
 
-if shortSignal and not lockedToday and (qty >= 1 or shortCanOnlyExit)
+if shortOpens or (shortSignal and shortCanOnlyExit)
     shortStopDist := stopDistNow
-    strategy.entry("RSI_BB_S", strategy.short, qty=math.max(qty, 1), stop=BBupper, oca_type=strategy.oca.cancel, comment="RSI_BB_S")
+    strategy.entry("RSI_BB_S", strategy.short, qty=math.max(nz(qty), 1), stop=BBupper, oca_type=strategy.oca.cancel, comment="RSI_BB_S")
 else
     strategy.cancel("RSI_BB_S")
+    // Blocked reversal in "Both" mode: still exit the long.
+    if shortSignal and strategy.position_size > 0
+        strategy.close("RSI_BB_L", comment="RSI_BB_S_flat")
 
 // ---- Protective stops, anchored to the actual fill price ----
 if stopMode != "None"
