@@ -1,0 +1,75 @@
+//@version=6
+// Golden Cross (SMA 50/200, long only) for MGC, adapted from ChartArt's
+// "CA_-_Golden_Cross_Strat". Intended for a 45-minute chart.
+//
+// Changes from the original:
+//   1. Realistic costs: $1/contract/side commission + 1 tick slippage
+//      (the original backtested with zero costs).
+//   2. Daily trend filter (on by default): a golden cross is only taken if
+//      the previous completed daily close is above its N-day SMA. Uses the
+//      prior day only, so it does not repaint.
+//   3. Optional ADX filter (off by default -- helped at 20 but not at 15 or
+//      25, so treat it as unproven).
+//   4. Optional sizing as a % of equity, so results aren't dominated by the
+//      years when gold was priced highest.
+// Exits are unchanged: close on the death cross. Stops, trailing stops,
+// take-profits and a short side were all tested and made it worse.
+//
+// Python check on GC 45m, 2016-2026 (PF 2016-21 / PF 2022-26, max DD):
+//   original              1.27 / 2.38, DD 14.6%
+//   daily > 100d SMA      1.36 / 3.07, DD  7.9%
+//   daily > 50d SMA       1.65 / 2.63, DD  7.0%
+// The filter cuts trades by ~40% and total return by ~25%; the gain is
+// smoother equity, not more profit.
+
+strategy("Golden Cross MGC", shorttitle="GoldenCross_MGC", overlay=true,
+     initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, commission_value=1.0,
+     slippage=1)
+
+// ---- Inputs
+fastLen  = input.int(50, "Fast SMA", minval=1, group="Signal")
+slowLen  = input.int(200, "Slow SMA", minval=2, group="Signal")
+
+useDaily = input.bool(true, "Daily trend filter", group="Filters")
+dailyLen = input.int(100, "Daily SMA length", minval=2, group="Filters")
+useAdx   = input.bool(false, "ADX filter", group="Filters")
+adxLen   = input.int(14, "ADX length", minval=1, group="Filters")
+adxMin   = input.float(20, "Min ADX", minval=0, group="Filters")
+
+sizing   = input.string("Fixed contracts", "Sizing", options=["Fixed contracts", "% of equity"], group="Position sizing")
+fixedQty = input.int(1, "Contracts (fixed)", minval=1, group="Position sizing")
+pctEq    = input.float(50, "Notional % of equity", minval=1, group="Position sizing")
+
+showFast = input.bool(true, "Show fast SMA", group="Display")
+showSlow = input.bool(true, "Show slow SMA", group="Display")
+barCol   = input.bool(true, "Color bars", group="Display")
+
+// ---- Calculation
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+bullCross = ta.crossover(fast, slow)
+bearCross = ta.crossunder(fast, slow)
+
+dailyOk = request.security(syminfo.tickerid, "D", close[1] > ta.sma(close, dailyLen)[1], lookahead=barmerge.lookahead_on)
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+
+filtersOk = (not useDaily or dailyOk) and (not useAdx or adxVal > adxMin)
+qty = sizing == "Fixed contracts" ? fixedQty : math.max(1, math.floor(strategy.equity * pctEq / 100 / (close * syminfo.pointvalue)))
+
+// ---- Strategy
+enterLong = bullCross and filtersOk and strategy.position_size == 0
+if enterLong
+    strategy.entry("long", strategy.long, qty=qty)
+if bearCross
+    strategy.close("long")
+
+// ---- Display
+trendCol = close > fast and close > slow and ta.change(slow) > 0 ? color.green : close < fast and close < slow and ta.change(slow) < 0 ? color.red : color.blue
+barcolor(barCol ? trendCol : na)
+plot(showFast ? fast : na, "Fast SMA", color=ta.change(fast) > 0 ? color.green : color.red, linewidth=2)
+plot(showSlow ? slow : na, "Slow SMA", color=ta.change(slow) > 0 ? color.green : color.red, linewidth=3)
+plotshape(bullCross and not filtersOk, "Filtered cross", shape.xcross, location.belowbar, color.gray, size=size.tiny)
+
+alertcondition(enterLong, "Golden Cross entry (filtered)", "Golden Cross long entry")
+alertcondition(bearCross, "Death Cross exit", "Golden Cross exit")
