@@ -1,0 +1,42 @@
+date,account,event,amount,balance,requested
+2025-10-17,1,Evaluation bought,-345.0,0.0,
+2025-10-21,1,Evaluation passed,0.0,17189.5,
+2025-11-06,1,Payout,1956.15,2173.5,2173.5
+2025-11-13,1,Funded account blown,0.0,2550.5,
+2025-11-14,2,Evaluation bought,-345.0,0.0,
+2025-11-19,2,Evaluation failed,0.0,-2177.0,
+2025-11-20,3,Evaluation bought,-345.0,0.0,
+2025-12-02,3,Evaluation failed,0.0,-5510.0,
+2025-12-03,4,Evaluation bought,-345.0,0.0,
+2025-12-12,4,Evaluation failed,0.0,-5143.0,
+2025-12-15,5,Evaluation bought,-345.0,0.0,
+2025-12-18,5,Evaluation failed,0.0,-4685.0,
+2025-12-19,6,Evaluation bought,-345.0,0.0,
+2026-01-21,6,Evaluation failed,0.0,7901.5,
+2026-01-22,7,Evaluation bought,-345.0,0.0,
+2026-02-03,7,Evaluation passed,0.0,20282.5,
+2026-02-17,7,Payout,2290.5,2545.0,2545.0
+2026-02-24,7,Payout,2700.0,5594.0,3000.0
+2026-03-10,7,Payout,2700.0,11880.5,3000.0
+2026-03-26,7,Payout,2700.0,17254.5,3000.0
+2026-04-03,7,Payout,2700.0,18656.5,3000.0
+2026-04-03,7,Account closed after last payout,0.0,18656.5,
+2026-04-06,8,Evaluation bought,-345.0,0.0,
+2026-04-24,8,Evaluation failed,0.0,1005.5,
+2026-04-27,9,Evaluation bought,-345.0,0.0,
+2026-05-06,9,Evaluation passed,0.0,9966.5,
+2026-05-18,9,Payout,2244.6,2494.0,2494.0
+2026-05-29,9,Payout,2246.18,2495.75,2495.75
+2026-06-30,9,Payout,2700.0,8623.25,3000.0
+2026-07-13,9,Payout,2700.0,8321.25,3000.0
+2026-08-04,9,Payout,2700.0,12720.75,3000.0
+2026-08-04,9,Account closed after last payout,0.0,12720.75,
+2026-08-05,10,Evaluation bought,-345.0,0.0,
+2026-08-13,10,Evaluation passed,0.0,10479.5,
+2026-08-26,10,Payout,2281.95,2535.5,2535.5
+2026-09-01,10,Funded account blown,0.0,2914.5,
+2026-09-02,11,Evaluation bought,-345.0,0.0,
+2026-09-11,11,Evaluation failed,0.0,-1475.0,
+2026-09-14,12,Evaluation bought,-345.0,0.0,
+2026-10-05,12,Evaluation failed,0.0,3777.0,
+2026-10-06,13,Evaluation bought,-345.0,0.0,

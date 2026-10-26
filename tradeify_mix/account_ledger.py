@@ -1,7 +1,7 @@
 """One Tradeify Growth 50K account, the user's own sizes: a real-order replay with every trade, evaluation and payout,
 plus simulated-year statistics, risk scenarios and strategy combinations at the same sizes.
 
-  python -m tradeify_mix.account_ledger        # -> results/account/*.csv
+  python -m tradeify_mix.account_ledger [growth50|lucid150]   # -> results/account*/ *.csv
 
 Sizes: eval Saty 3 MNQ -> funded Saty 2 MNQ; Opening Drive 1 MNQ (fixed contracts: each Opening Drive trade's P&L per
 contract from the combo list); Halyard 2 MNQ; Gold Breakout 1 MGC. Rules: compare.PLANS["Growth 50K"]. The replay
@@ -15,10 +15,20 @@ import pandas as pd
 from tradeify_mix import compare as C
 from tradeify_mix.risk_year import transform
 
+PRESETS = {
+    "growth50": ("Growth 50K", dict(S=3, OD=1, H=2, G=1), dict(S=2, OD=1, H=2, G=1), "account"),
+    "lucid150": ("LucidFlex 150K", dict(S=9, OD=2, H=4, G=4), dict(S=7, OD=2, H=4, G=3), "account_lucid150"),
+}
 OUT = C.RESULTS / "account"
 R = C.PLANS["Growth 50K"]
 EVAL = dict(S=3, OD=1, H=2, G=1)
 FUNDED = dict(S=2, OD=1, H=2, G=1)
+
+
+def configure(preset):
+    global OUT, R, EVAL, FUNDED
+    plan, EVAL, FUNDED, sub = PRESETS[preset]
+    R = C.PLANS[plan]; OUT = C.RESULTS / sub
 NAMES = {"S": "Saty", "OD": "Opening Drive", "H": "Halyard", "G": "Gold Breakout"}
 REPLAY = ("2025-10-17", "2026-10-16")
 FULL = ("2023-11-01", "2026-10-16")
@@ -66,9 +76,12 @@ def replay(L, start, end):
             event_rows.append(dict(date=d.date(), account=acct, event="Evaluation bought", amount=-R["fee"], balance=0.0))
         e = mode == 1
         P = Pe if e else Pf
-        tot, mn = C.day_dll(P[i:i + 1], R["dll"]); tot, mn = float(tot[0]), float(mn[0])
         raw = float(P[i, -1])
-        dll_hit = bool(P[i].min() <= -R["dll"])
+        if R["dll"]:
+            tot, mn = C.day_dll(P[i:i + 1], R["dll"]); tot, mn = float(tot[0]), float(mn[0])
+            dll_hit = bool(P[i].min() <= -R["dll"])
+        else:
+            tot, mn, dll_hit = raw, float(P[i].min()), False
         tr = (te if e else tf); tr = tr[tr.day == d]
         phase = "Evaluation" if e else "Funded"
         for _, r in tr.sort_values("entry").iterrows():
@@ -106,6 +119,14 @@ def replay(L, start, end):
                                        balance=round(bal - amt, 2), requested=round(amt, 2)))
                 bal -= amt; npay += 1; wins = 0; best = 0.0; since = 0.0
                 if R["lock_on_pay"]: locked = True
+                if R.get("max_payouts") and npay >= R["max_payouts"]:
+                    event = "Payout; account moves to live review"
+                    event_rows.append(dict(date=d.date(), account=acct, event="Account closed after last payout", amount=0.0,
+                                           balance=round(bal, 2)))
+                    day_rows.append(dict(date=d.date(), account=acct, phase=phase, trades=len(tr), day_pnl=round(tot, 2),
+                                         raw_pnl=round(raw, 2), dll_hit=dll_hit, balance=round(bal, 2), floor=round(floor, 2), event=event))
+                    mode = 0
+                    continue
         day_rows.append(dict(date=d.date(), account=acct, phase=phase, trades=len(tr), day_pnl=round(tot, 2), raw_pnl=round(raw, 2),
                              dll_hit=dll_hit, balance=round(bal, 2), floor=round(floor, 2), event=event))
     return pd.DataFrame(trade_rows), pd.DataFrame(day_rows), pd.DataFrame(event_rows)
@@ -129,7 +150,8 @@ def summarize(net, cash, st):
                 outlay_median=round(np.median(outlay)), outlay_p90=round(np.percentile(outlay, 90)))
 
 
-def main():
+def main(preset="growth50"):
+    configure(preset)
     OUT.mkdir(parents=True, exist_ok=True)
     L0 = C.load_all(); L = with_fixed_od(L0)
 
@@ -229,4 +251,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1] if len(sys.argv) > 1 else "growth50")

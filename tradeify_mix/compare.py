@@ -176,6 +176,13 @@ PLANS = {
     "Select Flex 150K": dict(fee=369, target=9000, dd=4500, dll=None, ev_cons=0.40, ev_days=3, lock=4600,
                              lock_on_pay=True, pay_bal=0, keep=0, day_min=250, cons=1.0, frac=0.5, min_pay=500,
                              caps=(4500,)),
+    # LucidFlex 150K (third-party summaries, Oct 2026, as in AI-personal-hedge-fund scripts/lucid_fleet.py): no daily
+    # loss limit, 50% eval consistency, 2 days minimum; funded floor locks at +$100 at +$4,600 or on the first payout;
+    # payouts every 5 days of $250+, up to 50% of profit, capped at $3,000; the 5th payout ends the funded account
+    # (it moves to a live review, not modelled), so a new evaluation is bought.
+    "LucidFlex 150K": dict(fee=345, target=9000, dd=4500, dll=None, ev_cons=0.50, ev_days=2, lock=4600,
+                           lock_on_pay=True, pay_bal=0, keep=0, day_min=250, cons=1.0, frac=0.5, min_pay=500,
+                           caps=(3000,), max_payouts=5),
 }
 
 
@@ -188,6 +195,7 @@ def run_plan(Pe, Pf, ix, R, days=250, return_net=False, return_cash=False):
     npay = np.zeros(n, int); fees = np.zeros(n); paid = np.zeros(n); evals = np.zeros(n, int)
     first = np.full(n, np.nan); since = np.zeros(n); nd = np.zeros(n, int); locked = np.zeros(n, bool)
     caps = np.array(R["caps"], float)
+    tpay = np.zeros(n, int)          # payouts over the whole year, across accounts
     for k in range(days):
         new = mode == 0; fees[new] += R["fee"]; evals += new; mode[new] = 1
         if return_cash: cash[new, k] -= R["fee"]
@@ -213,11 +221,14 @@ def run_plan(Pe, Pf, ix, R, days=250, return_net=False, return_cash=False):
             & (amt >= R["min_pay"])
         paid[go] += amt[go] * SPLIT; npay += go; first = np.where(go & np.isnan(first), k + 1, first)
         if return_cash: cash[go, k] += amt[go] * SPLIT
+        tpay += go
         bal[go] -= amt[go]; wins[go] = 0; best[go] = 0; since[go] = 0
         if R["lock_on_pay"]: locked |= go
+        if R.get("max_payouts"):
+            mode[go & (npay >= R["max_payouts"])] = 0
     net = paid - fees
     out = dict(net=net.mean(), p10=np.percentile(net, 10), p90=np.percentile(net, 90), evals=evals.mean(),
-               fees=fees.mean(), payouts=npay.mean(),
+               fees=fees.mean(), payouts=tpay.mean(),
                first_pay=np.nanmedian(np.where(np.isnan(first), 999, first)), any_pay=(~np.isnan(first)).mean())
     if return_cash:
         return out, cash

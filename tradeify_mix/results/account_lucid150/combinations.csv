@@ -1,0 +1,16 @@
+strategies,count,net_avg,net_median,net_p10,loss_year_share,net_avg_without_2026,loss_year_share_without_2026
+Saty + Opening Drive + Halyard + Gold Breakout,4,11189,11085,-335,0.109,5707,0.259
+Saty + Halyard + Gold Breakout,3,11071,10864,-489,0.112,5368,0.274
+Saty + Gold Breakout,2,10217,10312,-597,0.118,6036,0.248
+Saty + Opening Drive + Gold Breakout,3,9603,9705,-1298,0.141,6223,0.236
+Saty + Halyard,2,7558,8464,-500,0.119,3531,0.296
+Saty + Opening Drive + Halyard,3,7510,8075,-597,0.129,4015,0.283
+Saty + Opening Drive,2,5824,5850,-1380,0.174,4820,0.201
+Opening Drive + Halyard + Gold Breakout,3,5068,4494,-2813,0.268,480,0.587
+Halyard + Gold Breakout,2,4852,4169,-2820,0.281,78,0.626
+Saty,1,4100,4365,-1725,0.192,2998,0.257
+Opening Drive + Gold Breakout,2,3648,2744,-3105,0.339,728,0.548
+Gold Breakout,1,3636,2703,-3071,0.332,263,0.604
+Opening Drive + Halyard,2,-35,-345,-690,0.782,-618,0.977
+Halyard,1,-190,-345,-690,0.86,-604,0.998
+Opening Drive,1,-407,-345,-690,0.996,-369,1.0
