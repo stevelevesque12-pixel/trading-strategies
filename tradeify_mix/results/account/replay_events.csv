@@ -1,0 +1,17 @@
+date,account,event,amount,balance,requested
+2025-10-17,1,Evaluation bought,-145.0,0.0,
+2025-10-21,1,Evaluation passed,0.0,4585.0,
+2025-11-13,1,Funded account blown,0.0,850.0,
+2025-11-14,2,Evaluation bought,-145.0,0.0,
+2025-11-24,2,Evaluation failed,0.0,-1315.0,
+2025-11-25,3,Evaluation bought,-145.0,0.0,
+2025-12-12,3,Evaluation failed,0.0,-2045.0,
+2025-12-15,4,Evaluation bought,-145.0,0.0,
+2026-02-02,4,Evaluation passed,0.0,3553.5,
+2026-02-25,4,Payout,1350.0,5074.5,1500.0
+2026-03-30,4,Payout,1800.0,10089.0,2000.0
+2026-05-05,4,Payout,2250.0,10466.0,2500.0
+2026-05-19,4,Payout,2700.0,9776.0,3000.0
+2026-08-04,4,Payout,2700.0,13712.0,3000.0
+2026-08-18,4,Payout,2700.0,14719.0,3000.0
+2026-10-16,4,Payout,2700.0,15763.5,3000.0

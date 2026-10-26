@@ -1,0 +1,58 @@
+window,percentile,net
+3 years (Nov 2023 - Oct 2026),5,-870
+3 years (Nov 2023 - Oct 2026),10,-51
+3 years (Nov 2023 - Oct 2026),15,624
+3 years (Nov 2023 - Oct 2026),20,1205
+3 years (Nov 2023 - Oct 2026),25,1994
+3 years (Nov 2023 - Oct 2026),30,2404
+3 years (Nov 2023 - Oct 2026),35,2715
+3 years (Nov 2023 - Oct 2026),40,3005
+3 years (Nov 2023 - Oct 2026),45,4336
+3 years (Nov 2023 - Oct 2026),50,4675
+3 years (Nov 2023 - Oct 2026),55,5082
+3 years (Nov 2023 - Oct 2026),60,5255
+3 years (Nov 2023 - Oct 2026),65,7052
+3 years (Nov 2023 - Oct 2026),70,7434
+3 years (Nov 2023 - Oct 2026),75,7810
+3 years (Nov 2023 - Oct 2026),80,9504
+3 years (Nov 2023 - Oct 2026),85,10204
+3 years (Nov 2023 - Oct 2026),90,10655
+3 years (Nov 2023 - Oct 2026),95,13222
+Without 2026 (Nov 2023 - Dec 2025),5,-1167
+Without 2026 (Nov 2023 - Dec 2025),10,-1015
+Without 2026 (Nov 2023 - Dec 2025),15,-1015
+Without 2026 (Nov 2023 - Dec 2025),20,-870
+Without 2026 (Nov 2023 - Dec 2025),25,-688
+Without 2026 (Nov 2023 - Dec 2025),30,-435
+Without 2026 (Nov 2023 - Dec 2025),35,-64
+Without 2026 (Nov 2023 - Dec 2025),40,171
+Without 2026 (Nov 2023 - Dec 2025),45,456
+Without 2026 (Nov 2023 - Dec 2025),50,770
+Without 2026 (Nov 2023 - Dec 2025),55,1130
+Without 2026 (Nov 2023 - Dec 2025),60,1800
+Without 2026 (Nov 2023 - Dec 2025),65,2153
+Without 2026 (Nov 2023 - Dec 2025),70,2450
+Without 2026 (Nov 2023 - Dec 2025),75,3005
+Without 2026 (Nov 2023 - Dec 2025),80,4303
+Without 2026 (Nov 2023 - Dec 2025),85,4752
+Without 2026 (Nov 2023 - Dec 2025),90,6254
+Without 2026 (Nov 2023 - Dec 2025),95,7618
+Last 12 months,5,4530
+Last 12 months,10,5825
+Last 12 months,15,7520
+Last 12 months,20,7955
+Last 12 months,25,10063
+Last 12 months,30,10510
+Last 12 months,35,10655
+Last 12 months,40,12691
+Last 12 months,45,13086
+Last 12 months,50,13355
+Last 12 months,55,15016
+Last 12 months,60,15571
+Last 12 months,65,15910
+Last 12 months,70,16055
+Last 12 months,75,18038
+Last 12 months,80,18610
+Last 12 months,85,18755
+Last 12 months,90,21310
+Last 12 months,95,24010
