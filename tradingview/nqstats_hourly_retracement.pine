@@ -17,9 +17,18 @@
 // Stop = sweep extreme (lowest low / highest high since the breach), target =
 // hour open. One trade per hour by default (see "Max trades per hour"); an
 // open trade is closed at the end of the hour.
+//
+// History: TradingView keeps at most 500 lines, 500 labels and 500 boxes per
+// script and deletes the oldest beyond that. To keep the past visible, the
+// hour open, breach markers and trade risk/reward zones are plots (no limit).
+// Only the previous hour high/low lines, the text labels and the iFVG boxes are
+// drawing objects, and those are budgeted to last as long as possible.
 
+// Commission defaults to Tradeify's NQ rate ($5.76 round trip = $2.88 per side);
+// change it in Properties for micros. Slippage is 1 tick on market/stop fills.
 strategy("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500,
-     process_orders_on_close=true, default_qty_type=strategy.fixed, default_qty_value=1, initial_capital=50000)
+     process_orders_on_close=true, default_qty_type=strategy.fixed, default_qty_value=1, initial_capital=50000,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.88, slippage=1)
 
 // ---- Inputs ----
 tz          = input.string("America/New_York", "Timezone")
@@ -39,6 +48,8 @@ maxFvgAge     = input.int(0, "Drop FVGs older than (bars, 0 = never)", minval=0)
 bullIfvgColor = input.color(color.orange, "Bullish iFVG color")
 bearIfvgColor = input.color(color.purple, "Bearish iFVG color")
 closeAtHourEnd = input.bool(true, "Close open trade at end of hour")
+ifvgScope = input.string("Session hours only", "Draw iFVGs", options=["Session hours only", "All hours"],
+     tooltip="Boxes are capped at 500 by TradingView. Session-only keeps about 3x more history visible.")
 maxTradesPerHour = input.int(1, "Max trades per hour", minval=1)
 
 HOUR_MS = 60 * 60 * 1000
@@ -86,10 +97,19 @@ else
 var float hourOpen = na
 if newHour
     hourOpen := open
-if newHour and inSession
-    line.new(hourStart, open, hourStart + HOUR_MS, open, xloc=xloc.bar_time, color=openColor, width=openWidth)
-    if showLabels
-        textAbove(hourStart + HOUR_MS / 2, open, "hour open price", openColor)
+// Hiding the segment into each hour's first bar stops consecutive hours from
+// being joined by a vertical step.
+plot(inSession ? hourOpen : na, "Hour open", color=newHour ? na : openColor, linewidth=openWidth, style=plot.style_linebr)
+
+// The plot only reaches the latest bar, so one reusable line extends the
+// current hour's open to the end of the hour.
+var line liveOpen = na
+if barstate.islast
+    line.delete(liveOpen)
+    if inSession
+        liveOpen := line.new(time, hourOpen, hourStart + HOUR_MS, hourOpen, xloc=xloc.bar_time, color=openColor, width=openWidth)
+if newHour and inSession and showLabels
+    textAbove(hourStart + HOUR_MS / 2, open, "hour open price", openColor)
 
 // ---- First breach of the previous hour high/low ----
 // A breach is a trade at least breachTicks beyond the level. Only the first
@@ -119,12 +139,16 @@ if hiBreach or loBreach
     // Both levels on one bar: direction unknown, so no trade this hour.
     breachDir := hiBreach and loBreach ? 0 : hiBreach ? -1 : 1
     sweepExt := hiBreach ? high : low
-    seg = "S" + str.tostring(math.floor(minute(time, tz) / 20) + 1)
-    // If one 1m bar takes out both levels the order is unknown, so both get marked.
-    if hiBreach
-        label.new(bar_index, high, seg, style=label.style_label_down, color=hiBreachColor, textcolor=color.white, size=size.small)
-    if loBreach
-        label.new(bar_index, low, seg, style=label.style_label_up, color=loBreachColor, textcolor=color.white, size=size.small)
+
+// Markers are plotshapes, so they never get deleted. If one bar takes out
+// both levels the order is unknown, so both get marked.
+seg = math.floor(minute(time, tz) / 20) + 1
+plotshape(hiBreach and seg == 1, "High breach S1", shape.labeldown, location.abovebar, hiBreachColor, text="S1", textcolor=color.white, size=size.tiny)
+plotshape(hiBreach and seg == 2, "High breach S2", shape.labeldown, location.abovebar, hiBreachColor, text="S2", textcolor=color.white, size=size.tiny)
+plotshape(hiBreach and seg == 3, "High breach S3", shape.labeldown, location.abovebar, hiBreachColor, text="S3", textcolor=color.white, size=size.tiny)
+plotshape(loBreach and seg == 1, "Low breach S1", shape.labelup, location.belowbar, loBreachColor, text="S1", textcolor=color.white, size=size.tiny)
+plotshape(loBreach and seg == 2, "Low breach S2", shape.labelup, location.belowbar, loBreachColor, text="S2", textcolor=color.white, size=size.tiny)
+plotshape(loBreach and seg == 3, "Low breach S3", shape.labelup, location.belowbar, loBreachColor, text="S3", textcolor=color.white, size=size.tiny)
 
 // ---- Inversed FVGs ----
 type FVG
@@ -139,10 +163,12 @@ var fvgs = array.new<FVG>()
 drawIfvg(FVG f, col) =>
     box.new(f.startBar, f.top, bar_index, f.bot, border_color=col, border_width=1,
          bgcolor=color.new(col, 60), text="iFVG", text_size=size.small, text_color=color.black)
+    // Midline as a flat dashed box: lines are kept for the previous hour high/low.
     mid = (f.top + f.bot) / 2
-    line.new(f.startBar, mid, bar_index, mid, color=color.black, style=line.style_dashed)
+    box.new(f.startBar, mid, bar_index, mid, border_color=color.black, border_style=line.style_dashed, bgcolor=na)
 
 // Inversions of existing FVGs on this bar's close. Each FVG inverts at most once.
+drawThisBar = ifvgScope == "All hours" or inSession
 bullIfvg = false
 bearIfvg = false
 if array.size(fvgs) > 0
@@ -151,11 +177,13 @@ if array.size(fvgs) > 0
         if maxFvgAge > 0 and bar_index - f.startBar > maxFvgAge
             array.remove(fvgs, i)
         else if f.bearish and close > f.top
-            drawIfvg(f, bullIfvgColor)
+            if drawThisBar
+                drawIfvg(f, bullIfvgColor)
             bullIfvg := true
             array.remove(fvgs, i)
         else if not f.bearish and close < f.bot
-            drawIfvg(f, bearIfvgColor)
+            if drawThisBar
+                drawIfvg(f, bearIfvgColor)
             bearIfvg := true
             array.remove(fvgs, i)
 
@@ -179,8 +207,9 @@ canEnter = inSession and tradesThisHour < maxTradesPerHour and strategy.position
 longSignal  = canEnter and breachDir == 1 and bullIfvg and close < hourOpen and close > sweepExt
 shortSignal = canEnter and breachDir == -1 and bearIfvg and close > hourOpen and close < sweepExt
 
-var box tpBox = na
-var box slBox = na
+var float tEntry = na
+var float tStop = na
+var float tTarget = na
 
 if longSignal or shortSignal
     tradesThisHour += 1
@@ -191,12 +220,26 @@ if longSignal or shortSignal
     else
         strategy.entry("Short", strategy.short)
         strategy.exit("Short exit", "Short", limit=hourOpen, stop=stopPx)
-    tpBox := box.new(bar_index, hourOpen, bar_index + 1, close, border_color=na, bgcolor=color.new(color.green, 70))
-    slBox := box.new(bar_index, close, bar_index + 1, stopPx, border_color=na, bgcolor=color.new(color.red, 70))
-else if strategy.position_size != 0 or (strategy.closedtrades > 0 and strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1) == bar_index)
-    // Stretch the risk/reward boxes until the trade closes.
-    box.set_right(tpBox, bar_index)
-    box.set_right(slBox, bar_index)
+    tEntry := close
+    tStop := stopPx
+    tTarget := hourOpen
 
 if closeAtHourEnd and lastBarOfHour and strategy.position_size != 0
     strategy.close_all(comment="Hour end")
+
+// Risk/reward zones as plots so every past trade stays visible. They run from
+// the entry bar to the exit bar.
+inTrade = not na(tEntry)
+pEntry  = plot(inTrade ? tEntry : na, "Trade entry", color=color.gray, style=plot.style_linebr)
+pTarget = plot(inTrade ? tTarget : na, "Trade target", color=color.green, style=plot.style_linebr)
+pStop   = plot(inTrade ? tStop : na, "Trade stop", color=color.red, style=plot.style_linebr)
+fill(pEntry, pTarget, color.new(color.green, 70), "Reward zone")
+fill(pEntry, pStop, color.new(color.red, 70), "Risk zone")
+
+// Clear after plotting so the exit bar is still included.
+justEntered = longSignal or shortSignal
+hourEndExit = closeAtHourEnd and lastBarOfHour
+if inTrade and not justEntered and (strategy.position_size == 0 or hourEndExit)
+    tEntry := na
+    tStop := na
+    tTarget := na
