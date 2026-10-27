@@ -61,6 +61,43 @@ Code layout:
 - `webhook/` — a self-hosted alternative to TradersPost (`webhook/server.py` talks to Tradovate directly), kept for if/when direct Tradovate API credentials become available. See the "Alternative" section at the bottom of TRADINGVIEW_WEBHOOK.md.
 - `tests/` — unit tests for the strategy logic, backtest smoke tests, and webhook sizing/routing tests.
 
+## London range strategy (`london_range/`)
+
+A third, separate strategy. All times are New York time:
+
+1. Mark the high and low of the 20:00 to 02:00 range.
+2. After 02:00, wait for a 5m candle to **close** beyond the range, with that close on the
+   breakout side of both the 50 and 200 EMAs (5m closes). No EMA alignment, no entry.
+3. Rest a limit order 12.5% of the range back inside the range. Stop = the opposite boundary,
+   target = 0.5R.
+
+The source setup leaves some things open, so these are assumptions you can change with flags:
+only the first breakout close of the day counts (`--any-breakout` changes that); "aligned" means
+the close is beyond both EMAs (`--require-ema-stack` also requires EMA50 beyond EMA200); an
+unfilled order is cancelled at 12:00 (`--no-entry-after`); open positions are flattened at 15:55.
+
+```
+python -m london_range.backtest --data sample_data/real_multi_instrument/real_nq_1m_2022-12-26_2025-12-11.parquet --symbol NQ
+```
+
+Pass 1m data when you have it. Signals are built from 5m bars, but fills and exits run on the
+input bars, so 1m data decides stop-versus-target order inside each 5m bar.
+
+**Backtest results (no costs, touch fills):** a 0.5R target needs a 66.7% win rate to break even.
+
+| Data | Trades | Win % | Net R |
+|---|---|---|---|
+| NQ 1m, Dec 2022 to Dec 2025 | 591 | 63.1 | -29.4 |
+| ...2023 / 2024 / 2025 | 198 / 198 / 194 | 61.6 / 61.1 / 66.5 | -14.0 / -16.5 / +0.6 |
+| MNQ 5m, May 14 to Aug 25 2026 | 61 | 73.8 | +6.1 |
+| MNQ 5m, Jul 12 to Aug 25 2026 | 28 | 82.1 | +6.3 |
+| MES 5m, May 14 to Aug 25 2026 | 61 | 75.4 | +8.1 |
+
+Over 3 years of NQ, none of the variants tried had positive expectancy: EMA stacking, any
+aligned breakout, entry cutoffs of 08:00, 09:30 and 15:00, and targets of 0.25R and 1R all lost
+between 18 and 33R. The positive 2026 numbers come from a single summer and are as small a
+sample as the original 29-trade test.
+
 ## Setup
 
 ```bash
