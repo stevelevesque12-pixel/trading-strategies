@@ -4,6 +4,8 @@
 //
 // Step 1: at the start of each NY-session hour, draw a horizontal line at the
 // hour's open price from the start of the hour to the end of the hour.
+// Step 2: at the same time, draw the previous hour's high and low as dotted
+// lines, each running from the bar that made it to the end of that hour.
 
 indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500)
 
@@ -13,17 +15,53 @@ firstHour   = input.int(8, "First hour (ET)", minval=0, maxval=23)
 lastHour    = input.int(15, "Last hour (ET)", minval=0, maxval=23)
 openColor   = input.color(color.black, "Hour open line color")
 openWidth   = input.int(1, "Hour open line width", minval=1, maxval=4)
-showLabel   = input.bool(true, "Show 'hour open price' label")
+prevColor   = input.color(color.black, "Previous hour high/low color")
+prevWidth   = input.int(1, "Previous hour high/low width", minval=1, maxval=4)
+showLabels  = input.bool(true, "Show line labels")
 
-// ---- Hour open line ----
+HOUR_MS = 60 * 60 * 1000
+
+textAbove(t, price, txt, col) =>
+    label.new(t, price, txt, xloc=xloc.bar_time, style=label.style_label_down,
+         color=color.new(color.white, 100), textcolor=col, size=size.small)
+
+// ---- Hour tracking ----
 h = hour(time, tz)
 newHour = h != hour(time[1], tz)
 inSession = h >= firstHour and h <= lastHour
+hourStart = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), h, 0)
 
+// Running high/low of the current hour and the bar times where they were made.
+var float curHi = na
+var float curLo = na
+var int curHiT = na
+var int curLoT = na
+var float prevHi = na
+var float prevLo = na
+
+if newHour
+    prevHi := curHi
+    prevLo := curLo
+    if inSession and not na(prevHi)
+        line.new(curHiT, prevHi, hourStart, prevHi, xloc=xloc.bar_time, color=prevColor, width=prevWidth, style=line.style_dotted)
+        line.new(curLoT, prevLo, hourStart, prevLo, xloc=xloc.bar_time, color=prevColor, width=prevWidth, style=line.style_dotted)
+        if showLabels
+            textAbove((curHiT + hourStart) / 2, prevHi, "previous hour high", prevColor)
+            textAbove((curLoT + hourStart) / 2, prevLo, "previous hour low", prevColor)
+    curHi := high
+    curLo := low
+    curHiT := time
+    curLoT := time
+else
+    if high > curHi
+        curHi := high
+        curHiT := time
+    if low < curLo
+        curLo := low
+        curLoT := time
+
+// ---- Hour open line ----
 if newHour and inSession
-    hourStart = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), h, 0)
-    hourEnd   = hourStart + 60 * 60 * 1000
-    line.new(hourStart, open, hourEnd, open, xloc=xloc.bar_time, color=openColor, width=openWidth)
-    if showLabel
-        label.new(hourStart + 30 * 60 * 1000, open, "hour open price", xloc=xloc.bar_time,
-             style=label.style_label_down, color=color.new(color.white, 100), textcolor=openColor, size=size.small)
+    line.new(hourStart, open, hourStart + HOUR_MS, open, xloc=xloc.bar_time, color=openColor, width=openWidth)
+    if showLabels
+        textAbove(hourStart + HOUR_MS / 2, open, "hour open price", openColor)
