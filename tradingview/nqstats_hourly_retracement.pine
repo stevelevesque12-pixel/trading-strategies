@@ -8,8 +8,12 @@
 // lines, each running from the bar that made it to the end of that hour.
 // Step 3: mark the first breach of the previous hour high/low with the
 // 20-minute segment it happened in (S1 = 00-20, S2 = 20-40, S3 = 40-60).
+// Step 4: mark every inversed FVG (iFVG) on the chart timeframe as it forms.
+// A bearish FVG becomes a bullish iFVG when a bar closes above its top; a
+// bullish FVG becomes a bearish iFVG when a bar closes below its bottom.
+// Entries (to come) are market orders on the iFVG bar's close.
 
-indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500)
+indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ---- Inputs ----
 tz          = input.string("America/New_York", "Timezone")
@@ -24,6 +28,10 @@ breachTicks = input.int(1, "Breach threshold (ticks)", minval=1)
 requireInside = input.bool(true, "Only hours that open inside the previous hour's range")
 hiBreachColor = input.color(color.red, "High breach marker color")
 loBreachColor = input.color(color.green, "Low breach marker color")
+minGapTicks   = input.int(1, "Min FVG size (ticks)", minval=1)
+maxFvgAge     = input.int(0, "Drop FVGs older than (bars, 0 = never)", minval=0)
+bullIfvgColor = input.color(color.orange, "Bullish iFVG color")
+bearIfvgColor = input.color(color.purple, "Bearish iFVG color")
 
 HOUR_MS = 60 * 60 * 1000
 
@@ -96,3 +104,46 @@ if hiBreach or loBreach
         label.new(bar_index, high, seg, style=label.style_label_down, color=hiBreachColor, textcolor=color.white, size=size.small)
     if loBreach
         label.new(bar_index, low, seg, style=label.style_label_up, color=loBreachColor, textcolor=color.white, size=size.small)
+
+// ---- Inversed FVGs ----
+type FVG
+    int startBar
+    float top
+    float bot
+    bool bearish
+
+MAX_TRACKED = 200
+var fvgs = array.new<FVG>()
+
+drawIfvg(FVG f, col) =>
+    box.new(f.startBar, f.top, bar_index, f.bot, border_color=col, border_width=1,
+         bgcolor=color.new(col, 60), text="iFVG", text_size=size.small, text_color=color.black)
+    mid = (f.top + f.bot) / 2
+    line.new(f.startBar, mid, bar_index, mid, color=color.black, style=line.style_dashed)
+
+// Inversions of existing FVGs on this bar's close. Each FVG inverts at most once.
+bullIfvg = false
+bearIfvg = false
+if array.size(fvgs) > 0
+    for i = array.size(fvgs) - 1 to 0
+        f = array.get(fvgs, i)
+        if maxFvgAge > 0 and bar_index - f.startBar > maxFvgAge
+            array.remove(fvgs, i)
+        else if f.bearish and close > f.top
+            drawIfvg(f, bullIfvgColor)
+            bullIfvg := true
+            array.remove(fvgs, i)
+        else if not f.bearish and close < f.bot
+            drawIfvg(f, bearIfvgColor)
+            bearIfvg := true
+            array.remove(fvgs, i)
+
+// New 3-bar FVGs, anchored on the middle bar.
+minGap = minGapTicks * syminfo.mintick
+if bar_index >= 2
+    if low[2] - high >= minGap
+        array.push(fvgs, FVG.new(bar_index - 1, low[2], high, true))
+    if low - high[2] >= minGap
+        array.push(fvgs, FVG.new(bar_index - 1, low, high[2], false))
+    while array.size(fvgs) > MAX_TRACKED
+        array.shift(fvgs)
