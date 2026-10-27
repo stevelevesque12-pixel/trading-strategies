@@ -1,0 +1,4 @@
+window,net_avg,net_median,net_p10,net_p90,loss_year_share,evals,eval_fees,payouts,paid_within_year,first_payout_month,outlay_median,outlay_p90
+3 years (Nov 2023 - Oct 2026),16476,12363,-1780,41252,0.157,7.3,2685,5.8,0.945,3.6,1107,3321
+Without 2026 (Nov 2023 - Dec 2025),5850,2544,-3533,20597,0.368,8.0,2955,3.1,0.829,5.4,1476,3690
+Last 12 months,47808,50754,12023,76212,0.019,5.7,2107,13.0,0.995,2.1,1088,2583

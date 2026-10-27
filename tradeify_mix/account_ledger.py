@@ -1,7 +1,7 @@
 """One Tradeify Growth 50K account, the user's own sizes: a real-order replay with every trade, evaluation and payout,
 plus simulated-year statistics, risk scenarios and strategy combinations at the same sizes.
 
-  python -m tradeify_mix.account_ledger [growth50|lucid150]   # -> results/account*/ *.csv
+  python -m tradeify_mix.account_ledger [growth50|lucid150|selectflex150]   # -> results/account*/ *.csv
 
 Sizes: eval Saty 3 MNQ -> funded Saty 2 MNQ; Opening Drive 1 MNQ (fixed contracts: each Opening Drive trade's P&L per
 contract from the combo list); Halyard 2 MNQ; Gold Breakout 1 MGC. Rules: compare.PLANS["Growth 50K"]. The replay
@@ -18,6 +18,7 @@ from tradeify_mix.risk_year import transform
 PRESETS = {
     "growth50": ("Growth 50K", dict(S=3, OD=1, H=2, G=1), dict(S=2, OD=1, H=2, G=1), "account"),
     "lucid150": ("LucidFlex 150K", dict(S=9, OD=2, H=4, G=4), dict(S=7, OD=2, H=4, G=3), "account_lucid150"),
+    "selectflex150": ("Select Flex 150K", dict(S=7, OD=2, H=6, G=3), dict(S=7, OD=2, H=6, G=3), "account_selectflex150"),
 }
 OUT = C.RESULTS / "account"
 R = C.PLANS["Growth 50K"]
