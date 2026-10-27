@@ -1,0 +1,29 @@
+//@version=6
+// NQStats Hourly Retracement (nqstats.com "Hour Stats", NY session 08:00-16:00 ET).
+// Built for a 1-minute chart.
+//
+// Step 1: at the start of each NY-session hour, draw a horizontal line at the
+// hour's open price from the start of the hour to the end of the hour.
+
+indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ---- Inputs ----
+tz          = input.string("America/New_York", "Timezone")
+firstHour   = input.int(8, "First hour (ET)", minval=0, maxval=23)
+lastHour    = input.int(15, "Last hour (ET)", minval=0, maxval=23)
+openColor   = input.color(color.black, "Hour open line color")
+openWidth   = input.int(1, "Hour open line width", minval=1, maxval=4)
+showLabel   = input.bool(true, "Show 'hour open price' label")
+
+// ---- Hour open line ----
+h = hour(time, tz)
+newHour = h != hour(time[1], tz)
+inSession = h >= firstHour and h <= lastHour
+
+if newHour and inSession
+    hourStart = timestamp(tz, year(time, tz), month(time, tz), dayofmonth(time, tz), h, 0)
+    hourEnd   = hourStart + 60 * 60 * 1000
+    line.new(hourStart, open, hourEnd, open, xloc=xloc.bar_time, color=openColor, width=openWidth)
+    if showLabel
+        label.new(hourStart + 30 * 60 * 1000, open, "hour open price", xloc=xloc.bar_time,
+             style=label.style_label_down, color=color.new(color.white, 100), textcolor=openColor, size=size.small)
