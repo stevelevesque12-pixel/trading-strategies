@@ -14,6 +14,9 @@
 // Step 5: trade it. After the first breach of the hour, the first iFVG
 // pointing back toward the hour open (bullish after a low breach, bearish
 // after a high breach) is entered with a market order on that bar's close.
+// An iFVG that formed before the sweep also counts: once price has swept
+// through it, a close back across it (above a bullish iFVG's top, below a
+// bearish iFVG's bottom) is an entry. Only the most recent iFVG is used.
 // Stop = sweep extreme (lowest low / highest high since the breach), target =
 // hour open. One trade per hour by default (see "Max trades per hour"); an
 // open trade is closed at the end of the hour. "Trade S1/S2/S3" choose which
@@ -191,6 +194,11 @@ drawIfvg(FVG f, col) =>
 
 // Inversions of existing FVGs on this bar's close. Each FVG inverts at most once.
 drawThisBar = ifvgScope == "All hours" or inSession
+// Most recent iFVG of each direction, for re-reclaims after the sweep.
+var float lastBullTop = na
+var int lastBullBar = na
+var float lastBearBot = na
+var int lastBearBar = na
 bullIfvg = false
 bearIfvg = false
 if array.size(fvgs) > 0
@@ -202,12 +210,22 @@ if array.size(fvgs) > 0
             if drawThisBar
                 drawIfvg(f, bullIfvgColor)
             bullIfvg := true
+            lastBullTop := f.top
+            lastBullBar := bar_index
             array.remove(fvgs, i)
         else if not f.bearish and close < f.bot
             if drawThisBar
                 drawIfvg(f, bearIfvgColor)
             bearIfvg := true
+            lastBearBot := f.bot
+            lastBearBar := bar_index
             array.remove(fvgs, i)
+
+// Close back across the most recent iFVG (which may predate the sweep).
+bullFresh = not na(lastBullTop) and (maxFvgAge == 0 or bar_index - lastBullBar <= maxFvgAge)
+bearFresh = not na(lastBearBot) and (maxFvgAge == 0 or bar_index - lastBearBar <= maxFvgAge)
+bullReclaim = bullFresh and close > lastBullTop and close[1] <= lastBullTop
+bearReclaim = bearFresh and close < lastBearBot and close[1] >= lastBearBot
 
 // New 3-bar FVGs, anchored on the middle bar.
 minGap = minGapTicks * syminfo.mintick
@@ -237,8 +255,8 @@ hourAllowed = switch h
     15 => trade15
     => false
 canEnter = inSession and hourAllowed and segAllowed and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
-longSignal  = canEnter and breachDir == 1 and bullIfvg and close < hourOpen and close > sweepExt
-shortSignal = canEnter and breachDir == -1 and bearIfvg and close > hourOpen and close < sweepExt
+longSignal  = canEnter and breachDir == 1 and (bullIfvg or bullReclaim) and close < hourOpen and close > sweepExt
+shortSignal = canEnter and breachDir == -1 and (bearIfvg or bearReclaim) and close > hourOpen and close < sweepExt
 
 var float tEntry = na
 var float tStop = na
