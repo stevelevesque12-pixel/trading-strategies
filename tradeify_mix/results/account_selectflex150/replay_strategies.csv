@@ -1,5 +1,4 @@
 strategy,trades,win_rate,avg_win,avg_loss,total_pnl,worst_trade
 Gold Breakout,243,0.56,1152.09,-954.03,54603.0,-1647.0
 Halyard,206,0.65,505.39,-608.5,23910.0,-2112.0
-Opening Drive,105,0.533,363.11,-438.96,-1175.0,-798.0
 Saty,30,0.833,2142.98,-1284.5,47152.0,-2786.0

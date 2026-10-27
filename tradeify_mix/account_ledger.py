@@ -18,7 +18,7 @@ from tradeify_mix.risk_year import transform
 PRESETS = {
     "growth50": ("Growth 50K", dict(S=3, OD=1, H=2, G=1), dict(S=2, OD=1, H=2, G=1), "account"),
     "lucid150": ("LucidFlex 150K", dict(S=9, OD=2, H=4, G=4), dict(S=7, OD=2, H=4, G=3), "account_lucid150"),
-    "selectflex150": ("Select Flex 150K", dict(S=7, OD=2, H=6, G=3), dict(S=7, OD=2, H=6, G=3), "account_selectflex150"),
+    "selectflex150": ("Select Flex 150K", dict(S=7, OD=0, H=6, G=3), dict(S=7, OD=0, H=6, G=3), "account_selectflex150"),
 }
 OUT = C.RESULTS / "account"
 R = C.PLANS["Growth 50K"]
@@ -226,9 +226,11 @@ def main(preset="growth50"):
 
     # 4) strategy combinations at these sizes
     cb = []
+    # a strategy the plan leaves out (size 0) is tested at a default size so the table shows what adding it would do
+    ce = {k: v or dict(S=3, OD=2, H=2, G=1)[k] for k, v in EVAL.items()}; cf = {k: v or ce[k] for k, v in FUNDED.items()}
     for mask in itertools.product((0, 1), repeat=4):
         if not any(mask): continue
-        e = {k: v * m for (k, v), m in zip(EVAL.items(), mask)}; f = {k: v * m for (k, v), m in zip(FUNDED.items(), mask)}
+        e = {k: v * m for (k, v), m in zip(ce.items(), mask)}; f = {k: v * m for (k, v), m in zip(cf.items(), mask)}
         st, cash = boot_stats(L, e, f, FULL, sims=2500); net = cash.sum(1)
         st2, cash2 = boot_stats(L, e, f, NO2026, sims=2500); net2 = cash2.sum(1)
         cb.append(dict(strategies=" + ".join(NAMES[k] for k, m in zip(EVAL, mask) if m), count=sum(mask),

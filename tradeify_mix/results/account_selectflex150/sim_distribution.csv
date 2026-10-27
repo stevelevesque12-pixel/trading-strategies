@@ -1,58 +1,58 @@
 window,percentile,net
-3 years (Nov 2023 - Oct 2026),5,-3321
-3 years (Nov 2023 - Oct 2026),10,-1780
-3 years (Nov 2023 - Oct 2026),15,-187
-3 years (Nov 2023 - Oct 2026),20,1098
-3 years (Nov 2023 - Oct 2026),25,2884
-3 years (Nov 2023 - Oct 2026),30,4577
-3 years (Nov 2023 - Oct 2026),35,6338
-3 years (Nov 2023 - Oct 2026),40,8252
-3 years (Nov 2023 - Oct 2026),45,10299
-3 years (Nov 2023 - Oct 2026),50,12363
-3 years (Nov 2023 - Oct 2026),55,14794
-3 years (Nov 2023 - Oct 2026),60,17486
-3 years (Nov 2023 - Oct 2026),65,20225
-3 years (Nov 2023 - Oct 2026),70,23400
-3 years (Nov 2023 - Oct 2026),75,26906
-3 years (Nov 2023 - Oct 2026),80,31135
-3 years (Nov 2023 - Oct 2026),85,35727
-3 years (Nov 2023 - Oct 2026),90,41252
-3 years (Nov 2023 - Oct 2026),95,49164
+3 years (Nov 2023 - Oct 2026),5,-3122
+3 years (Nov 2023 - Oct 2026),10,-1601
+3 years (Nov 2023 - Oct 2026),15,-199
+3 years (Nov 2023 - Oct 2026),20,1180
+3 years (Nov 2023 - Oct 2026),25,2787
+3 years (Nov 2023 - Oct 2026),30,4571
+3 years (Nov 2023 - Oct 2026),35,6512
+3 years (Nov 2023 - Oct 2026),40,8498
+3 years (Nov 2023 - Oct 2026),45,10506
+3 years (Nov 2023 - Oct 2026),50,12635
+3 years (Nov 2023 - Oct 2026),55,15137
+3 years (Nov 2023 - Oct 2026),60,17701
+3 years (Nov 2023 - Oct 2026),65,20907
+3 years (Nov 2023 - Oct 2026),70,24332
+3 years (Nov 2023 - Oct 2026),75,27596
+3 years (Nov 2023 - Oct 2026),80,31389
+3 years (Nov 2023 - Oct 2026),85,35528
+3 years (Nov 2023 - Oct 2026),90,41464
+3 years (Nov 2023 - Oct 2026),95,49485
 Without 2026 (Nov 2023 - Dec 2025),5,-4059
-Without 2026 (Nov 2023 - Dec 2025),10,-3533
+Without 2026 (Nov 2023 - Dec 2025),10,-3321
 Without 2026 (Nov 2023 - Dec 2025),15,-2952
-Without 2026 (Nov 2023 - Dec 2025),20,-2583
-Without 2026 (Nov 2023 - Dec 2025),25,-1736
-Without 2026 (Nov 2023 - Dec 2025),30,-975
-Without 2026 (Nov 2023 - Dec 2025),35,-264
-Without 2026 (Nov 2023 - Dec 2025),40,625
-Without 2026 (Nov 2023 - Dec 2025),45,1559
-Without 2026 (Nov 2023 - Dec 2025),50,2544
-Without 2026 (Nov 2023 - Dec 2025),55,3685
-Without 2026 (Nov 2023 - Dec 2025),60,4958
-Without 2026 (Nov 2023 - Dec 2025),65,6415
-Without 2026 (Nov 2023 - Dec 2025),70,8222
-Without 2026 (Nov 2023 - Dec 2025),75,10237
-Without 2026 (Nov 2023 - Dec 2025),80,12858
-Without 2026 (Nov 2023 - Dec 2025),85,16084
-Without 2026 (Nov 2023 - Dec 2025),90,20597
-Without 2026 (Nov 2023 - Dec 2025),95,27243
-Last 12 months,5,4995
-Last 12 months,10,12023
-Last 12 months,15,18755
-Last 12 months,20,25483
-Last 12 months,25,30872
-Last 12 months,30,36077
-Last 12 months,35,40577
-Last 12 months,40,44026
-Last 12 months,45,47289
-Last 12 months,50,50754
-Last 12 months,55,54022
-Last 12 months,60,56962
-Last 12 months,65,59915
-Last 12 months,70,63191
-Last 12 months,75,66286
-Last 12 months,80,68921
-Last 12 months,85,72162
-Last 12 months,90,76212
-Last 12 months,95,82601
+Without 2026 (Nov 2023 - Dec 2025),20,-2454
+Without 2026 (Nov 2023 - Dec 2025),25,-1715
+Without 2026 (Nov 2023 - Dec 2025),30,-1091
+Without 2026 (Nov 2023 - Dec 2025),35,-374
+Without 2026 (Nov 2023 - Dec 2025),40,411
+Without 2026 (Nov 2023 - Dec 2025),45,1247
+Without 2026 (Nov 2023 - Dec 2025),50,2280
+Without 2026 (Nov 2023 - Dec 2025),55,3431
+Without 2026 (Nov 2023 - Dec 2025),60,4754
+Without 2026 (Nov 2023 - Dec 2025),65,6239
+Without 2026 (Nov 2023 - Dec 2025),70,7745
+Without 2026 (Nov 2023 - Dec 2025),75,9574
+Without 2026 (Nov 2023 - Dec 2025),80,12196
+Without 2026 (Nov 2023 - Dec 2025),85,15272
+Without 2026 (Nov 2023 - Dec 2025),90,19981
+Without 2026 (Nov 2023 - Dec 2025),95,26680
+Last 12 months,5,6014
+Last 12 months,10,13702
+Last 12 months,15,20626
+Last 12 months,20,27899
+Last 12 months,25,33290
+Last 12 months,30,38356
+Last 12 months,35,43074
+Last 12 months,40,46184
+Last 12 months,45,49641
+Last 12 months,50,52827
+Last 12 months,55,56231
+Last 12 months,60,59428
+Last 12 months,65,62263
+Last 12 months,70,64855
+Last 12 months,75,67932
+Last 12 months,80,71089
+Last 12 months,85,74825
+Last 12 months,90,79096
+Last 12 months,95,84681
