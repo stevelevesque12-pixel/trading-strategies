@@ -46,7 +46,8 @@ requireInside = input.bool(true, "Only hours that open inside the previous hour'
 hiBreachColor = input.color(color.red, "High breach marker color")
 loBreachColor = input.color(color.green, "Low breach marker color")
 minGapTicks   = input.int(1, "Min FVG size (ticks)", minval=1)
-maxFvgAge     = input.int(0, "Drop FVGs older than (bars, 0 = never)", minval=0)
+maxFvgAge     = input.int(60, "Drop FVGs older than (bars, 0 = never)", minval=0,
+     tooltip="Old FVGs that invert much later draw boxes stretching across the chart. 60 bars = 1 hour on a 1m chart.")
 bullIfvgColor = input.color(color.orange, "Bullish iFVG color")
 bearIfvgColor = input.color(color.purple, "Bearish iFVG color")
 closeAtHourEnd = input.bool(true, "Close open trade at end of hour")
@@ -172,11 +173,12 @@ var fvgs = array.new<FVG>()
 
 drawIfvg(FVG f, col) =>
     // Anchored by time: bar_index anchors fail for FVGs more than 9,999 bars old.
-    box.new(f.startTime, f.top, time, f.bot, xloc=xloc.bar_time, border_color=col, border_width=1,
+    // The box ends at the close of the inversion (entry) bar and never extends.
+    box.new(f.startTime, f.top, time_close, f.bot, xloc=xloc.bar_time, border_color=col, border_width=1,
          bgcolor=color.new(col, 60), text="iFVG", text_size=size.small, text_color=color.black)
     // Midline as a flat dashed box: lines are kept for the previous hour high/low.
     mid = (f.top + f.bot) / 2
-    box.new(f.startTime, mid, time, mid, xloc=xloc.bar_time, border_color=color.black, border_style=line.style_dashed, bgcolor=na)
+    box.new(f.startTime, mid, time_close, mid, xloc=xloc.bar_time, border_color=color.black, border_style=line.style_dashed, bgcolor=na)
 
 // Inversions of existing FVGs on this bar's close. Each FVG inverts at most once.
 drawThisBar = ifvgScope == "All hours" or inSession
