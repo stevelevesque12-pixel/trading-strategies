@@ -80,8 +80,8 @@ if newHour
         line.new(curHiT, prevHi, hourStart, prevHi, xloc=xloc.bar_time, color=prevColor, width=prevWidth, style=line.style_dotted)
         line.new(curLoT, prevLo, hourStart, prevLo, xloc=xloc.bar_time, color=prevColor, width=prevWidth, style=line.style_dotted)
         if showLabels
-            textAbove((curHiT + hourStart) / 2, prevHi, "previous hour high", prevColor)
-            textAbove((curLoT + hourStart) / 2, prevLo, "previous hour low", prevColor)
+            textAbove(int((curHiT + hourStart) / 2), prevHi, "previous hour high", prevColor)
+            textAbove(int((curLoT + hourStart) / 2), prevLo, "previous hour low", prevColor)
     curHi := high
     curLo := low
     curHiT := time
@@ -110,7 +110,7 @@ if barstate.islast
     if inSession
         liveOpen := line.new(time, hourOpen, hourStart + HOUR_MS, hourOpen, xloc=xloc.bar_time, color=openColor, width=openWidth)
 if newHour and inSession and showLabels
-    textAbove(hourStart + HOUR_MS / 2, open, "hour open price", openColor)
+    textAbove(hourStart + int(HOUR_MS / 2), open, "hour open price", openColor)
 
 // ---- First breach of the previous hour high/low ----
 // A breach is a trade at least breachTicks beyond the level. Only the first
