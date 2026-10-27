@@ -6,6 +6,8 @@
 // hour's open price from the start of the hour to the end of the hour.
 // Step 2: at the same time, draw the previous hour's high and low as dotted
 // lines, each running from the bar that made it to the end of that hour.
+// Step 3: mark the first breach of the previous hour high/low with the
+// 20-minute segment it happened in (S1 = 00-20, S2 = 20-40, S3 = 40-60).
 
 indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500)
 
@@ -18,6 +20,10 @@ openWidth   = input.int(1, "Hour open line width", minval=1, maxval=4)
 prevColor   = input.color(color.black, "Previous hour high/low color")
 prevWidth   = input.int(1, "Previous hour high/low width", minval=1, maxval=4)
 showLabels  = input.bool(true, "Show line labels")
+breachTicks = input.int(1, "Breach threshold (ticks)", minval=1)
+requireInside = input.bool(true, "Only hours that open inside the previous hour's range")
+hiBreachColor = input.color(color.red, "High breach marker color")
+loBreachColor = input.color(color.green, "Low breach marker color")
 
 HOUR_MS = 60 * 60 * 1000
 
@@ -61,7 +67,32 @@ else
         curLoT := time
 
 // ---- Hour open line ----
+var float hourOpen = na
+if newHour
+    hourOpen := open
 if newHour and inSession
     line.new(hourStart, open, hourStart + HOUR_MS, open, xloc=xloc.bar_time, color=openColor, width=openWidth)
     if showLabels
         textAbove(hourStart + HOUR_MS / 2, open, "hour open price", openColor)
+
+// ---- First breach of the previous hour high/low ----
+// A breach is a trade at least breachTicks beyond the level. Only the first
+// breach of the hour counts. Segment 1 = minutes 00-20, 2 = 20-40, 3 = 40-60.
+var bool breached = false
+if newHour
+    breached := false
+
+openInside = hourOpen > prevLo and hourOpen < prevHi
+eligible = inSession and not breached and (openInside or not requireInside)
+breachDist = breachTicks * syminfo.mintick
+hiBreach = eligible and high >= prevHi + breachDist
+loBreach = eligible and low <= prevLo - breachDist
+
+if hiBreach or loBreach
+    breached := true
+    seg = "S" + str.tostring(math.floor(minute(time, tz) / 20) + 1)
+    // If one 1m bar takes out both levels the order is unknown, so both get marked.
+    if hiBreach
+        label.new(bar_index, high, seg, style=label.style_label_down, color=hiBreachColor, textcolor=color.white, size=size.small)
+    if loBreach
+        label.new(bar_index, low, seg, style=label.style_label_up, color=loBreachColor, textcolor=color.white, size=size.small)
