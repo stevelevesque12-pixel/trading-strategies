@@ -11,9 +11,15 @@
 // Step 4: mark every inversed FVG (iFVG) on the chart timeframe as it forms.
 // A bearish FVG becomes a bullish iFVG when a bar closes above its top; a
 // bullish FVG becomes a bearish iFVG when a bar closes below its bottom.
-// Entries (to come) are market orders on the iFVG bar's close.
+// Step 5: trade it. After the first breach of the hour, the first iFVG
+// pointing back toward the hour open (bullish after a low breach, bearish
+// after a high breach) is entered with a market order on that bar's close.
+// Stop = sweep extreme (lowest low / highest high since the breach), target =
+// hour open. One trade per hour by default (see "Max trades per hour"); an
+// open trade is closed at the end of the hour.
 
-indicator("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+strategy("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500,
+     process_orders_on_close=true, default_qty_type=strategy.fixed, default_qty_value=1, initial_capital=50000)
 
 // ---- Inputs ----
 tz          = input.string("America/New_York", "Timezone")
@@ -32,6 +38,8 @@ minGapTicks   = input.int(1, "Min FVG size (ticks)", minval=1)
 maxFvgAge     = input.int(0, "Drop FVGs older than (bars, 0 = never)", minval=0)
 bullIfvgColor = input.color(color.orange, "Bullish iFVG color")
 bearIfvgColor = input.color(color.purple, "Bearish iFVG color")
+closeAtHourEnd = input.bool(true, "Close open trade at end of hour")
+maxTradesPerHour = input.int(1, "Max trades per hour", minval=1)
 
 HOUR_MS = 60 * 60 * 1000
 
@@ -87,8 +95,18 @@ if newHour and inSession
 // A breach is a trade at least breachTicks beyond the level. Only the first
 // breach of the hour counts. Segment 1 = minutes 00-20, 2 = 20-40, 3 = 40-60.
 var bool breached = false
+var int breachDir = 0     // 1 = low breached (look long), -1 = high breached (look short)
+var float sweepExt = na   // lowest low / highest high since the breach
 if newHour
     breached := false
+    breachDir := 0
+    sweepExt := na
+
+// Extend the sweep extreme on bars after the breach bar.
+if breachDir == 1
+    sweepExt := math.min(sweepExt, low)
+else if breachDir == -1
+    sweepExt := math.max(sweepExt, high)
 
 openInside = hourOpen > prevLo and hourOpen < prevHi
 eligible = inSession and not breached and (openInside or not requireInside)
@@ -98,6 +116,9 @@ loBreach = eligible and low <= prevLo - breachDist
 
 if hiBreach or loBreach
     breached := true
+    // Both levels on one bar: direction unknown, so no trade this hour.
+    breachDir := hiBreach and loBreach ? 0 : hiBreach ? -1 : 1
+    sweepExt := hiBreach ? high : low
     seg = "S" + str.tostring(math.floor(minute(time, tz) / 20) + 1)
     // If one 1m bar takes out both levels the order is unknown, so both get marked.
     if hiBreach
@@ -147,3 +168,35 @@ if bar_index >= 2
         array.push(fvgs, FVG.new(bar_index - 1, low, high[2], false))
     while array.size(fvgs) > MAX_TRACKED
         array.shift(fvgs)
+
+// ---- Trades ----
+var int tradesThisHour = 0
+if newHour
+    tradesThisHour := 0
+
+lastBarOfHour = time_close >= hourStart + HOUR_MS
+canEnter = inSession and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
+longSignal  = canEnter and breachDir == 1 and bullIfvg and close < hourOpen and close > sweepExt
+shortSignal = canEnter and breachDir == -1 and bearIfvg and close > hourOpen and close < sweepExt
+
+var box tpBox = na
+var box slBox = na
+
+if longSignal or shortSignal
+    tradesThisHour += 1
+    stopPx = sweepExt
+    if longSignal
+        strategy.entry("Long", strategy.long)
+        strategy.exit("Long exit", "Long", limit=hourOpen, stop=stopPx)
+    else
+        strategy.entry("Short", strategy.short)
+        strategy.exit("Short exit", "Short", limit=hourOpen, stop=stopPx)
+    tpBox := box.new(bar_index, hourOpen, bar_index + 1, close, border_color=na, bgcolor=color.new(color.green, 70))
+    slBox := box.new(bar_index, close, bar_index + 1, stopPx, border_color=na, bgcolor=color.new(color.red, 70))
+else if strategy.position_size != 0 or (strategy.closedtrades > 0 and strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1) == bar_index)
+    // Stretch the risk/reward boxes until the trade closes.
+    box.set_right(tpBox, bar_index)
+    box.set_right(slBox, bar_index)
+
+if closeAtHourEnd and lastBarOfHour and strategy.position_size != 0
+    strategy.close_all(comment="Hour end")
