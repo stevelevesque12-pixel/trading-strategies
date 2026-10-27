@@ -162,6 +162,7 @@ plotshape(loBreach and seg == 3, "Low breach S3", shape.labelup, location.belowb
 // ---- Inversed FVGs ----
 type FVG
     int startBar
+    int startTime
     float top
     float bot
     bool bearish
@@ -170,11 +171,12 @@ MAX_TRACKED = 200
 var fvgs = array.new<FVG>()
 
 drawIfvg(FVG f, col) =>
-    box.new(f.startBar, f.top, bar_index, f.bot, border_color=col, border_width=1,
+    // Anchored by time: bar_index anchors fail for FVGs more than 9,999 bars old.
+    box.new(f.startTime, f.top, time, f.bot, xloc=xloc.bar_time, border_color=col, border_width=1,
          bgcolor=color.new(col, 60), text="iFVG", text_size=size.small, text_color=color.black)
     // Midline as a flat dashed box: lines are kept for the previous hour high/low.
     mid = (f.top + f.bot) / 2
-    box.new(f.startBar, mid, bar_index, mid, border_color=color.black, border_style=line.style_dashed, bgcolor=na)
+    box.new(f.startTime, mid, time, mid, xloc=xloc.bar_time, border_color=color.black, border_style=line.style_dashed, bgcolor=na)
 
 // Inversions of existing FVGs on this bar's close. Each FVG inverts at most once.
 drawThisBar = ifvgScope == "All hours" or inSession
@@ -200,9 +202,9 @@ if array.size(fvgs) > 0
 minGap = minGapTicks * syminfo.mintick
 if bar_index >= 2
     if low[2] - high >= minGap
-        array.push(fvgs, FVG.new(bar_index - 1, low[2], high, true))
+        array.push(fvgs, FVG.new(bar_index - 1, time[1], low[2], high, true))
     if low - high[2] >= minGap
-        array.push(fvgs, FVG.new(bar_index - 1, low, high[2], false))
+        array.push(fvgs, FVG.new(bar_index - 1, time[1], low, high[2], false))
     while array.size(fvgs) > MAX_TRACKED
         array.shift(fvgs)
 
