@@ -24,11 +24,12 @@
 // Only the previous hour high/low lines, the text labels and the iFVG boxes are
 // drawing objects, and those are budgeted to last as long as possible.
 
-// Commission defaults to Tradeify's NQ rate ($5.76 round trip = $2.88 per side);
-// change it in Properties for micros. Slippage is 1 tick on market/stop fills.
+// Commission is Tradeify's round-trip cost incl. exchange/NFA/clearing, entered
+// per side: MNQ $1.82 RT = $0.91 (default), NQ $5.76 RT = $2.88 -- change it in
+// Properties when running on NQ. Slippage is 1 tick on market/stop fills.
 strategy("NQStats Hourly Retracement", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500,
      process_orders_on_close=true, default_qty_type=strategy.fixed, default_qty_value=1, initial_capital=50000,
-     commission_type=strategy.commission.cash_per_contract, commission_value=2.88, slippage=1)
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.91, slippage=1)
 
 // ---- Inputs ----
 tz          = input.string("America/New_York", "Timezone")
