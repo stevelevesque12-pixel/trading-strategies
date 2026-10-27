@@ -18,6 +18,7 @@
 // hour open. One trade per hour by default (see "Max trades per hour"); an
 // open trade is closed at the end of the hour. "Trade S1/S2/S3" choose which
 // breach segments are traded (the segment of the breach, not of the entry).
+// "Trade 08:00" ... "Trade 15:00" turn trading on/off per hour (drawings stay).
 //
 // History: TradingView keeps at most 500 lines, 500 labels and 500 boxes per
 // script and deletes the oldest beyond that. To keep the past visible, the
@@ -57,6 +58,14 @@ maxTradesPerHour = input.int(1, "Max trades per hour", minval=1)
 tradeS1 = input.bool(true, "Trade S1 breaches (00-20)", group="Segments")
 tradeS2 = input.bool(true, "Trade S2 breaches (20-40)", group="Segments")
 tradeS3 = input.bool(true, "Trade S3 breaches (40-60)", group="Segments")
+trade08 = input.bool(true, "Trade 08:00", group="Hours (ET)")
+trade09 = input.bool(true, "Trade 09:00", group="Hours (ET)")
+trade10 = input.bool(true, "Trade 10:00", group="Hours (ET)")
+trade11 = input.bool(true, "Trade 11:00", group="Hours (ET)")
+trade12 = input.bool(true, "Trade 12:00", group="Hours (ET)")
+trade13 = input.bool(true, "Trade 13:00", group="Hours (ET)")
+trade14 = input.bool(true, "Trade 14:00", group="Hours (ET)")
+trade15 = input.bool(true, "Trade 15:00", group="Hours (ET)")
 
 HOUR_MS = 60 * 60 * 1000
 
@@ -217,7 +226,17 @@ if newHour
 
 lastBarOfHour = time_close >= hourStart + HOUR_MS
 segAllowed = (breachSeg == 1 and tradeS1) or (breachSeg == 2 and tradeS2) or (breachSeg == 3 and tradeS3)
-canEnter = inSession and segAllowed and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
+hourAllowed = switch h
+    8  => trade08
+    9  => trade09
+    10 => trade10
+    11 => trade11
+    12 => trade12
+    13 => trade13
+    14 => trade14
+    15 => trade15
+    => false
+canEnter = inSession and hourAllowed and segAllowed and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
 longSignal  = canEnter and breachDir == 1 and bullIfvg and close < hourOpen and close > sweepExt
 shortSignal = canEnter and breachDir == -1 and bearIfvg and close > hourOpen and close < sweepExt
 
