@@ -16,7 +16,8 @@
 // after a high breach) is entered with a market order on that bar's close.
 // Stop = sweep extreme (lowest low / highest high since the breach), target =
 // hour open. One trade per hour by default (see "Max trades per hour"); an
-// open trade is closed at the end of the hour.
+// open trade is closed at the end of the hour. "Trade S1/S2/S3" choose which
+// breach segments are traded (the segment of the breach, not of the entry).
 //
 // History: TradingView keeps at most 500 lines, 500 labels and 500 boxes per
 // script and deletes the oldest beyond that. To keep the past visible, the
@@ -52,6 +53,9 @@ closeAtHourEnd = input.bool(true, "Close open trade at end of hour")
 ifvgScope = input.string("Session hours only", "Draw iFVGs", options=["Session hours only", "All hours"],
      tooltip="Boxes are capped at 500 by TradingView. Session-only keeps about 3x more history visible.")
 maxTradesPerHour = input.int(1, "Max trades per hour", minval=1)
+tradeS1 = input.bool(true, "Trade S1 breaches (00-20)", group="Segments")
+tradeS2 = input.bool(true, "Trade S2 breaches (20-40)", group="Segments")
+tradeS3 = input.bool(true, "Trade S3 breaches (40-60)", group="Segments")
 
 HOUR_MS = 60 * 60 * 1000
 
@@ -118,10 +122,12 @@ if newHour and inSession and showLabels
 var bool breached = false
 var int breachDir = 0     // 1 = low breached (look long), -1 = high breached (look short)
 var float sweepExt = na   // lowest low / highest high since the breach
+var int breachSeg = 0     // segment (1-3) of this hour's breach
 if newHour
     breached := false
     breachDir := 0
     sweepExt := na
+    breachSeg := 0
 
 // Extend the sweep extreme on bars after the breach bar.
 if breachDir == 1
@@ -135,15 +141,17 @@ breachDist = breachTicks * syminfo.mintick
 hiBreach = eligible and high >= prevHi + breachDist
 loBreach = eligible and low <= prevLo - breachDist
 
+seg = math.floor(minute(time, tz) / 20) + 1
+
 if hiBreach or loBreach
     breached := true
+    breachSeg := seg
     // Both levels on one bar: direction unknown, so no trade this hour.
     breachDir := hiBreach and loBreach ? 0 : hiBreach ? -1 : 1
     sweepExt := hiBreach ? high : low
 
 // Markers are plotshapes, so they never get deleted. If one bar takes out
 // both levels the order is unknown, so both get marked.
-seg = math.floor(minute(time, tz) / 20) + 1
 plotshape(hiBreach and seg == 1, "High breach S1", shape.labeldown, location.abovebar, hiBreachColor, text="S1", textcolor=color.white, size=size.tiny)
 plotshape(hiBreach and seg == 2, "High breach S2", shape.labeldown, location.abovebar, hiBreachColor, text="S2", textcolor=color.white, size=size.tiny)
 plotshape(hiBreach and seg == 3, "High breach S3", shape.labeldown, location.abovebar, hiBreachColor, text="S3", textcolor=color.white, size=size.tiny)
@@ -204,7 +212,8 @@ if newHour
     tradesThisHour := 0
 
 lastBarOfHour = time_close >= hourStart + HOUR_MS
-canEnter = inSession and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
+segAllowed = (breachSeg == 1 and tradeS1) or (breachSeg == 2 and tradeS2) or (breachSeg == 3 and tradeS3)
+canEnter = inSession and segAllowed and tradesThisHour < maxTradesPerHour and strategy.position_size == 0 and not (closeAtHourEnd and lastBarOfHour)
 longSignal  = canEnter and breachDir == 1 and bullIfvg and close < hourOpen and close > sweepExt
 shortSignal = canEnter and breachDir == -1 and bearIfvg and close > hourOpen and close < sweepExt
 
