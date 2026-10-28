@@ -1,0 +1,42 @@
+//@version=6
+// Highest high and lowest low of the last X candles.
+// Set "Number of candles" in the indicator settings.
+indicator("Lookback High / Low", overlay = true)
+
+length       = input.int(20, "Number of candles", minval = 1)
+includeLast  = input.bool(true, "Include current candle", tooltip = "Off = use the X candles before the current one, so a breakout of the level is visible on the current candle.")
+showHistory  = input.bool(true, "Show historical levels")
+highColor    = input.color(color.green, "High color")
+lowColor     = input.color(color.red, "Low color")
+
+offset = includeLast ? 0 : 1
+hi = ta.highest(high, length)[offset]
+lo = ta.lowest(low, length)[offset]
+
+plot(showHistory ? hi : na, "High", highColor, 1, plot.style_stepline)
+plot(showHistory ? lo : na, "Low",  lowColor,  1, plot.style_stepline)
+
+// Lines spanning the current lookback window, with price labels
+var line  hiLine  = line.new(na, na, na, na, color = highColor, width = 2)
+var line  loLine  = line.new(na, na, na, na, color = lowColor,  width = 2)
+var label hiLabel = label.new(na, na, style = label.style_label_left, textcolor = color.white)
+var label loLabel = label.new(na, na, style = label.style_label_left, textcolor = color.white)
+
+if barstate.islast
+    startBar = bar_index - offset - length + 1
+    line.set_xy1(hiLine, startBar, hi)
+    line.set_xy2(hiLine, bar_index, hi)
+    line.set_xy1(loLine, startBar, lo)
+    line.set_xy2(loLine, bar_index, lo)
+    label.set_xy(hiLabel, bar_index, hi)
+    label.set_text(hiLabel, "High " + str.tostring(hi, format.mintick))
+    label.set_color(hiLabel, highColor)
+    label.set_xy(loLabel, bar_index, lo)
+    label.set_text(loLabel, "Low " + str.tostring(lo, format.mintick))
+    label.set_color(loLabel, lowColor)
+
+// Alerts compare against the X candles before the current one
+prevHi = ta.highest(high, length)[1]
+prevLo = ta.lowest(low, length)[1]
+alertcondition(close > prevHi, "Close above lookback high", "Price closed above the lookback high")
+alertcondition(close < prevLo, "Close below lookback low",  "Price closed below the lookback low")
