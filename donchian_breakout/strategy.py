@@ -6,8 +6,10 @@ high and lowest low of the last N candles. Long case (short is the mirror):
 
   1. Entry signal: a bar CLOSES above the highest high of the previous
      `entry_len` bars of the same RTH session. Fill at the next bar's open.
-  2. Optional filter: only take longs above the session VWAP (anchored at
-     the RTH open), shorts below it.
+  2. Optional filters: only take longs above the session VWAP (anchored at
+     the RTH open), shorts below it; and/or only take longs while the last
+     CLOSED higher-timeframe bar (`htf`, e.g. "60min", "240min", "1D") closed
+     above its EMA(`htf_ema_len`), shorts while it closed below.
   3. Protective stop: signal close - `stop_atr` * ATR(`atr_len`), fixed for
      the life of the trade, checked intrabar against each bar's low.
   4. Trailing exit: a bar CLOSES below the lowest low of the previous
@@ -19,7 +21,10 @@ high and lowest low of the last N candles. Long case (short is the mirror):
 
 All channels only look at bars from the current RTH session, so the overnight
 gap never makes a level. ATR's true range likewise ignores the prior close on
-a session's first bar. Signals are evaluated on closed bars only (no
+a session's first bar. The higher-timeframe trend is built from ALL hours
+(overnight included), with bars aligned the way TradingView aligns CME
+futures bars (sessions start 18:00 ET), so it matches request.security() on a
+24h chart. Signals are evaluated on closed bars only (no
 lookahead); the backtest fills at the next bar's open, the same as
 TradingView's strategy engine does for an order placed on bar close.
 """
@@ -38,11 +43,11 @@ from failed2s.instruments import Instrument
 @dataclass(frozen=True)
 class Params:
     timeframe: str = "5min"
-    entry_len: int = 20
+    entry_len: int = 10
     exit_len: int = 10
     atr_len: int = 14
-    stop_atr: float = 2.0
-    vwap_filter: bool = True
+    stop_atr: float = 2.5
+    vwap_filter: bool = False
     allow_long: bool = True
     allow_short: bool = True
     entry_start: time = time(9, 45)
@@ -51,6 +56,8 @@ class Params:
     session_start: time = time(9, 30)
     session_end: time = time(16, 0)
     max_trades_per_day: int = 3
+    htf: Optional[str] = "240min"  # None = off, else "60min", "240min" or "1D"
+    htf_ema_len: int = 20
 
 
 @dataclass(frozen=True)
@@ -59,12 +66,36 @@ class Costs:
     commission_per_contract: float = 4.5  # round trip, dollars
 
 
+# Bin offsets that line resampled bars up with CME's 18:00 ET session start.
+_HTF_OFFSETS = {"60min": "0h", "240min": "2h", "1D": "18h"}
+
+
+def htf_trend(df: pd.DataFrame, htf: str, ema_len: int) -> pd.Series:
+    """
+    +1/-1 per higher-timeframe bar (close above/below its EMA), indexed by the
+    time that bar CLOSES -- i.e. when its value first becomes usable.
+    """
+    rule = "24h" if htf == "1D" else htf  # pandas ignores `offset` for calendar-day rules
+    closes = df["close"].resample(rule, label="left", closed="left", offset=_HTF_OFFSETS.get(htf, "0h")).last().dropna()
+    ema = closes.ewm(span=ema_len, adjust=False).mean()
+    trend = pd.Series(np.where(closes > ema, 1, -1), index=closes.index + pd.Timedelta(htf))
+    return trend.iloc[ema_len:]  # drop the EMA warm-up
+
+
 def to_rth_bars(df_1m: pd.DataFrame, params: Params) -> pd.DataFrame:
-    """Resample (tz-aware, America/New_York) bars to `params.timeframe`, RTH only."""
+    """
+    Resample (tz-aware, America/New_York) bars to `params.timeframe`, RTH only.
+    With `params.htf` set, also attaches `htf_trend`: the trend of the last
+    higher-timeframe bar that had closed by each bar's OPEN.
+    """
     agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     bars = df_1m.resample(params.timeframe, label="left", closed="left").agg(agg).dropna(how="any")
     t = bars.index.time
-    return bars[(t >= params.session_start) & (t < params.session_end)]
+    bars = bars[(t >= params.session_start) & (t < params.session_end)].copy()
+    if params.htf:
+        trend = htf_trend(df_1m, params.htf, params.htf_ema_len)
+        bars["htf_trend"] = trend.reindex(bars.index, method="ffill").fillna(0).astype(int)
+    return bars
 
 
 def add_indicators(bars: pd.DataFrame, params: Params) -> pd.DataFrame:
@@ -101,6 +132,9 @@ def generate_signals(ind: pd.DataFrame, params: Params) -> pd.Series:
     if params.vwap_filter:
         long_sig &= ind["close"] > ind["vwap"]
         short_sig &= ind["close"] < ind["vwap"]
+    if params.htf:
+        long_sig &= ind["htf_trend"] > 0
+        short_sig &= ind["htf_trend"] < 0
     long_sig &= params.allow_long
     short_sig &= params.allow_short
     return pd.Series(np.where(long_sig, 1, np.where(short_sig, -1, 0)), index=ind.index)

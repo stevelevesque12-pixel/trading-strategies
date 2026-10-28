@@ -6,7 +6,9 @@
 // Long case (short is the exact mirror):
 //   1. A bar CLOSES above the highest high of the previous "Entry lookback"
 //      bars of the current RTH session -> buy at market (fills next open).
-//   2. Optional: only buy above the session VWAP (anchored at the RTH open).
+//   2. Optional filters: only buy above the session VWAP (anchored at the
+//      RTH open), and/or only buy while the last CLOSED higher-timeframe bar
+//      (60m / 4h / daily) closed above its EMA. Shorts are the mirror.
 //   3. Protective stop = signal close - "Stop ATR multiple" * ATR, fixed for
 //      the life of the trade (sent to the broker with the entry).
 //   4. Trailing exit: a bar CLOSES below the lowest low of the previous
@@ -18,8 +20,9 @@
 // overnight session is ignored even on a 24h futures chart), so the
 // overnight gap never sets a level.
 //
-// REQUIRED CHART SETUP: 5-minute chart. Defaults were picked on NQ 5m
-// 2023-2024 data; see the Donchian breakout section in ../README.md for the
+// REQUIRED CHART SETUP: 5-minute chart, 24h (ETH) session. Defaults are the
+// most consistent setup from donchian_breakout/research.py (5m + 4h EMA
+// filter); see the Donchian breakout section in ../README.md for the
 // out-of-sample results before trading it.
 //
 // Alerting: create the TradingView alert with condition "Any alert()
@@ -32,10 +35,12 @@ strategy("Donchian Breakout (intraday)", overlay=true, initial_capital=50000,
 
 // ---- Inputs ----
 entryLen        = input.int(10, "Entry lookback (candles)", minval=1)
-exitLen         = input.int(5, "Exit lookback (candles)", minval=1)
+exitLen         = input.int(10, "Exit lookback (candles)", minval=1)
 atrLen          = input.int(14, "ATR length", minval=1)
 stopATR         = input.float(2.5, "Stop ATR multiple", minval=0.1, step=0.1)
-vwapFilter      = input.bool(true, "Only trade in the direction of session VWAP")
+vwapFilter      = input.bool(false, "Only trade in the direction of session VWAP")
+htfTf           = input.string("240", "Higher-timeframe trend filter", options=["Off", "60", "240", "D"], tooltip="Longs only while the last closed HTF bar closed above its EMA, shorts only while below.")
+htfEmaLen       = input.int(20, "HTF EMA length", minval=1)
 allowLong       = input.bool(true, "Allow longs")
 allowShort      = input.bool(true, "Allow shorts")
 maxTradesPerDay = input.int(3, "Max trades per day", minval=1)
@@ -58,6 +63,12 @@ nyMonth = month(time, "America/New_York")
 nyDay   = dayofmonth(time, "America/New_York")
 newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
 rthStart = inRTH and (not inRTH[1] or newDay)
+
+// ---- Higher-timeframe trend: the last CLOSED HTF bar ([1] + lookahead_on
+// is the standard non-repainting form). ----
+htfOn = htfTf != "Off"
+htfUp = request.security(syminfo.tickerid, htfOn ? htfTf : timeframe.period,
+     close[1] > ta.ema(close, htfEmaLen)[1], lookahead=barmerge.lookahead_on)
 
 // ============================================================
 // RTH-only channels, ATR and VWAP. Channels use the PREVIOUS N bars
@@ -122,8 +133,8 @@ else if strategy.position_size < 0 and inRTH and not na(exitHigh) and close > ex
 
 // ---- Entries ----
 canEnter = inRTH and inEntryWindow and strategy.position_size == 0 and tradesToday < maxTradesPerDay and not na(atrVal)
-longSignal  = canEnter and allowLong  and not na(entryHigh) and close > entryHigh and (not vwapFilter or close > vwap)
-shortSignal = canEnter and allowShort and not na(entryLow)  and close < entryLow  and (not vwapFilter or close < vwap)
+longSignal  = canEnter and allowLong  and not na(entryHigh) and close > entryHigh and (not vwapFilter or close > vwap) and (not htfOn or htfUp)
+shortSignal = canEnter and allowShort and not na(entryLow)  and close < entryLow  and (not vwapFilter or close < vwap) and (not htfOn or not htfUp)
 
 stopDist = stopATR * atrVal
 qty = useRiskSizing ? math.max(1, math.min(math.floor(riskPerTradeUsd / (stopDist * pointValueUsd)), maxContracts)) : fixedContracts

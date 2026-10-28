@@ -4,12 +4,12 @@ from datetime import time
 import numpy as np
 import pandas as pd
 
-from donchian_breakout.strategy import Costs, Params, add_indicators, generate_signals, simulate
+from donchian_breakout.strategy import Costs, Params, add_indicators, generate_signals, htf_trend, simulate, to_rth_bars
 from failed2s.instruments import INSTRUMENTS
 
 NQ = INSTRUMENTS["NQ"]
 NO_COSTS = Costs(slippage_ticks=0.0, commission_per_contract=0.0)
-P = Params(entry_len=3, exit_len=2, atr_len=2, stop_atr=2.0, vwap_filter=False,
+P = Params(entry_len=3, exit_len=2, atr_len=2, stop_atr=2.0, vwap_filter=False, htf=None,
            entry_start=time(9, 30), entry_end=time(15, 30))
 
 
@@ -88,3 +88,26 @@ def test_costs_reduce_pnl():
     paid = simulate(bars, P, NQ, Costs(slippage_ticks=1.0, commission_per_contract=4.5))[0]
     assert paid.pnl_points == free.pnl_points - 2 * NQ.tick_size
     assert paid.pnl_dollars == paid.pnl_points * NQ.point_value - 4.5
+
+
+def test_htf_trend_is_only_known_after_the_htf_bar_closes():
+    # 1m bars, all hours: steady rise, then a sharp drop starting at 10:00.
+    idx = pd.date_range("2026-01-05 00:00", "2026-01-05 11:59", freq="1min", tz="America/New_York")
+    close = np.where(idx.hour < 10, 100 + np.arange(len(idx)) * 0.01, 50.0)
+    df = pd.DataFrame({"open": close, "high": close, "low": close, "close": close, "volume": 1.0}, index=idx)
+    trend = htf_trend(df, "60min", ema_len=3)
+    assert trend.loc["2026-01-05 10:00"] == 1   # 09:00 bar (closed 10:00) still rising
+    assert trend.loc["2026-01-05 11:00"] == -1  # 10:00 bar is the first one to close below its EMA
+
+    bars = to_rth_bars(df, replace(P, timeframe="5min", htf="60min", htf_ema_len=3))
+    assert bars.loc["2026-01-05 10:55", "htf_trend"] == 1   # 10:00 HTF bar has not closed yet
+    assert bars.loc["2026-01-05 11:00", "htf_trend"] == -1
+
+
+def test_htf_filter_blocks_counter_trend_breakouts():
+    bars = make_bars([100, 100, 100, 103])
+    pf = replace(P, htf="60min")
+    bars["htf_trend"] = -1
+    assert generate_signals(add_indicators(bars, pf), pf).iloc[3] == 0
+    bars["htf_trend"] = 1
+    assert generate_signals(add_indicators(bars, pf), pf).iloc[3] == 1

@@ -1,19 +1,24 @@
 """
-Walk-forward research for the Donchian breakout strategy.
+Walk-forward research for the Donchian breakout strategy, across chart
+timeframes and higher-timeframe (HTF) trend filters.
 
-Tunes a small parameter grid on NQ 1m (resampled to 5m) for 2023-2024,
-picks the best combination by in-sample profit factor (min 200 trades),
-then reports it unchanged on:
-  - NQ 2025 (held out, never used for selection)
-  - MNQ / MES 5m, May-Aug 2026 (a later period and a second market)
+For every (timeframe, HTF filter) pair, a small grid of entry/exit/stop/VWAP
+settings is tuned on NQ 2023-2024 (best in-sample profit factor with at least
+MIN_TRADES trades). The winner is then run unchanged on data never used for
+selection:
+  - NQ 2025 (held out from the same dataset)
+  - MNQ and MES, May-Aug 2026 (timeframes that are multiples of 5m only)
+  - NQ and ES 2016-2022 (timeframes that are multiples of 15m only)
 
 Usage:
-    python -m donchian_breakout.research [--out results.csv]
+    python -m donchian_breakout.research [--timeframes 5min 15min] [--htf none 60min] [--out results.csv]
 """
 
 import argparse
 import itertools
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -26,62 +31,97 @@ from .strategy import Costs, Params, simulate, to_rth_bars
 
 DATA = Path(__file__).resolve().parent.parent / "sample_data" / "real_multi_instrument"
 NQ_1M = DATA / "real_nq_1m_2022-12-26_2025-12-11.parquet"
+MICRO_5M = {s: DATA / f"real_{s.lower()}_5m_2026-05-10_2026-08-25.parquet" for s in ("MNQ", "MES")}
+LONG_15M = {"NQ": DATA / "real_nq_15m_2016-05-29_2026-08-25.parquet",
+            "ES": DATA / "real_es_15m_2016-05-29_2026-08-25.parquet"}
 
+TIMEFRAMES = ["1min", "3min", "5min", "10min", "15min", "30min"]
+HTFS = ["none", "60min", "240min", "1D"]
 GRID = {
     "entry_len": [10, 20, 30],
     "exit_len": [5, 10],
     "stop_atr": [1.5, 2.5],
     "vwap_filter": [False, True],
 }
-MIN_TRADES = 200
-COSTS = {"NQ": Costs(1.0, 4.5), "MNQ": Costs(1.0, 1.5), "MES": Costs(1.0, 1.5)}
+MIN_TRADES = 150
+COSTS = {"NQ": Costs(1.0, 4.5), "ES": Costs(1.0, 4.5), "MNQ": Costs(1.0, 1.5), "MES": Costs(1.0, 1.5)}
 
 
-def summarize(trades, label: str, params: Params) -> dict:
+@lru_cache(maxsize=None)
+def _raw(path: Path) -> pd.DataFrame:
+    return load_1m_csv(str(path))
+
+
+def _bars(path: Path, tf: str, htf: str, start=None, end=None) -> pd.DataFrame:
+    p = replace(Params(), timeframe=tf, htf=None if htf == "none" else htf)
+    bars = to_rth_bars(_raw(path), p)
+    if start is not None:
+        bars = bars[(bars.index.year >= start) & (bars.index.year <= end)]
+    return bars
+
+
+def _stats(trades) -> dict:
     m = compute_metrics(trades)
-    pts = sum(t.pnl_points for t in trades)
-    row = {"label": label, **{k: getattr(params, k) for k in GRID}, **m, "total_points": round(pts, 1)}
-    if trades:
-        row["avg_points"] = round(pts / len(trades), 2)
+    n = m["num_trades"]
+    return {"trades": n, "win_pct": m.get("win_rate_pct"), "pf": m.get("profit_factor"),
+            "avg_pts": round(sum(t.pnl_points for t in trades) / n, 2) if n else None,
+            "max_dd_usd": m.get("max_drawdown")}
+
+
+def _params(tf: str, htf: str, combo: dict) -> Params:
+    return replace(Params(), timeframe=tf, htf=None if htf == "none" else htf, **combo)
+
+
+def evaluate(tf: str, htf: str) -> dict:
+    """Tune on NQ 2023-24, then report the winner on every out-of-sample set it fits."""
+    train = _bars(NQ_1M, tf, htf, 2023, 2024)
+    best = None
+    for values in itertools.product(*GRID.values()):
+        combo = dict(zip(GRID, values))
+        s = _stats(simulate(train, _params(tf, htf, combo), INSTRUMENTS["NQ"], COSTS["NQ"]))
+        if s["trades"] >= MIN_TRADES and (best is None or s["pf"] > best[1]["pf"]):
+            best = (combo, s)
+    if best is None:
+        return {"timeframe": tf, "htf": htf}
+    combo, train_s = best
+    p = _params(tf, htf, combo)
+    row = {"timeframe": tf, "htf": htf, **combo, **{f"train_{k}": v for k, v in train_s.items()}}
+
+    oos = {"NQ_2025": (_bars(NQ_1M, tf, htf, 2025, 2025), "NQ")}
+    minutes = pd.Timedelta(tf).total_seconds() / 60
+    if minutes % 5 == 0:
+        oos.update({f"{s}_2026": (_bars(path, tf, htf), s) for s, path in MICRO_5M.items()})
+    if minutes % 15 == 0:
+        oos.update({f"{s}_2016_22": (_bars(path, tf, htf, 2016, 2022), s) for s, path in LONG_15M.items()})
+    for name, (bars, sym) in oos.items():
+        s = _stats(simulate(bars, p, INSTRUMENTS[sym], COSTS[sym]))
+        row[f"{name}_trades"], row[f"{name}_pf"], row[f"{name}_avg_pts"] = s["trades"], s["pf"], s["avg_pts"]
     return row
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", default=None, help="Optional CSV of every grid row + out-of-sample rows")
+    parser.add_argument("--timeframes", nargs="+", default=TIMEFRAMES)
+    parser.add_argument("--htf", nargs="+", default=HTFS, help="HTF filters to compare; 'none' = no filter")
+    parser.add_argument("--out", default=None, help="Optional CSV of the full results table")
+    parser.add_argument("--workers", type=int, default=None)
     args = parser.parse_args()
 
-    base = Params()
-    nq = to_rth_bars(load_1m_csv(str(NQ_1M)), base)
-    train = nq[(nq.index.year >= 2023) & (nq.index.year <= 2024)]
-    test = nq[nq.index.year == 2025]
+    jobs = list(itertools.product(args.timeframes, args.htf))
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        rows = list(pool.map(evaluate, *zip(*jobs)))
+    df = pd.DataFrame(rows)
 
-    rows = []
-    for combo in itertools.product(*GRID.values()):
-        p = replace(base, **dict(zip(GRID, combo)))
-        rows.append(summarize(simulate(train, p, INSTRUMENTS["NQ"], COSTS["NQ"]), "NQ train 2023-24", p))
-    grid = pd.DataFrame(rows)
-    eligible = grid[grid["num_trades"] >= MIN_TRADES].sort_values("profit_factor", ascending=False)
-
-    cols = list(GRID) + ["num_trades", "win_rate_pct", "profit_factor", "avg_points", "total_points", "max_drawdown"]
-    print("In-sample grid (NQ 5m, 2023-2024), best first:")
-    print(eligible[cols].to_string(index=False))
-
-    best = replace(base, **{k: eligible.iloc[0][k] for k in GRID})
-    best = replace(best, entry_len=int(best.entry_len), exit_len=int(best.exit_len),
-                   stop_atr=float(best.stop_atr), vwap_filter=bool(best.vwap_filter))
-    print(f"\nSelected: {({k: getattr(best, k) for k in GRID})}")
-
-    oos = [summarize(simulate(test, best, INSTRUMENTS["NQ"], COSTS["NQ"]), "NQ test 2025", best)]
-    for sym in ("MNQ", "MES"):
-        bars = to_rth_bars(load_1m_csv(str(DATA / f"real_{sym.lower()}_5m_2026-05-10_2026-08-25.parquet")), best)
-        oos.append(summarize(simulate(bars, best, INSTRUMENTS[sym], COSTS[sym]), f"{sym} May-Aug 2026", best))
-    oos_df = pd.DataFrame(oos)
-    print("\nOut-of-sample, same parameters:")
-    print(oos_df[["label"] + cols[len(GRID):]].to_string(index=False))
-
+    pd.set_option("display.width", 250)
+    pd.set_option("display.max_columns", 50)
+    setup = ["timeframe", "htf"] + list(GRID)
+    print("Selected settings per (timeframe, HTF filter), tuned on NQ 2023-24:")
+    print(df[setup + ["train_trades", "train_pf", "train_avg_pts", "train_max_dd_usd"]].to_string(index=False))
+    pf_cols = [c for c in df.columns if c.endswith("_pf") and not c.startswith("train")]
+    print("\nProfit factor, in-sample vs out-of-sample (same settings, never re-tuned):")
+    print(df[["timeframe", "htf", "train_pf"] + pf_cols].to_string(index=False))
     if args.out:
-        pd.concat([grid, oos_df]).to_csv(args.out, index=False)
+        df.to_csv(args.out, index=False)
         print(f"\nWritten to {args.out}")
 
 

@@ -33,36 +33,55 @@ carefully before trusting it.
 
 `donchian_breakout/` and `tradingview/donchian_breakout.pine` are an
 intraday breakout strategy built on `tradingview/lookback_high_low.pine` (an
-indicator that draws the high and low of the last X candles). On 5-minute
-bars, RTH only (long case; short is the mirror):
+indicator that draws the high and low of the last X candles). RTH only (long
+case; short is the mirror):
 
 1. **Entry**: a bar closes above the highest high of the previous
    `entry_len` bars of the same session. Buy at the next bar's open.
-   Optionally only buy when price is above the session VWAP.
-2. **Stop**: signal close minus `stop_atr` x ATR(14), fixed for the trade.
-3. **Trailing exit**: a bar closes below the lowest low of the previous
+2. **Filters** (optional): price above the session VWAP; the last closed
+   higher-timeframe bar (60m, 4h or daily, built from 24h data) closed above
+   its 20 EMA.
+3. **Stop**: signal close minus `stop_atr` x ATR(14), fixed for the trade.
+4. **Trailing exit**: a bar closes below the lowest low of the previous
    `exit_len` bars. Exit at the next open.
-4. **Intraday**: entries 09:45-15:30 ET, max 3 per day, flat by 15:55.
+5. **Intraday**: entries 09:45-15:30 ET, max 3 per day, flat by 15:55.
 
-`python -m donchian_breakout.research` tunes a 24-combination grid on NQ
-2023-2024, then runs the winner unchanged on data it never saw. Costs are 1
-tick of slippage per side plus $4.50 round-trip commission per NQ contract
-($1.50 for micros). Selected: `entry_len=10, exit_len=5, stop_atr=2.5`,
-VWAP filter on.
+`python -m donchian_breakout.research` runs every chart timeframe (1, 3, 5,
+10, 15, 30 min) against every HTF filter (none, 60m, 4h, daily). For each pair
+it tunes a 24-combination grid on NQ 2023-2024, then runs the winner
+unchanged on data it never saw. Costs are 1 tick of slippage per side plus
+$4.50 round-trip commission per NQ/ES contract ($1.50 for micros).
 
-| Data | Trades | Win % | Profit factor | Avg pts/trade |
-|---|---|---|---|---|
-| NQ 5m 2023-2024 (in-sample) | 1,270 | 39.8 | 1.13 | +2.47 |
-| NQ 5m 2025 (held out) | 596 | 40.8 | 1.19 | +5.02 |
-| MNQ 5m May-Aug 2026 | 190 | 37.4 | 0.78 | -7.90 |
-| MES 5m May-Aug 2026 | 184 | 39.1 | 0.92 | -0.21 |
+Profit factor (above 1 = made money), in-sample vs never-seen data:
 
-**Not a proven edge.** It held up on NQ 2025, but lost on both markets in
-2026. The same rules on 15-minute bars over 2016-2026 come out about
-breakeven (profit factor 1.01 on NQ, 0.99 on ES), with losing years mixed in.
-The in-sample drawdown was also large: about $30k on one NQ contract against
-about $57k of net profit. Treat it as a starting point to research, not
-something to trade as is. Forward-test on a sim account first.
+| Chart | HTF filter | NQ 2023-24 (tuned) | NQ 2025 | MNQ 2026 | MES 2026 | NQ 2016-22 | ES 2016-22 |
+|---|---|---|---|---|---|---|---|
+| 1m | none | 1.08 | 0.83 | | | | |
+| 1m | best (daily) | 1.00 | 0.93 | | | | |
+| 3m | none | 1.07 | 1.02 | | | | |
+| 3m | best (60m) | 1.06 | 0.88 | | | | |
+| 5m | none | 1.13 | 1.19 | 0.78 | 0.92 | | |
+| 5m | 60m | 1.06 | 1.06 | 0.85 | 0.83 | | |
+| **5m** | **4h** | **1.12** | **1.08** | **0.98** | **1.11** | | |
+| 5m | daily | 1.12 | 1.03 | 0.61 | 0.78 | | |
+| 10m | none | 1.24 | 0.55 | 0.73 | 0.78 | | |
+| 10m | best (60m) | 1.15 | 0.79 | 0.59 | 1.02 | | |
+| 15m | none | 1.05 | 1.11 | 0.64 | 0.79 | 1.06 | 0.99 |
+| 15m | 4h | 1.08 | 1.10 | 0.41 | 0.77 | 1.14 | 1.04 |
+| 15m | daily | 1.08 | 1.32 | 0.44 | 0.36 | 1.08 | 1.00 |
+
+2026 data is micro futures for May-Aug only (about 40-190 trades per row).
+The 2016-2022 check only runs on 15m-multiple charts. 30m is missing because
+a 10+ candle lookback inside one session leaves almost no time to trade.
+
+**What it shows**: the HTF filter doesn't create an edge. It changes which
+settings win in-sample and roughly halves trade count, but out-of-sample
+results scatter around breakeven on every timeframe. 1m and 10m lose on new
+data. 5m with the 4h filter is the most *consistent* (no period worse than
+0.98), so it's the default in both the Python and Pine versions: `entry_len=10`,
+`exit_len=10`, `stop_atr=2.5`, VWAP filter off, 4h EMA(20) filter on. That
+result is still close to breakeven and was picked from 120 tested setups,
+so treat it as a research starting point and forward-test on sim first.
 
 ## Strategy logic (Failed-2s)
 
