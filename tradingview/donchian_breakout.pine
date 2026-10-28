@@ -1,0 +1,154 @@
+//@version=6
+// Intraday lookback high/low (Donchian channel) breakout strategy, ported
+// from donchian_breakout/strategy.py. Built on lookback_high_low.pine.
+// Fires TradersPost-format webhook alerts.
+//
+// Long case (short is the exact mirror):
+//   1. A bar CLOSES above the highest high of the previous "Entry lookback"
+//      bars of the current RTH session -> buy at market (fills next open).
+//   2. Optional: only buy above the session VWAP (anchored at the RTH open).
+//   3. Protective stop = signal close - "Stop ATR multiple" * ATR, fixed for
+//      the life of the trade (sent to the broker with the entry).
+//   4. Trailing exit: a bar CLOSES below the lowest low of the previous
+//      "Exit lookback" bars -> exit at market. This lets winners run.
+//   5. Intraday only: entries inside the entry window, max N per day, and
+//      anything still open is flattened in the flatten window.
+//
+// Channels and VWAP only use bars from the current RTH session (the
+// overnight session is ignored even on a 24h futures chart), so the
+// overnight gap never sets a level.
+//
+// REQUIRED CHART SETUP: 5-minute chart. Defaults were picked on NQ 5m
+// 2023-2024 data; see the Donchian breakout section in ../README.md for the
+// out-of-sample results before trading it.
+//
+// Alerting: create the TradingView alert with condition "Any alert()
+// function call", webhook URL = your TradersPost strategy's webhook URL.
+// See ../TRADINGVIEW_WEBHOOK.md.
+
+strategy("Donchian Breakout (intraday)", overlay=true, initial_capital=50000,
+     default_qty_type=strategy.fixed, default_qty_value=1, calc_on_every_tick=false,
+     commission_type=strategy.commission.cash_per_contract, commission_value=2.25, slippage=1)
+
+// ---- Inputs ----
+entryLen        = input.int(10, "Entry lookback (candles)", minval=1)
+exitLen         = input.int(5, "Exit lookback (candles)", minval=1)
+atrLen          = input.int(14, "ATR length", minval=1)
+stopATR         = input.float(2.5, "Stop ATR multiple", minval=0.1, step=0.1)
+vwapFilter      = input.bool(true, "Only trade in the direction of session VWAP")
+allowLong       = input.bool(true, "Allow longs")
+allowShort      = input.bool(true, "Allow shorts")
+maxTradesPerDay = input.int(3, "Max trades per day", minval=1)
+rthSession      = input.session("0930-1600", "RTH session (America/New_York)")
+entrySession    = input.session("0945-1530", "Entry window (America/New_York)")
+flattenSession  = input.session("1550-1600", "Flatten window (America/New_York)")
+useRiskSizing   = input.bool(false, "Size by risk (off = fixed contracts)", group="Position sizing")
+fixedContracts  = input.int(1, "Fixed contracts", minval=1, group="Position sizing")
+riskPerTradeUsd = input.float(500.0, "Risk per trade (USD)", minval=0.0, group="Position sizing")
+pointValueUsd   = input.float(20.0, "Point value (USD/point) -- NQ=20, MNQ=2, ES=50, MES=5", minval=0.01, group="Position sizing")
+maxContracts    = input.int(5, "Max contracts (hard cap)", minval=1, group="Position sizing")
+
+// ---- Session gating (explicit America/New_York) ----
+inRTH           = not na(time(timeframe.period, rthSession, "America/New_York"))
+inEntryWindow   = not na(time(timeframe.period, entrySession, "America/New_York"))
+inFlattenWindow = not na(time(timeframe.period, flattenSession, "America/New_York"))
+
+nyYear  = year(time, "America/New_York")
+nyMonth = month(time, "America/New_York")
+nyDay   = dayofmonth(time, "America/New_York")
+newDay  = ta.change(nyYear) != 0 or ta.change(nyMonth) != 0 or ta.change(nyDay) != 0
+rthStart = inRTH and (not inRTH[1] or newDay)
+
+// ============================================================
+// RTH-only channels, ATR and VWAP. Channels use the PREVIOUS N bars
+// (the current bar is pushed after they are computed).
+// ============================================================
+var array<float> sessHighs = array.new_float()
+var array<float> sessLows  = array.new_float()
+var array<float> trs       = array.new_float()
+var float prevRthClose = na
+var float sumPV = 0.0
+var float sumV  = 0.0
+var int tradesToday = 0
+
+float entryHigh = na
+float entryLow  = na
+float exitHigh  = na
+float exitLow   = na
+float atrVal    = na
+float vwap      = na
+
+if inRTH
+    if rthStart
+        array.clear(sessHighs)
+        array.clear(sessLows)
+        sumPV := 0.0
+        sumV  := 0.0
+        tradesToday := 0
+
+    n = array.size(sessHighs)
+    if n >= entryLen
+        entryHigh := array.max(array.slice(sessHighs, n - entryLen, n))
+        entryLow  := array.min(array.slice(sessLows,  n - entryLen, n))
+    if n >= exitLen
+        exitHigh := array.max(array.slice(sessHighs, n - exitLen, n))
+        exitLow  := array.min(array.slice(sessLows,  n - exitLen, n))
+
+    tr = rthStart or na(prevRthClose) ? high - low : math.max(high - low, math.abs(high - prevRthClose), math.abs(low - prevRthClose))
+    array.push(trs, tr)
+    if array.size(trs) > atrLen
+        array.shift(trs)
+    atrVal := array.size(trs) == atrLen ? array.avg(trs) : na
+
+    vol = volume > 0 ? volume : 1.0
+    sumPV += hlc3 * vol
+    sumV  += vol
+    vwap := sumPV / sumV
+
+    array.push(sessHighs, high)
+    array.push(sessLows, low)
+    prevRthClose := close
+
+// ---- Exits (on bar close, fill next open) ----
+if strategy.position_size != 0 and inFlattenWindow
+    strategy.close_all(comment="session_flatten")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+else if strategy.position_size > 0 and inRTH and not na(exitLow) and close < exitLow
+    strategy.close("Long", comment="trail_exit")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+else if strategy.position_size < 0 and inRTH and not na(exitHigh) and close > exitHigh
+    strategy.close("Short", comment="trail_exit")
+    alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
+
+// ---- Entries ----
+canEnter = inRTH and inEntryWindow and strategy.position_size == 0 and tradesToday < maxTradesPerDay and not na(atrVal)
+longSignal  = canEnter and allowLong  and not na(entryHigh) and close > entryHigh and (not vwapFilter or close > vwap)
+shortSignal = canEnter and allowShort and not na(entryLow)  and close < entryLow  and (not vwapFilter or close < vwap)
+
+stopDist = stopATR * atrVal
+qty = useRiskSizing ? math.max(1, math.min(math.floor(riskPerTradeUsd / (stopDist * pointValueUsd)), maxContracts)) : fixedContracts
+
+entryMsg(string action, float stopPrice) =>
+    '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
+     ',"quantity":' + str.tostring(qty) +
+     ',"signalPrice":' + str.tostring(close) +
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(stopPrice)) + '}}'
+
+if longSignal
+    longStop = close - stopDist
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("Long Stop", from_entry="Long", stop=longStop)
+    tradesToday += 1
+    alert(entryMsg("buy", longStop), alert.freq_once_per_bar_close)
+else if shortSignal
+    shortStop = close + stopDist
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("Short Stop", from_entry="Short", stop=shortStop)
+    tradesToday += 1
+    alert(entryMsg("sell", shortStop), alert.freq_once_per_bar_close)
+
+// ---- Visuals ----
+plot(entryHigh, "Entry high", color.new(color.green, 0), 1, plot.style_linebr)
+plot(entryLow,  "Entry low",  color.new(color.red, 0),   1, plot.style_linebr)
+plot(strategy.position_size > 0 ? exitLow : strategy.position_size < 0 ? exitHigh : na, "Trailing exit", color.new(color.orange, 0), 2, plot.style_linebr)
+plot(vwapFilter and inRTH ? vwap : na, "Session VWAP", color.new(color.blue, 40), 1, plot.style_linebr)
