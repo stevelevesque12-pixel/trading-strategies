@@ -12,9 +12,13 @@ high and lowest low of the last N candles. Long case (short is the mirror):
      above its EMA(`htf_ema_len`), shorts while it closed below.
   3. Protective stop: signal close - `stop_atr` * ATR(`atr_len`), fixed for
      the life of the trade, checked intrabar against each bar's low.
-  4. Trailing exit: a bar CLOSES below the lowest low of the previous
-     `exit_len` bars -> exit at the next bar's open. This is the "let
-     winners run" part: the exit channel ratchets up behind the trend.
+  4. Trailing exit (`use_trail`): a bar CLOSES below the lowest low of the
+     previous `exit_len` bars -> exit at the next bar's open. This is the
+     "let winners run" part: the exit channel ratchets up behind the trend.
+     Optional fixed target (`target_r`): a limit at signal close +
+     target_r * stop distance (a reward:risk multiple). Either or both can be
+     on; if a bar touches both the stop and the target, the stop is assumed
+     to fill first.
   5. Intraday only: entries only inside [entry_start, entry_end), any open
      position is closed at the close of the first bar at/after `flatten_at`.
      At most `max_trades_per_day` entries per session.
@@ -58,6 +62,8 @@ class Params:
     max_trades_per_day: int = 3
     htf: Optional[str] = "240min"  # None = off, else "60min", "240min" or "1D"
     htf_ema_len: int = 20
+    target_r: Optional[float] = None  # None = no fixed target
+    use_trail: bool = True
 
 
 @dataclass(frozen=True)
@@ -159,15 +165,15 @@ def simulate(bars: pd.DataFrame, params: Params, instrument: Instrument,
     pending_exit = False
     trades_today, today = 0, None
 
-    def close(price: float, i: int, reason: str) -> None:
+    def close(price: float, i: int, reason: str, slipped: bool = True) -> None:
         nonlocal pos
         d = pos["dir"]
-        fill = price - slip * d
+        fill = price - slip * d if slipped else price
         pts = (fill - pos["entry"]) * d
         risk = abs(pos["entry"] - pos["stop"])
         trades.append(Trade(
             entry_time=pos["time"], exit_time=idx[i], direction="long" if d == 1 else "short",
-            entry_price=pos["entry"], stop_price=pos["stop"], target_price=float("nan"),
+            entry_price=pos["entry"], stop_price=pos["stop"], target_price=pos["target"],
             exit_price=fill, exit_reason=reason, contracts=contracts, pnl_points=pts,
             pnl_dollars=pts * instrument.point_value * contracts - costs.commission_per_contract * contracts,
             r_multiple=pts / risk if risk else 0.0,
@@ -187,7 +193,8 @@ def simulate(bars: pd.DataFrame, params: Params, instrument: Instrument,
         pending_exit = False
         if pending_entry is not None and pos is None:
             d = pending_entry["dir"]
-            pos = {"dir": d, "entry": o[i] + slip * d, "stop": pending_entry["stop"], "time": idx[i]}
+            pos = {"dir": d, "entry": o[i] + slip * d, "stop": pending_entry["stop"],
+                   "target": pending_entry["target"], "time": idx[i]}
             trades_today += 1
         pending_entry = None
 
@@ -197,17 +204,23 @@ def simulate(bars: pd.DataFrame, params: Params, instrument: Instrument,
                 close(min(o[i], pos["stop"]), i, "stop")
             elif d == -1 and h[i] >= pos["stop"]:
                 close(max(o[i], pos["stop"]), i, "stop")
+            elif d == 1 and h[i] >= pos["target"]:
+                close(max(o[i], pos["target"]), i, "target", slipped=False)
+            elif d == -1 and l[i] <= pos["target"]:
+                close(min(o[i], pos["target"]), i, "target", slipped=False)
 
         if pos is not None and times[i] >= params.flatten_at:
             close(c[i], i, "session_flatten")
             continue
 
         if pos is not None:
-            if (pos["dir"] == 1 and c[i] < exit_lo[i]) or (pos["dir"] == -1 and c[i] > exit_hi[i]):
+            if params.use_trail and ((pos["dir"] == 1 and c[i] < exit_lo[i]) or (pos["dir"] == -1 and c[i] > exit_hi[i])):
                 pending_exit = True
         elif (sig[i] != 0 and trades_today < params.max_trades_per_day
               and not np.isnan(atr[i]) and i + 1 < len(idx) and dates[i + 1] == dates[i]):
-            pending_entry = {"dir": int(sig[i]), "stop": c[i] - sig[i] * params.stop_atr * atr[i]}
+            dist = params.stop_atr * atr[i]
+            target = c[i] + sig[i] * params.target_r * dist if params.target_r else sig[i] * np.inf
+            pending_entry = {"dir": int(sig[i]), "stop": c[i] - sig[i] * dist, "target": target}
 
     if pos is not None:
         close(c[-1], len(idx) - 1, "end_of_data")

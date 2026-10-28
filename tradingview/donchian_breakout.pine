@@ -13,6 +13,8 @@
 //      the life of the trade (sent to the broker with the entry).
 //   4. Trailing exit: a bar CLOSES below the lowest low of the previous
 //      "Exit lookback" bars -> exit at market. This lets winners run.
+//      Optional fixed take-profit at "Target R:R" x the stop distance
+//      (off by default -- fixed targets tested worse than the trail).
 //   5. Intraday only: entries inside the entry window, max N per day, and
 //      anything still open is flattened in the flatten window.
 //
@@ -38,6 +40,8 @@ entryLen        = input.int(10, "Entry lookback (candles)", minval=1)
 exitLen         = input.int(10, "Exit lookback (candles)", minval=1)
 atrLen          = input.int(14, "ATR length", minval=1)
 stopATR         = input.float(2.5, "Stop ATR multiple", minval=0.1, step=0.1)
+targetR         = input.float(0.0, "Target R:R (0 = no fixed target)", minval=0.0, step=0.5, tooltip="Take-profit at this multiple of the stop distance.")
+useTrail        = input.bool(true, "Use trailing exit channel")
 vwapFilter      = input.bool(false, "Only trade in the direction of session VWAP")
 htfTf           = input.string("240", "Higher-timeframe trend filter", options=["Off", "60", "240", "D"], tooltip="Longs only while the last closed HTF bar closed above its EMA, shorts only while below.")
 htfEmaLen       = input.int(20, "HTF EMA length", minval=1)
@@ -124,10 +128,10 @@ if inRTH
 if strategy.position_size != 0 and inFlattenWindow
     strategy.close_all(comment="session_flatten")
     alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
-else if strategy.position_size > 0 and inRTH and not na(exitLow) and close < exitLow
+else if useTrail and strategy.position_size > 0 and inRTH and not na(exitLow) and close < exitLow
     strategy.close("Long", comment="trail_exit")
     alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
-else if strategy.position_size < 0 and inRTH and not na(exitHigh) and close > exitHigh
+else if useTrail and strategy.position_size < 0 and inRTH and not na(exitHigh) and close > exitHigh
     strategy.close("Short", comment="trail_exit")
     alert('{"ticker":"' + syminfo.ticker + '","action":"exit"}', alert.freq_once_per_bar_close)
 
@@ -139,24 +143,27 @@ shortSignal = canEnter and allowShort and not na(entryLow)  and close < entryLow
 stopDist = stopATR * atrVal
 qty = useRiskSizing ? math.max(1, math.min(math.floor(riskPerTradeUsd / (stopDist * pointValueUsd)), maxContracts)) : fixedContracts
 
-entryMsg(string action, float stopPrice) =>
+entryMsg(string action, float stopPrice, float targetPrice) =>
     '{"ticker":"' + syminfo.ticker + '","action":"' + action + '","orderType":"market"' +
      ',"quantity":' + str.tostring(qty) +
      ',"signalPrice":' + str.tostring(close) +
-     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(stopPrice)) + '}}'
+     ',"stopLoss":{"type":"stop","stopPrice":' + str.tostring(math.round_to_mintick(stopPrice)) + '}' +
+     (na(targetPrice) ? '' : ',"takeProfit":{"limitPrice":' + str.tostring(math.round_to_mintick(targetPrice)) + '}') + '}'
 
 if longSignal
     longStop = close - stopDist
+    longTarget = targetR > 0 ? close + targetR * stopDist : na
     strategy.entry("Long", strategy.long, qty=qty)
-    strategy.exit("Long Stop", from_entry="Long", stop=longStop)
+    strategy.exit("Long Stop", from_entry="Long", stop=longStop, limit=longTarget)
     tradesToday += 1
-    alert(entryMsg("buy", longStop), alert.freq_once_per_bar_close)
+    alert(entryMsg("buy", longStop, longTarget), alert.freq_once_per_bar_close)
 else if shortSignal
     shortStop = close + stopDist
+    shortTarget = targetR > 0 ? close - targetR * stopDist : na
     strategy.entry("Short", strategy.short, qty=qty)
-    strategy.exit("Short Stop", from_entry="Short", stop=shortStop)
+    strategy.exit("Short Stop", from_entry="Short", stop=shortStop, limit=shortTarget)
     tradesToday += 1
-    alert(entryMsg("sell", shortStop), alert.freq_once_per_bar_close)
+    alert(entryMsg("sell", shortStop, shortTarget), alert.freq_once_per_bar_close)
 
 // ---- Visuals ----
 plot(entryHigh, "Entry high", color.new(color.green, 0), 1, plot.style_linebr)

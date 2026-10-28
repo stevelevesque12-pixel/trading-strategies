@@ -111,3 +111,30 @@ def test_htf_filter_blocks_counter_trend_breakouts():
     assert generate_signals(add_indicators(bars, pf), pf).iloc[3] == 0
     bars["htf_trend"] = 1
     assert generate_signals(add_indicators(bars, pf), pf).iloc[3] == 1
+
+
+def test_fixed_target_fills_at_limit_without_slippage():
+    # Signal close 103, ATR(2) of the signal bar's last two TRs = 3.25 -> stop dist 6.5.
+    bars = make_bars([100, 100, 100, 103, 104, 110, 120, 120])
+    p = replace(P, target_r=1.0, use_trail=False)
+    t = simulate(bars, p, NQ, Costs(slippage_ticks=1.0, commission_per_contract=0.0))[0]
+    ind = add_indicators(bars, p)
+    dist = p.stop_atr * ind["atr"].iloc[3]
+    assert t.exit_reason == "target"
+    assert t.target_price == 103 + dist
+    assert t.exit_price == 103 + dist  # limit order: no slippage
+    assert t.entry_price == bars["open"].iloc[4] + NQ.tick_size
+
+
+def test_stop_wins_when_bar_touches_both_stop_and_target():
+    bars = make_bars([100, 100, 100, 103, 103])
+    bars.iloc[4, bars.columns.get_loc("high")] = 200.0
+    bars.iloc[4, bars.columns.get_loc("low")] = 0.0
+    t = simulate(bars, replace(P, target_r=1.0), NQ, NO_COSTS)[0]
+    assert t.exit_reason == "stop"
+
+
+def test_no_new_entry_while_in_a_target_only_trade():
+    closes = [100, 100, 100] + [103 + 3 * i for i in range(10)]
+    trades = simulate(make_bars(closes), replace(P, target_r=50.0, use_trail=False), NQ, NO_COSTS)
+    assert len(trades) == 1 and trades[0].exit_reason == "end_of_data"

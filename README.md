@@ -83,6 +83,41 @@ data. 5m with the 4h filter is the most *consistent* (no period worse than
 result is still close to breakeven and was picked from 120 tested setups,
 so treat it as a research starting point and forward-test on sim first.
 
+### Lookback lengths and reward:risk targets
+
+`python -m donchian_breakout.sweep_rr` sweeps the 5m chart over 7 entry
+lookbacks (3-40 candles), 4 stop sizes (1-3 ATR), and 11 exit types: the
+trailing channel alone, a fixed target at 1/1.5/2/3/4 R, or a target plus the
+trail. Each runs with and without the 4h filter, 616 setups in all. Results
+are in R per trade, so NQ and micro trades can be pooled.
+
+Out-of-sample avg R per trade (NQ 2025 + MNQ/MES 2026), averaged over stop
+sizes and HTF settings:
+
+| Lookback | Trail | RR 1 | RR 2 | RR 3 | RR 4 | RR 2+trail | RR 4+trail |
+|---|---|---|---|---|---|---|---|
+| 3 | +0.006 | -0.013 | -0.008 | -0.002 | -0.007 | -0.008 | +0.005 |
+| 5 | +0.006 | -0.007 | -0.016 | -0.018 | -0.020 | 0.000 | +0.007 |
+| 10 | +0.008 | -0.013 | -0.012 | -0.009 | -0.011 | +0.003 | +0.008 |
+| 20 | -0.004 | -0.023 | -0.028 | -0.034 | -0.044 | -0.002 | -0.005 |
+| 30 | -0.062 | -0.031 | -0.042 | -0.061 | -0.059 | -0.022 | -0.044 |
+| 40 | -0.159 | -0.082 | -0.139 | -0.164 | -0.171 | -0.126 | -0.147 |
+
+- **No lookback / R:R combination has an out-of-sample edge.** The best
+  cells are within +/-0.01 R of zero, i.e. breakeven after costs. Only 29% of
+  the 616 setups made money out-of-sample.
+- **Long lookbacks are a trap.** 30-40 candles look best in-sample (up to
+  +0.20 R) and are the worst out-of-sample (down to -0.26 R). Across setups,
+  in-sample and out-of-sample results are *negatively* correlated (-0.31):
+  picking the best backtest picks a worse live result.
+- **Fixed targets are worse than the trailing exit** on their own; adding
+  the trail on top of a target mostly brings it back to the trail's result.
+- Tight 1 ATR stops are the worst stop size out-of-sample. The 4h filter
+  helps slightly everywhere (-0.022 vs -0.039 R) but doesn't make it positive.
+
+The Pine strategy has the target as an option ("Target R:R", 0 = off) and a
+switch to turn the trailing exit off, but the defaults stay trail-only.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
