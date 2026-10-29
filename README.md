@@ -230,3 +230,30 @@ in). Don't rely on the daily loss limit unattended until that's wired up.
 ```bash
 pytest
 ```
+
+## Crude oil options: CrudePut30 (`crude_options/`)
+
+A port of the `CrudePut30` platform strategy so it can be backtested on the
+WTI futures bars here. It sells one ~30-delta monthly WTI put at 10:00 when
+the front expiry is >= 15 days out, once per expiry cycle. It buys the put
+back at 50% of the credit, or flattens from 14:00 ET on the day before expiry.
+The stop is off by default, as in the original. `--stop-mult 3` turns on the
+3x-credit stop.
+
+```
+python -m crude_options.run --data sample_data/real_multi_instrument/real_mcl_15m_2025-09-30_2026-08-25.parquet [--stop-mult 3] [--multiplier 100]
+```
+
+**There are no option prices in this repo**, so every fill is a Black-76
+model price. IV is trailing 20-day realized vol x `iv_mult`, and it's swept
+because it's the assumption the result depends on most. Put skew isn't
+modeled, which flatters a short put. Expiries follow the CME LO rule (3
+business days before CL last trade) with no holiday calendar. The underlying
+is a continuous MCL series, so roll gaps show up as price moves.
+
+On the ~11 monthly cycles available (Oct 2025 to Aug 2026), the outcome hinges
+on a single trade. The May-2026 put was sold near $100 before crude fell to
+about $75. Whether the 50% target fired on a bounce first depends on `iv_mult`.
+If it didn't, that one lot lost about $15k against roughly $1.2k average winners.
+The `--stop-mult 3` variant caps that loss at about $6k. Treat this as a
+rules check and a stress test, not as evidence of an edge.
