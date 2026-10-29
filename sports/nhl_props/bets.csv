@@ -1,8 +1,8 @@
 date,game,player,bet,odds,stake,model_p,result,profit
-2026-10-28,NJD@COL,Dougie Hamilton,Over 1.5,1.60,2,0.661,,
-2026-10-28,TOR@SEA,Brandon Montour,Over 2.5,1.70,2,0.610,,
-2026-10-28,NJD@COL,Cale Makar,Under 2.5,1.80,2,0.604,,
-2026-10-28,NJD@COL,Devon Toews,Under 1.5,1.75,2,0.593,,
-2026-10-28,PHI@WSH,Trevor Zegras,Over 1.5,1.80,2,0.588,,
-2026-10-28,PHI@WSH,Boone Jenner,Over 1.5,1.83,2,0.588,,
-2026-10-28,TOR@SEA,Auston Matthews,Under 3.5,1.87,2,0.558,,
+2026-10-28,NJD@COL,Dougie Hamilton,Over 1.5,1.6,2,0.661,W (2 SOG; 17.4 min),1.2
+2026-10-28,TOR@SEA,Brandon Montour,Over 2.5,1.7,2,0.61,L (1 SOG; 27.2 min),-2.0
+2026-10-28,NJD@COL,Cale Makar,Under 2.5,1.8,2,0.604,L (6 SOG; 25.9 min),-2.0
+2026-10-28,NJD@COL,Devon Toews,Under 1.5,1.75,2,0.593,L (4 SOG; 24.7 min),-2.0
+2026-10-28,PHI@WSH,Trevor Zegras,Over 1.5,1.8,2,0.588,W (4 SOG; 19.1 min),1.6
+2026-10-28,PHI@WSH,Boone Jenner,Over 1.5,1.83,2,0.588,L (0 SOG; 17.0 min),-2.0
+2026-10-28,TOR@SEA,Auston Matthews,Under 3.5,1.87,2,0.558,L (4 SOG; 20.1 min),-2.0
