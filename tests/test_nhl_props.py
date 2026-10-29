@@ -32,9 +32,10 @@ def test_parse_odds(tmp_path):
     pd.DataFrame([
         ["Calgary Flames at Edmonton Oilers", "Connor McDavid Shots on Goal", "Over 3.5", 1.72, "Open"],
         ["Calgary Flames at Edmonton Oilers", "Connor McDavid 4+ Shots on Goal Milestone", "Yes", 1.72, "Open"],
+        ["Calgary Flames at Edmonton Oilers", "Connor McDavid 2+ Shots on Goal", "Yes", 1.2, "Open"],
         ["Calgary Flames at Edmonton Oilers", "Moneyline", "Oilers", 1.5, "Open"],
     ], columns=["game", "market", "selection", "decimal_odds", "status"]).to_csv(p, index=False)
     df = parse_odds(str(p))
-    assert list(df["type"]) == ["two_way", "milestone"]
-    assert list(df["line"]) == [3.5, 3.5]
+    assert list(df["type"]) == ["two_way", "milestone", "milestone"]
+    assert list(df["line"]) == [3.5, 3.5, 1.5]
     assert (df["home"] == "EDM").all()

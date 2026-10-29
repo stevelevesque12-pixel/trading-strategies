@@ -34,7 +34,7 @@ TEAMS = {
     "Winnipeg Jets": "WPG",
 }
 TWO_WAY = re.compile(r"^(?P<player>.+) Shots on Goal$")
-MILESTONE = re.compile(r"^(?P<player>.+) (?P<k>\d+)\+ Shots on Goal Milestone$")
+MILESTONE = re.compile(r"^(?P<player>.+) (?P<k>\d+)\+ Shots on Goal( Milestone)?$")
 
 
 def parse_odds(path: str) -> pd.DataFrame:
