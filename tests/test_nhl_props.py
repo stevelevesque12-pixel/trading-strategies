@@ -39,3 +39,19 @@ def test_parse_odds(tmp_path):
     assert list(df["type"]) == ["two_way", "milestone", "milestone"]
     assert list(df["line"]) == [3.5, 3.5, 1.5]
     assert (df["home"] == "EDM").all()
+
+
+def test_select_caps_two_bets_per_game_by_ev_and_skips_inactive():
+    from sports.nhl_props.paper import kelly_stake, select
+    rows = [
+        # game, player_id, bet, odds, model_p
+        ("MTL@DAL", 1, "Under 2.5", 1.60, 0.71),
+        ("MTL@DAL", 2, "Under 1.5", 1.78, 0.64),
+        ("MTL@DAL", 3, "Under 1.5", 1.62, 0.65),
+        ("BOS@STL", 4, "Under 3.5", 1.75, 0.66),
+    ]
+    res = pd.DataFrame([{"type": "two_way", "game": g, "player_id": pid, "team": g[:3], "bet": b,
+                         "odds": o, "model_p": p, "gp": 50} for g, pid, b, o, p in rows])
+    out = select(res, {}, active={1, 2, 3})
+    assert list(out["player_id"]) == [2, 1]  # highest EV first; game capped at 2; player 4 inactive
+    assert kelly_stake(0.64, 1.80) == 30.0 and kelly_stake(0.55, 1.80) == 0.0

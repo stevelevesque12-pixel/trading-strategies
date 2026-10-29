@@ -1,4 +1,5 @@
-"""Paper-trade the model: log every bet the rule recommends and grade it at a flat $10.
+"""Paper-trade the model: log every bet the rule recommends and grade it two ways,
+at a flat $10 and at a quarter-Kelly stake on a notional $1,000 bankroll.
 
     python -m sports.nhl_props.paper pick ODDS.csv   # price the slate, log every recommended bet
     python -m sports.nhl_props.paper grade           # grade finished picks, print the daily summary
@@ -15,8 +16,15 @@ where it raised the hit rate of the model's side from 68% to 71.5%:
 - Adjusted model probability of at least 62%.
 - Expected value +3% to +15% at the actual odds. Bigger "edges" usually mean
   missing news (injury, line change).
-- Player has 20+ games of history. One bet per player.
-- Every bet that passes is logged, however many there are that day.
+- Player has 20+ games of history and played in his team's last game (a
+  player who missed it is hurt, scratched or just back, so his data is stale
+  and the bet may be void). One bet per player.
+- At most 2 bets per game, keeping the highest expected value. Bets in one
+  game win or lose together, so this caps the damage from one odd game.
+- Every other bet that passes is logged, however many there are that day.
+
+Two stakes are tracked: a flat $10, and quarter Kelly on a notional $1,000
+bankroll (capped at $30), which bets more where the edge is bigger.
 
 A pick on a player who doesn't dress is void (stake returned), as at the sportsbook.
 """
@@ -35,10 +43,25 @@ LOG = Path(__file__).resolve().parent / "paper_bets.csv"
 STAKE = 10.0
 MIN_GP, MIN_EV, MAX_EV = 20, 0.03, 0.15
 MIN_P, OVER_HAIRCUT, LEAKY = 0.62, 0.025, 1.05
+MAX_PER_GAME = 2
+KELLY_BANKROLL, KELLY_FRACTION, KELLY_CAP = 1000.0, 0.25, 30.0
 
 
-def select(res: pd.DataFrame, opp_factor: dict[str, float]) -> pd.DataFrame:
-    """Apply the win-rate rule. ``opp_factor`` maps team -> shots allowed vs league average."""
+def kelly_stake(p: float, odds: float) -> float:
+    full = max(0.0, (p * odds - 1) / (odds - 1))
+    return float(min(KELLY_CAP, round(KELLY_BANKROLL * KELLY_FRACTION * full)))
+
+
+def played_last_game(skaters: pd.DataFrame) -> set[int]:
+    """Players who dressed in their team's most recent game."""
+    last = skaters.sort_values("date").groupby("team")["game_id"].last()
+    in_last = skaters[skaters["game_id"].isin(last.values) & (skaters["toi"] > 0)]
+    return set(in_last.loc[in_last["game_id"] == in_last["team"].map(last), "player_id"])
+
+
+def select(res: pd.DataFrame, opp_factor: dict[str, float], active: set[int] | None = None) -> pd.DataFrame:
+    """Apply the rule. ``opp_factor`` maps team -> shots allowed vs league average;
+    ``active`` is the set of players who played their team's last game."""
     res = res[res["type"] == "two_way"].copy()
     side = res["bet"].str.split().str[0]
     line = res["bet"].str.split().str[1].astype(float)
@@ -48,7 +71,11 @@ def select(res: pd.DataFrame, opp_factor: dict[str, float]) -> pd.DataFrame:
     res["adj_ev"] = res["adj_p"] * res["odds"] - 1
     ok = (((side == "Under") & ~leaky) | ((side == "Over") & leaky)) & line.between(1.5, 3.5)
     ok &= (res["adj_p"] >= MIN_P) & res["adj_ev"].between(MIN_EV, MAX_EV) & (res["gp"] >= MIN_GP)
-    return res[ok].sort_values("adj_p", ascending=False).drop_duplicates("player_id")
+    if active is not None:
+        ok &= res["player_id"].isin(active)
+    cand = res[ok].sort_values("adj_ev", ascending=False).drop_duplicates("player_id")
+    cand = cand[cand.groupby("game").cumcount() < MAX_PER_GAME]
+    return cand.assign(kelly_stake=[kelly_stake(p, o) for p, o in zip(cand["adj_p"], cand["odds"])])
 
 
 def slate_date(odds_csv: str) -> str:
@@ -63,12 +90,13 @@ def pick(odds_csv: str) -> pd.DataFrame:
         print(f"Picks for {date} are already logged:")
         return log[log["date"] == date]
     res = price(odds_csv, update=True)
-    eng, _, _ = walk_forward(*load_games(), Params())
+    games, skaters, goalies = load_games()
+    eng, _, _ = walk_forward(games, skaters, goalies, Params())
     factors = {t: eng.team_factor(t, "against") for t in eng.team}
-    picks = select(res, factors).assign(date=date, stake=STAKE)
+    picks = select(res, factors, played_last_game(skaters)).assign(date=date, stake=STAKE)
     picks = picks[["date", "game", "player", "player_id", "pos", "bet", "odds", "proj_sog",
-                   "model_p", "adj_p", "fair_book_p", "adj_ev", "stake"]]
-    picks = picks.assign(result=None, sog=None, profit=None)
+                   "model_p", "adj_p", "fair_book_p", "adj_ev", "stake", "kelly_stake"]]
+    picks = picks.assign(result=None, sog=None, profit=None, kelly_profit=None)
     pd.concat([log, picks]).to_csv(LOG, index=False)
     return picks
 
@@ -90,13 +118,14 @@ def grade() -> pd.DataFrame:
             continue  # game not finished yet
         row = skaters[(skaters["player_id"] == r["player_id"]) & (skaters["d"] == r["date"])]
         if row.empty or row["toi"].iloc[0] <= 0:
-            log.loc[i, ["result", "sog", "profit"]] = ["void", None, 0.0]
+            log.loc[i, ["result", "sog", "profit", "kelly_profit"]] = ["void", None, 0.0, 0.0]
             continue
         sog = int(row["sog"].iloc[0])
         side, line = r["bet"].split()
         won = sog > float(line) if side == "Over" else sog < float(line)
-        log.loc[i, ["result", "sog", "profit"]] = ["win" if won else "loss", sog,
-                                                   round(r["stake"] * (r["odds"] - 1) if won else -r["stake"], 2)]
+        payout = (r["odds"] - 1) if won else -1.0
+        log.loc[i, ["result", "sog", "profit", "kelly_profit"]] = [
+            "win" if won else "loss", sog, round(r["stake"] * payout, 2), round(r["kelly_stake"] * payout, 2)]
     log.to_csv(LOG, index=False)
     return log
 
@@ -107,9 +136,10 @@ def daily_summary(log: pd.DataFrame) -> pd.DataFrame:
     for date, d in log[log["result"].isin(["win", "loss"])].groupby("date"):
         rows.append({"date": date, "bets": len(d), "wins": int((d["result"] == "win").sum()),
                      "expected_wins": round(d["adj_p"].sum(), 2), "staked": d["stake"].sum(),
-                     "net": round(d["profit"].sum(), 2)})
-    out = pd.DataFrame(rows, columns=["date", "bets", "wins", "expected_wins", "staked", "net"])
+                     "net": round(d["profit"].sum(), 2), "kelly_net": round(d["kelly_profit"].sum(), 2)})
+    out = pd.DataFrame(rows, columns=["date", "bets", "wins", "expected_wins", "staked", "net", "kelly_net"])
     out["cumulative"] = out["net"].cumsum().round(2)
+    out["kelly_cumulative"] = out["kelly_net"].cumsum().round(2)
     return out
 
 
