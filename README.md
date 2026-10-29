@@ -29,6 +29,25 @@ source available provides sub-1-minute history, so it's logic-tested
 against synthetic bars only (`tests/test_structure_scalp.py`); forward-test
 carefully before trusting it.
 
+**Stop-entry variant (`structure_scalp/stop_entry.py`)** -- the version
+traded by hand ("1m direction/structure, 5s entries on stops, 1:1"): while
+the bias timeframe's structure is long, a buy-stop rests 1 tick above the
+last confirmed entry-timeframe swing high, protective stop 1 tick below the
+last swing low, target 1R (shorts mirrored); one trade per swing. Backtest
+with `python -m backtest.scalp_run` (`backtest/scalp_engine.py`: fills only
+on a later bar than the order was placed, gap-throughs fill at the open, a
+bar that touches both stop and target counts as a stop).
+
+There's no 5s history here, so the 12:1 ratio was run one level up (12m bias
+/ 1m entries) on the 3-year NQ 1m file (764 sessions, RTH entries): **7,050
+trades, 9.2/day, 49.2% wins at 1:1, avg -0.016R before costs, -0.032R with
+1 tick of slippage**. Same picture every year, every hour, long and short,
+for 3m/12m/15m bias and swing strengths 1-3 -- the mechanical rules alone
+have no edge, and the bias filter barely changes anything. The hand-traded
+log (392 trades, Jul-Oct 2026) shows 75% wins at 1:1 with a similar trade
+count, so whatever is driving that is in the discretionary selection, not
+in these rules -- that's the part to identify and codify next.
+
 ## Strategy logic (Failed-2s)
 
 1. **Bias timeframe** — a Failed-2 (`F2U`/`F2D`) completes: a directional (2)
