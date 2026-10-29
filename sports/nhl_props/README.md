@@ -48,3 +48,15 @@ python -m sports.nhl_props.backtest        # re-run the backtest (--tune for the
 - **Be suspicious of edges over ~10%.** Usually the book knows something the model doesn't (injury, line change, back-to-back).
 - **Goalie saves:** bet only once the starter is confirmed.
 - **Line movement:** prices move; re-run close to puck drop.
+
+## Daily paper trading
+
+`paper.py` logs every bet the win-rate rule recommends (see its docstring) at a
+flat $10 and grades them the next morning, so the system's record builds up without real money.
+
+```bash
+python -m sports.nhl_props.paper pick odds.csv   # log tonight's recommended bets
+python -m sports.nhl_props.paper grade           # grade finished games, print daily results
+```
+
+The log is `paper_bets.csv`.

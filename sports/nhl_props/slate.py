@@ -99,7 +99,8 @@ def price(odds_path: str, params: Params | None = None, update: bool = False) ->
         pr = eng.project_skater(r.player_id, info["pos"], r.away if is_home else r.home, is_home)
         p_over = prob_over(r.line, pr["mean"], size)
         p = p_over if r.side == "Over" else 1 - p_over
-        out.append({"game": f"{r.away}@{r.home}", "player": r.player, "team": r.team, "pos": info["pos"],
+        out.append({"game": f"{r.away}@{r.home}", "player": r.player, "player_id": int(r.player_id),
+                    "team": r.team, "pos": info["pos"],
                     "type": r.type, "bet": f"{r.side} {r.line}", "odds": r.odds,
                     "proj_sog": pr["mean"], "proj_toi": pr["proj_toi"], "gp": pr["gp"],
                     "model_p": p, "book_p": 1 / r.odds, "ev": p * r.odds - 1, "kelly": kelly(p, r.odds)})
