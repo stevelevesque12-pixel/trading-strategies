@@ -53,8 +53,9 @@ python -m sports.nhl_props.backtest        # re-run the backtest (--tune for the
 
 `paper.py` logs every bet the rule recommends (see its docstring: win-rate
 filters, max 2 bets per game, players who missed their last game skipped) and
-grades it the next morning at a flat $10 and at a quarter-Kelly stake on a
-notional $1,000 bankroll, so the system's record builds up without real money.
+grades it the next morning at a flat $10 and at a quarter-Kelly stake sized
+from the running balance (starting at $230, capped at 3% a bet), so the
+system's record builds up without real money.
 
 ```bash
 python -m sports.nhl_props.paper pick odds.csv   # log tonight's recommended bets

@@ -1,5 +1,5 @@
 """Paper-trade the model: log every bet the rule recommends and grade it two ways,
-at a flat $10 and at a quarter-Kelly stake on a notional $1,000 bankroll.
+at a flat $10 and at a quarter-Kelly stake sized from the running balance.
 
     python -m sports.nhl_props.paper pick ODDS.csv   # price the slate, log every recommended bet
     python -m sports.nhl_props.paper grade           # grade finished picks, print the daily summary
@@ -23,8 +23,11 @@ where it raised the hit rate of the model's side from 68% to 71.5%:
   game win or lose together, so this caps the damage from one odd game.
 - Every other bet that passes is logged, however many there are that day.
 
-Two stakes are tracked: a flat $10, and quarter Kelly on a notional $1,000
-bankroll (capped at $30), which bets more where the edge is bigger.
+Two stakes are tracked from a $230 starting balance: a flat $10, and quarter
+Kelly (capped at 3% of the balance), which bets more where the edge is bigger.
+Edge-sized stakes use the balance after the last graded day, so they grow
+after wins and shrink after losses. ``restake`` recomputes them for the whole
+log, so changing the starting balance re-sizes every past bet consistently.
 
 A pick on a player who doesn't dress is void (stake returned), as at the sportsbook.
 """
@@ -44,12 +47,35 @@ STAKE = 10.0
 MIN_GP, MIN_EV, MAX_EV = 20, 0.03, 0.15
 MIN_P, OVER_HAIRCUT, LEAKY = 0.62, 0.025, 1.05
 MAX_PER_GAME = 2
-KELLY_BANKROLL, KELLY_FRACTION, KELLY_CAP = 1000.0, 0.25, 30.0
+STARTING_BANKROLL, KELLY_FRACTION, KELLY_CAP = 230.0, 0.25, 0.03
 
 
-def kelly_stake(p: float, odds: float) -> float:
+def kelly_stake(p: float, odds: float, bankroll: float) -> float:
     full = max(0.0, (p * odds - 1) / (odds - 1))
-    return float(min(KELLY_CAP, round(KELLY_BANKROLL * KELLY_FRACTION * full)))
+    return round(bankroll * min(KELLY_CAP, KELLY_FRACTION * full), 2)
+
+
+def payout(result, stake: float, odds: float):
+    if result == "win":
+        return round(stake * (odds - 1), 2)
+    if result == "loss":
+        return -stake
+    return 0.0 if result == "void" else float("nan")
+
+
+def restake(log: pd.DataFrame) -> pd.DataFrame:
+    """Size every edge-sized bet from the balance at the start of its day."""
+    log = log.copy()
+    log[["balance_before", "kelly_stake", "kelly_profit"]] = float("nan")
+    balance = STARTING_BANKROLL
+    for date in sorted(log["date"].unique()):
+        day = log["date"] == date
+        log.loc[day, "balance_before"] = round(balance, 2)
+        log.loc[day, "kelly_stake"] = [kelly_stake(p, o, balance) for p, o in zip(log.loc[day, "adj_p"], log.loc[day, "odds"])]
+        log.loc[day, "kelly_profit"] = [payout(r, k, o) for r, k, o in
+                                        zip(log.loc[day, "result"], log.loc[day, "kelly_stake"], log.loc[day, "odds"])]
+        balance += log.loc[day, "kelly_profit"].fillna(0).sum()
+    return log
 
 
 def played_last_game(skaters: pd.DataFrame) -> set[int]:
@@ -75,7 +101,7 @@ def select(res: pd.DataFrame, opp_factor: dict[str, float], active: set[int] | N
         ok &= res["player_id"].isin(active)
     cand = res[ok].sort_values("adj_ev", ascending=False).drop_duplicates("player_id")
     cand = cand[cand.groupby("game").cumcount() < MAX_PER_GAME]
-    return cand.assign(kelly_stake=[kelly_stake(p, o) for p, o in zip(cand["adj_p"], cand["odds"])])
+    return cand
 
 
 def slate_date(odds_csv: str) -> str:
@@ -95,10 +121,11 @@ def pick(odds_csv: str) -> pd.DataFrame:
     factors = {t: eng.team_factor(t, "against") for t in eng.team}
     picks = select(res, factors, played_last_game(skaters)).assign(date=date, stake=STAKE)
     picks = picks[["date", "game", "player", "player_id", "pos", "bet", "odds", "proj_sog",
-                   "model_p", "adj_p", "fair_book_p", "adj_ev", "stake", "kelly_stake"]]
-    picks = picks.assign(result=None, sog=None, profit=None, kelly_profit=None)
-    pd.concat([log, picks]).to_csv(LOG, index=False)
-    return picks
+                   "model_p", "adj_p", "fair_book_p", "adj_ev", "stake"]]
+    picks = picks.assign(result=None, sog=None, profit=None)
+    log = restake(pd.concat([log, picks]))
+    log.to_csv(LOG, index=False)
+    return log[log["date"] == date]
 
 
 def grade() -> pd.DataFrame:
@@ -118,14 +145,14 @@ def grade() -> pd.DataFrame:
             continue  # game not finished yet
         row = skaters[(skaters["player_id"] == r["player_id"]) & (skaters["d"] == r["date"])]
         if row.empty or row["toi"].iloc[0] <= 0:
-            log.loc[i, ["result", "sog", "profit", "kelly_profit"]] = ["void", None, 0.0, 0.0]
+            log.loc[i, ["result", "sog", "profit"]] = ["void", None, 0.0]
             continue
         sog = int(row["sog"].iloc[0])
         side, line = r["bet"].split()
         won = sog > float(line) if side == "Over" else sog < float(line)
-        payout = (r["odds"] - 1) if won else -1.0
-        log.loc[i, ["result", "sog", "profit", "kelly_profit"]] = [
-            "win" if won else "loss", sog, round(r["stake"] * payout, 2), round(r["kelly_stake"] * payout, 2)]
+        result = "win" if won else "loss"
+        log.loc[i, ["result", "sog", "profit"]] = [result, sog, payout(result, r["stake"], r["odds"])]
+    log = restake(log)
     log.to_csv(LOG, index=False)
     return log
 
