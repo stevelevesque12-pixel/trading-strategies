@@ -1,8 +1,8 @@
 date,game,player,player_id,bet,odds,stake,bankroll_before,result,sog,profit
-2026-11-03,EDM@NJD,Leon Draisaitl,8477934,Under 3.5,1.62,7.00,237.00,,,
-2026-11-03,WPG@MTL,Juraj Slafkovský,8483515,Under 2.5,1.72,7.00,237.00,,,
-2026-11-03,DET@TBL,Nikita Kucherov,8476453,Under 3.5,1.62,7.00,237.00,,,
-2026-11-03,DAL@WSH,Alex Ovechkin,8471214,Under 2.5,1.60,6.80,237.00,,,
-2026-11-03,VGK@PIT,Mitchell Marner,8478483,Under 2.5,1.60,6.40,237.00,,,
-2026-11-03,UTA@TOR,Jack Roslovic,8478458,Under 2.5,1.60,4.65,237.00,,,
-2026-11-03,VGK@PIT,Egor Chinakhov,8482475,Under 2.5,1.50,4.15,237.00,,,
+2026-11-03,EDM@NJD,Leon Draisaitl,8477934,Under 3.5,1.62,7.0,237.0,loss,4.0,-7.0
+2026-11-03,WPG@MTL,Juraj Slafkovský,8483515,Under 2.5,1.72,7.0,237.0,win,1.0,5.04
+2026-11-03,DET@TBL,Nikita Kucherov,8476453,Under 3.5,1.62,7.0,237.0,win,3.0,4.34
+2026-11-03,DAL@WSH,Alex Ovechkin,8471214,Under 2.5,1.6,6.8,237.0,win,2.0,4.08
+2026-11-03,VGK@PIT,Mitchell Marner,8478483,Under 2.5,1.6,6.4,237.0,loss,3.0,-6.4
+2026-11-03,UTA@TOR,Jack Roslovic,8478458,Under 2.5,1.6,4.65,237.0,loss,4.0,-4.65
+2026-11-03,VGK@PIT,Egor Chinakhov,8482475,Under 2.5,1.5,4.15,237.0,loss,3.0,-4.15
