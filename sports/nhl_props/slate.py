@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -55,8 +56,9 @@ def parse_odds(path: str) -> pd.DataFrame:
 
 
 def _key(name: str) -> str:
-    """'Connor McDavid' and 'C. McDavid' both become 'c mcdavid'."""
-    parts = name.replace(".", "").lower().split()
+    """'Connor McDavid' and 'C. McDavid' both become 'c mcdavid'; accents are ignored."""
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    parts = plain.replace(".", "").lower().split()
     return f"{parts[0][0]} {' '.join(parts[1:])}"
 
 

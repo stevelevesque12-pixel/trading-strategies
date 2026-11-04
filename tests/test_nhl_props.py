@@ -25,6 +25,7 @@ def test_decayed_weights_recent_games_more():
 def test_name_key_matches_api_and_book_formats():
     assert _key("Connor McDavid") == _key("C. McDavid")
     assert _key("Pierre-Luc Dubois") == _key("P. Dubois")
+    assert _key("Tim Stutzle") == _key("T. Stützle")
 
 
 def test_parse_odds(tmp_path):
