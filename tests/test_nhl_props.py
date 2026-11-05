@@ -71,3 +71,15 @@ def test_restake_compounds_by_day():
     day1 = out.iloc[:2]
     assert list(day1["kelly_stake"]) == [6.9, 6.9] and list(day1["kelly_profit"]) == [4.14, -6.9]
     assert out.iloc[2]["balance_before"] == 227.24 and pd.isna(out.iloc[2]["kelly_profit"])
+
+
+def test_read_odds_one_row_per_player(tmp_path):
+    from sports.nhl_props.slate import read_odds
+    p = tmp_path / "wide.csv"
+    p.write_text("date,game,start_time_ET,team,player,line,over_odds,under_odds\n"
+                 "2026-11-05,Anaheim Ducks @ Edmonton Oilers,8:08 PM,Oilers,Connor McDavid,3.5,1.909,1.75\n"
+                 "2026-11-03,Utah Mammoth at Toronto Maple Leafs,19:08,Leafs,Auston Matthews,3.5,2.2,1.57\n")
+    df = read_odds(str(p))
+    assert list(df["selection"]) == ["Over 3.5", "Under 3.5", "Over 3.5", "Under 3.5"]
+    assert df["game"].iloc[0] == "Anaheim Ducks at Edmonton Oilers"
+    assert list(df["start_utc"].unique()) == ["2026-11-06T01:08:00Z", "2026-11-04T00:08:00Z"]

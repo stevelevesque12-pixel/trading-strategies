@@ -40,7 +40,7 @@ import pandas as pd
 
 from .data import load_games, update_cache
 from .model import Params, walk_forward
-from .slate import price
+from .slate import price, read_odds
 
 LOG = Path(__file__).resolve().parent / "paper_bets.csv"
 STAKE = 10.0
@@ -105,7 +105,7 @@ def select(res: pd.DataFrame, opp_factor: dict[str, float], active: set[int] | N
 
 
 def slate_date(odds_csv: str) -> str:
-    start = pd.read_csv(odds_csv, encoding="utf-8-sig")["start_utc"]
+    start = read_odds(odds_csv)["start_utc"]
     return str(pd.to_datetime(start, utc=True).dt.tz_convert("America/New_York").dt.date.min())
 
 

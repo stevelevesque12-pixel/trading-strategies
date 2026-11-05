@@ -38,8 +38,26 @@ TWO_WAY = re.compile(r"^(?P<player>.+) Shots on Goal$")
 MILESTONE = re.compile(r"^(?P<player>.+) (?P<k>\d+)\+ Shots on Goal( Milestone)?$")
 
 
-def parse_odds(path: str) -> pd.DataFrame:
+def read_odds(path: str) -> pd.DataFrame:
+    """Load an odds file in the long export format (one row per side) or the
+    one-row-per-player format (date, game, start_time_ET, player, line,
+    over_odds, under_odds), returning the long format either way."""
     df = pd.read_csv(path, encoding="utf-8-sig")
+    if "over_odds" not in df:
+        return df
+    start = (pd.to_datetime(df["date"] + " " + df["start_time_ET"].astype(str), format="mixed")
+             .dt.tz_localize("America/New_York").dt.tz_convert("UTC").dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    rows = []
+    for r, st in zip(df.itertuples(), start):
+        game = r.game.replace(" @ ", " at ")
+        for side, odds in (("Over", r.over_odds), ("Under", r.under_odds)):
+            rows.append({"game": game, "start_utc": st, "market": f"{r.player} Shots on Goal",
+                         "selection": f"{side} {r.line}", "decimal_odds": odds, "status": "Open"})
+    return pd.DataFrame(rows)
+
+
+def parse_odds(path: str) -> pd.DataFrame:
+    df = read_odds(path)
     df = df[df["status"].eq("Open")]
     rows = []
     for r in df.itertuples():
