@@ -18,3 +18,8 @@ date,game,player,player_id,bet,odds,stake,bankroll_before,result,sog,profit
 2026-11-05,STL@NJD,Jesper Bratt,8479407,Under 2.5,1.549,3.74,228.98,win,2.0,2.05
 2026-11-05,STL@NJD,Nico Hischier,8480002,Under 2.5,1.649,2.79,228.98,win,2.0,1.81
 2026-11-05,DAL@CBJ,Matthew Knies,8482720,Under 2.5,1.299,5.78,228.98,win,1.0,1.73
+2026-11-08,FLA@BOS,Seth Jones,8477495,Under 2.5,1.6,7.1,236.74,loss,3.0,-7.1
+2026-11-08,PIT@ANA,Egor Chinakhov,8482475,Under 2.5,1.549,7.1,236.74,win,1.0,3.9
+2026-11-08,FLA@BOS,Morgan Geekie,8479987,Under 2.5,1.48,7.1,236.74,loss,5.0,-7.1
+2026-11-08,PHI@CGY,Adam Klapka,8483609,Under 1.5,1.649,5.34,236.74,win,1.0,3.47
+2026-11-08,PIT@ANA,Benjamin Kindel,8485414,Under 2.5,1.549,5.01,236.74,win,1.0,2.75
