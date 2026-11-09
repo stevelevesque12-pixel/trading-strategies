@@ -23,8 +23,9 @@ where it raised the hit rate of the model's side from 68% to 71.5%:
   game win or lose together, so this caps the damage from one odd game.
 - Every other bet that passes is logged, however many there are that day.
 
-Two stakes are tracked from a $230 starting balance: a flat $10, and quarter
-Kelly (capped at 3% of the balance), which bets more where the edge is bigger.
+Two stakes are tracked from a $230 starting balance: a flat $10, and half
+Kelly (capped at 5% a bet and 30% a night, with a drawdown brake), which bets
+more where the edge is bigger.
 Edge-sized stakes use the balance after the last graded day, so they grow
 after wins and shrink after losses. ``restake`` recomputes them for the whole
 log, so changing the starting balance re-sizes every past bet consistently.
@@ -47,12 +48,23 @@ STAKE = 10.0
 MIN_GP, MIN_EV, MAX_EV = 20, 0.03, 0.15
 MIN_P, OVER_HAIRCUT, LEAKY = 0.62, 0.025, 1.05
 MAX_PER_GAME = 2
-STARTING_BANKROLL, KELLY_FRACTION, KELLY_CAP = 230.0, 0.25, 0.03
+STARTING_BANKROLL, KELLY_FRACTION, KELLY_CAP = 230.0, 0.5, 0.05
+DAY_CAP = 0.30                         # most of the balance staked on one night
+BRAKE_DRAWDOWN, BRAKE_FRACTION = 0.25, 0.25  # 25% below peak: back to quarter Kelly
 
 
-def kelly_stake(p: float, odds: float, bankroll: float) -> float:
+def kelly_stake(p: float, odds: float, bankroll: float, fraction: float = KELLY_FRACTION) -> float:
     full = max(0.0, (p * odds - 1) / (odds - 1))
-    return round(bankroll * min(KELLY_CAP, KELLY_FRACTION * full), 2)
+    return round(bankroll * min(KELLY_CAP, fraction * full), 2)
+
+
+def day_stakes(probs, odds, bankroll: float, fraction: float = KELLY_FRACTION) -> list[float]:
+    """Kelly stakes for one night, scaled down together if they exceed DAY_CAP of the balance."""
+    stakes = [kelly_stake(p, o, bankroll, fraction) for p, o in zip(probs, odds)]
+    total = sum(stakes)
+    if total > DAY_CAP * bankroll:
+        stakes = [round(k * DAY_CAP * bankroll / total, 2) for k in stakes]
+    return stakes
 
 
 def payout(result, stake: float, odds: float):
@@ -64,17 +76,23 @@ def payout(result, stake: float, odds: float):
 
 
 def restake(log: pd.DataFrame) -> pd.DataFrame:
-    """Size every edge-sized bet from the balance at the start of its day."""
+    """Size every edge-sized bet from the balance at the start of its day.
+
+    Half Kelly, capped at 5% a bet and 30% a night; after a 25% drawdown from
+    the peak balance, stakes drop to quarter Kelly until the balance recovers.
+    """
     log = log.copy()
     log[["balance_before", "kelly_stake", "kelly_profit"]] = float("nan")
-    balance = STARTING_BANKROLL
+    balance = peak = STARTING_BANKROLL
     for date in sorted(log["date"].unique()):
         day = log["date"] == date
+        fraction = BRAKE_FRACTION if balance < (1 - BRAKE_DRAWDOWN) * peak else KELLY_FRACTION
         log.loc[day, "balance_before"] = round(balance, 2)
-        log.loc[day, "kelly_stake"] = [kelly_stake(p, o, balance) for p, o in zip(log.loc[day, "adj_p"], log.loc[day, "odds"])]
+        log.loc[day, "kelly_stake"] = day_stakes(log.loc[day, "adj_p"], log.loc[day, "odds"], balance, fraction)
         log.loc[day, "kelly_profit"] = [payout(r, k, o) for r, k, o in
                                         zip(log.loc[day, "result"], log.loc[day, "kelly_stake"], log.loc[day, "odds"])]
         balance += log.loc[day, "kelly_profit"].fillna(0).sum()
+        peak = max(peak, balance)
     return log
 
 

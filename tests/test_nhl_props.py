@@ -55,12 +55,18 @@ def test_select_caps_two_bets_per_game_by_ev_and_skips_inactive():
                          "odds": o, "model_p": p, "gp": 50} for g, pid, b, o, p in rows])
     out = select(res, {}, active={1, 2, 3})
     assert list(out["player_id"]) == [2, 1]  # highest EV first; game capped at 2; player 4 inactive
-    assert kelly_stake(0.64, 1.80, 230) == 6.9  # capped at 3% of the balance
+    assert kelly_stake(0.64, 1.80, 230) == 11.5  # capped at 5% of the balance
     assert kelly_stake(0.55, 1.80, 230) == 0.0
-    assert kelly_stake(0.62, 1.70, 230) == 4.44
+    assert kelly_stake(0.62, 1.70, 230) == 8.87  # half Kelly
 
 
-def test_restake_compounds_by_day():
+def test_day_stakes_capped_at_30_percent():
+    from sports.nhl_props.paper import day_stakes
+    stakes = day_stakes([0.70] * 10, [1.60] * 10, 200)
+    assert abs(sum(stakes) - 60) < 0.05 and len(set(stakes)) == 1
+
+
+def test_restake_compounds_and_brakes():
     from sports.nhl_props.paper import restake
     log = pd.DataFrame([
         {"date": "2026-10-29", "adj_p": 0.70, "odds": 1.60, "result": "win"},
@@ -68,9 +74,14 @@ def test_restake_compounds_by_day():
         {"date": "2026-10-30", "adj_p": 0.70, "odds": 1.60, "result": None},
     ])
     out = restake(log)
-    day1 = out.iloc[:2]
-    assert list(day1["kelly_stake"]) == [6.9, 6.9] and list(day1["kelly_profit"]) == [4.14, -6.9]
-    assert out.iloc[2]["balance_before"] == 227.24 and pd.isna(out.iloc[2]["kelly_profit"])
+    assert list(out.iloc[:2]["kelly_stake"]) == [11.5, 11.5] and list(out.iloc[:2]["kelly_profit"]) == [6.9, -11.5]
+    assert out.iloc[2]["balance_before"] == 225.4 and pd.isna(out.iloc[2]["kelly_profit"])
+    # 10% edge at 1.60: half Kelly bets 8.3% (capped to 5%), quarter Kelly 4.2%
+    crash = pd.DataFrame([{"date": f"2026-11-{d:02d}", "adj_p": 0.6875, "odds": 1.60, "result": "loss"}
+                          for d in range(1, 9)])
+    out = restake(crash)
+    braked = out[out["balance_before"] < 0.75 * 230]
+    assert len(braked) and (braked["kelly_stake"] < 0.045 * braked["balance_before"]).all()
 
 
 def test_read_odds_one_row_per_player(tmp_path):
