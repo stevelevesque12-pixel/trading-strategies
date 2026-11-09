@@ -31,3 +31,8 @@ python -m sports.nba_props.paper grade
 
 `odds.csv`: `date, game (Away @ Home), start_time_ET, team, player, market, line, over_odds, under_odds`,
 with `market` one of Rebounds / Assists / Threes / Points.
+
+## Results page
+
+"NBA Paper Picks" dashboard: https://claude.ai/artifact/RnYgenf7hcVmuwkPYrovfW
+After each `grade` (and `pick`), upload `paper_bets.csv` to it as a new asset and point the `picks` dataset at the new file.
