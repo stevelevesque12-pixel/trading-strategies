@@ -31,7 +31,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..nhl_props.paper import payout, restake
-from .data import load_games, update_cache
+from .data import CACHE, SEASONS, load_games, update_cache
 from .model import Engine, Params, prob_over, season_of, walk_forward
 
 LOG = Path(__file__).resolve().parent / "paper_bets.csv"
@@ -77,9 +77,17 @@ def read_odds(path: str) -> pd.DataFrame:
     return df.dropna(subset=["stat"])
 
 
+
+def refresh_cache() -> None:
+    """Fetch the current season; on a fresh checkout (the cache is git-ignored) fetch every season,
+    since projections need the earlier seasons' history and the 15-game minimum would block every bet."""
+    cached = len(list(CACHE.glob("*.json"))) if CACHE.exists() else 0
+    update_cache([2026] if cached >= 2000 else list(SEASONS))
+
+
 def price(odds_csv: str, update: bool = True) -> tuple[pd.DataFrame, set[int]]:
     if update:
-        update_cache([2026])
+        refresh_cache()
     games, players = load_games()
     eng, _ = walk_forward(games, players, Params())
     odds = read_odds(odds_csv)
@@ -139,7 +147,7 @@ def pick(odds_csv: str) -> pd.DataFrame:
 def grade() -> pd.DataFrame:
     log = pd.read_csv(LOG, dtype={"result": "object"})
     if log["result"].isna().any():
-        update_cache([2026])
+        refresh_cache()
     games, players = load_games()
     players["d"] = players["date"].dt.strftime("%Y-%m-%d")
     played = set(zip(games["date"].dt.strftime("%Y-%m-%d"), games["away"] + "@" + games["home"]))
