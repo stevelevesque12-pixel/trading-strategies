@@ -26,5 +26,5 @@ date,game,player,player_id,bet,odds,stake,bankroll_before,result,sog,profit
 2026-11-09,NYR@EDM,Evan Bouchard,8480803,Under 3.5,1.549,11.95,239.0,win,1.0,6.56
 2026-11-09,NYR@EDM,Alexis Lafreniere,8482109,Under 2.5,1.5,8.84,239.0,win,0.0,4.42
 2026-11-09,NYI@SJS,Anthony Duclair,8477407,Under 1.5,1.779,11.95,239.0,loss,2.0,-11.95
-2026-11-10,COL@TOR,John Tavares,8475166,Under 2.5,1.65,5.04,237.0,,,
-2026-11-10,DET@STL,Mason McTavish,8482745,Under 2.5,1.65,4.49,237.0,,,
+2026-11-10,COL@TOR,John Tavares,8475166,Under 2.5,1.65,5.04,237.0,win,1.0,3.28
+2026-11-10,DET@STL,Mason McTavish,8482745,Under 2.5,1.65,4.49,237.0,win,1.0,2.92
