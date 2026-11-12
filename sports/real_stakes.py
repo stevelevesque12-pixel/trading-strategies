@@ -3,7 +3,7 @@
     python -m sports.real_stakes 2026-11-12 219.31
 
 Every paper pick stays in its paper log; this only decides which of them get real money and how much.
-Stakes use the NHL sizing (half Kelly, 5% a bet, 30% of the balance a night), shared across both sports
+Stakes use the NHL sizing (half Kelly, 5% a bet) with a real-money nightly cap of REAL_DAY_CAP, shared across both sports
 because they come out of one Sports Interaction balance.
 
 Drawdown brake: if the balance is 25% or more below its peak (the highest balance in
@@ -20,10 +20,21 @@ from pathlib import Path
 
 import pandas as pd
 
-from .nhl_props.paper import BRAKE_DRAWDOWN, BRAKE_FRACTION, KELLY_FRACTION, day_stakes
+from .nhl_props.paper import BRAKE_DRAWDOWN, BRAKE_FRACTION, KELLY_FRACTION, kelly_stake
 
 ROOT = Path(__file__).resolve().parent
 NBA_REAL_EXCLUDE_STATS = {"reb"}
+# Nightly cap on real money. Raised from 30% to 50% on 2026-11-12 at the user's request.
+# Review once NHL has ~150 graded real bets: keep, raise or lower depending on whether results track the model.
+REAL_DAY_CAP = 0.50
+
+
+def day_stakes(probs, odds, bankroll: float, fraction: float = KELLY_FRACTION, cap: float = REAL_DAY_CAP) -> list[float]:
+    stakes = [kelly_stake(p, o, bankroll, fraction) for p, o in zip(probs, odds)]
+    total = sum(stakes)
+    if total > cap * bankroll:
+        stakes = [round(k * cap * bankroll / total, 2) for k in stakes]
+    return stakes
 
 
 def tonight(date: str) -> pd.DataFrame:
