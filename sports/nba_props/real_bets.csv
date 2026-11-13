@@ -13,5 +13,5 @@ date,game,player,player_id,stat,bet,odds,stake,bankroll_before,result,actual,pro
 2026-11-11,GS@HOU,Stephen Curry,3975,threes,Under 4.5,1.6,5.88,226.0,win,1.0,3.53
 2026-11-11,GS@HOU,Amen Thompson,4684740,reb,Under 7.5,1.67,5.88,226.0,win,7.0,3.94
 2026-11-11,OKC@POR,Deni Avdija,4683021,ast,Under 6.5,1.78,5.88,226.0,win,6.0,4.59
-2026-11-12,TOR@PHI,RJ Barrett,4395625,ast,Under 4.5,1.62,12.12,219.31,,,
-2026-11-12,CHA@PHX,Sion James,4602025,threes,Under 1.5,1.83,21.72,219.31,,,
+2026-11-12,TOR@PHI,RJ Barrett,4395625,ast,Under 4.5,1.62,12.12,219.31,loss,5.0,-12.12
+2026-11-12,CHA@PHX,Sion James,4602025,threes,Under 1.5,1.83,21.72,219.31,win,0.0,18.03
