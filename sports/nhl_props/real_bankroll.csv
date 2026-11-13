@@ -6,3 +6,4 @@ date,balance,source,note
 2026-11-10,237.00,user,balance before tonight's bets (was 237.77 this morning)
 2026-11-11,226.00,user,Sports Interaction balance after Nov 10 bets (2 NHL + 7 NBA); log predicted 225.28 (+0.72 unexplained: likely odds rounding)
 2026-11-12,219.31,user,"Sports Interaction balance after Nov 11 bets with Curry U4.5 threes still open (being resulted; stake 5.88 out, possible payout 9.41). Settled bets reconcile to 219.26 (+0.05 rounding)."
+2026-11-13,215.66,user,"After Nov 12 bets (3-3, -9.53). Curry U4.5 threes (Nov 11) settled VOID by SI (stake 5.88 refunded; he left after 6 min), not a win. Log now reconciles exactly: 219.31 + 5.88 - 9.53 = 215.66."
