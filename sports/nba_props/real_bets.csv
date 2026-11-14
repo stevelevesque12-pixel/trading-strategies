@@ -15,7 +15,7 @@ date,game,player,player_id,stat,bet,odds,stake,bankroll_before,result,actual,pro
 2026-11-11,OKC@POR,Deni Avdija,4683021,ast,Under 6.5,1.78,5.88,226.0,win,6.0,4.59
 2026-11-12,TOR@PHI,RJ Barrett,4395625,ast,Under 4.5,1.62,12.12,219.31,loss,5.0,-12.12
 2026-11-12,CHA@PHX,Sion James,4602025,threes,Under 1.5,1.83,21.72,219.31,win,0.0,18.03
-2026-11-13,MEM@NO,Jeremiah Fears,5144091,ast,Under 5.5,1.72,10.78,215.66,,,
-2026-11-13,UTAH@HOU,Ace Bailey,4873138,threes,Under 2.5,1.53,10.78,215.66,,,
-2026-11-13,GS@SA,Al Horford,3213,threes,Under 1.5,1.67,10.78,215.66,,,
-2026-11-13,OKC@LAC,Shai Gilgeous-Alexander,4278073,threes,Under 2.5,1.6,10.78,215.66,,,
+2026-11-13,MEM@NO,Jeremiah Fears,5144091,ast,Under 5.5,1.72,10.78,215.66,loss,7.0,-10.78
+2026-11-13,UTAH@HOU,Ace Bailey,4873138,threes,Under 2.5,1.53,10.78,215.66,loss,3.0,-10.78
+2026-11-13,GS@SA,Al Horford,3213,threes,Under 1.5,1.67,10.78,215.66,win,0.0,7.22
+2026-11-13,OKC@LAC,Shai Gilgeous-Alexander,4278073,threes,Under 2.5,1.6,10.78,215.66,win,2.0,6.47
