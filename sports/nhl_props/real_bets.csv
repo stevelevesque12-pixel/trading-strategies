@@ -36,9 +36,9 @@ date,game,player,player_id,bet,odds,stake,bankroll_before,result,sog,profit
 2026-11-12,WPG@DAL,Thomas Harley,8481581,Under 2.5,1.57,21.72,219.31,win,1.0,12.38
 2026-11-12,WPG@DAL,Cole Perfetti,8482149,Under 2.5,1.53,17.19,219.31,win,1.0,9.11
 2026-11-12,STL@UTA,Mason McTavish,8482745,Under 2.5,1.6,15.21,219.31,loss,4.0,-15.21
-2026-11-17,LAK@BOS,Morgan Geekie,8479987,Under 2.5,1.45,24.0,167.0,,,
-2026-11-17,DAL@VGK,Mitchell Marner,8478483,Under 2.5,1.62,16.44,167.0,,,
-2026-11-17,BUF@PHI,Josh Norris,8480064,Under 1.5,1.67,19.68,167.0,,,
-2026-11-17,OTT@WPG,Cole Perfetti,8482149,Under 2.5,1.67,7.47,167.0,,,
-2026-11-17,DAL@VGK,Jamie Benn,8473994,Under 1.5,1.53,11.13,167.0,,,
-2026-11-17,EDM@FLA,Leon Draisaitl,8477934,Under 3.5,1.62,7.65,167.0,,,
+2026-11-17,LAK@BOS,Morgan Geekie,8479987,Under 2.5,1.45,24.0,167.0,loss,3.0,-24.0
+2026-11-17,DAL@VGK,Mitchell Marner,8478483,Under 2.5,1.62,16.44,167.0,loss,3.0,-16.44
+2026-11-17,BUF@PHI,Josh Norris,8480064,Under 1.5,1.67,19.68,167.0,win,0.0,13.19
+2026-11-17,OTT@WPG,Cole Perfetti,8482149,Under 2.5,1.67,7.47,167.0,win,0.0,5.0
+2026-11-17,DAL@VGK,Jamie Benn,8473994,Under 1.5,1.53,11.13,167.0,win,0.0,5.9
+2026-11-17,EDM@FLA,Leon Draisaitl,8477934,Under 3.5,1.62,7.65,167.0,win,2.0,4.74
