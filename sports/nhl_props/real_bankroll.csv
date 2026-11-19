@@ -10,3 +10,4 @@ date,balance,source,note
 2026-11-16,207.79,user,"After Nov 13 bets (2-2, -7.87). Matches log exactly."
 2026-11-17,167.00,user,"Reported after Nov 16. Log has no real bets since 207.79 (Nov 13 settled); -40.79 unexplained pending user's bet history. If all 7 recommended Nov 16 bets were placed at listed stakes, expected 198.91."
 2026-11-18,156.18,user,"After Nov 17 bets (4-2, -11.61); log predicted 155.39 (+0.79 rounding). Earlier Nov 13-16 gap of -40.79 still unexplained."
+2026-11-19,170.38,user,Up +14.20 from 156.18; no Nov 18 bets logged yet (awaiting slip). Nov 13-16 gap of -40.79 still open.
