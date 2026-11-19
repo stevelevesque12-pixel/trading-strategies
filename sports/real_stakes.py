@@ -12,6 +12,8 @@ nhl_props/real_bankroll.csv, or tonight's if higher), stakes drop from half to q
 Real-money exclusions (paper logging continues so they can earn their way back):
 - NBA rebound unders: 3-6 on paper over the first two nights (5.8 wins expected), all losses on big men.
   Paused 2026-11-12; revisit after ~30 paper rebound bets.
+- All NBA (assists and threes too) from 2026-11-19: 23-25 on paper vs 31.7 expected over 48 bets.
+  NHL-only real money; revisit after ~30 more NBA paper bets (recalibrate on this season if still short).
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ import pandas as pd
 from .nhl_props.paper import BRAKE_DRAWDOWN, BRAKE_FRACTION, KELLY_FRACTION, kelly_stake
 
 ROOT = Path(__file__).resolve().parent
-NBA_REAL_EXCLUDE_STATS = {"reb"}
+NBA_REAL_EXCLUDE_STATS = {"reb", "ast", "threes"}  # all NBA paper-only since 2026-11-19
 # Nightly cap on real money. Raised from 30% to 50% on 2026-11-12 at the user's request.
 # Review once NHL has ~150 graded real bets: keep, raise or lower depending on whether results track the model.
 REAL_DAY_CAP = 0.50
