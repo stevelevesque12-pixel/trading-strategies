@@ -44,7 +44,7 @@ date,game,player,player_id,bet,odds,stake,bankroll_before,result,sog,profit
 2026-11-17,EDM@FLA,Leon Draisaitl,8477934,Under 3.5,1.62,7.65,167.0,win,2.0,4.74
 2026-11-18,COL@UTA,Martin Necas,8480039,Under 2.5,1.8,10.0,156.18,win,2.0,8.0
 2026-11-18,COL@UTA,Artturi Lehkonen,8477476,Under 2.5,1.62,10.0,156.18,win,2.0,6.2
-2026-11-19,BUF@WSH,Josh Norris,8480064,Under 1.5,1.75,5.53,170.38,,,
-2026-11-19,STL@PIT,Egor Chinakhov,8482475,Under 2.5,1.65,5.02,170.38,,,
-2026-11-19,EDM@TBL,Colton Dach,8482703,Under 1.5,1.75,6.5,170.38,,,
-2026-11-19,EDM@TBL,Nikita Kucherov,8476453,Under 3.5,1.65,4.07,170.38,,,
+2026-11-19,BUF@WSH,Josh Norris,8480064,Under 1.5,1.75,5.53,170.38,win,0.0,4.15
+2026-11-19,STL@PIT,Egor Chinakhov,8482475,Under 2.5,1.65,5.02,170.38,loss,4.0,-5.02
+2026-11-19,EDM@TBL,Colton Dach,8482703,Under 1.5,1.75,6.5,170.38,loss,3.0,-6.5
+2026-11-19,EDM@TBL,Nikita Kucherov,8476453,Under 3.5,1.65,4.07,170.38,win,0.0,2.65
